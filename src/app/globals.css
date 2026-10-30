@@ -22,3 +22,108 @@ body {
   color: var(--foreground);
   font-family: system-ui, -apple-system, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic UI", Meiryo, sans-serif;
 }
+
+/* アプリ内ガイドの本文（Markdown から作った HTML）。 */
+.guide-body {
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.guide-body h1 {
+  margin: 0.5rem 0 1rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+.guide-body h2 {
+  margin: 1.75rem 0 0.5rem;
+  border-bottom: 1px solid #d1d5db;
+  padding-bottom: 0.25rem;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+.guide-body h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+.guide-body p {
+  margin: 0.75rem 0;
+}
+.guide-body ul,
+.guide-body ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+.guide-body ul {
+  list-style: disc;
+}
+.guide-body ol {
+  list-style: decimal;
+}
+.guide-body li {
+  margin: 0.25rem 0;
+}
+.guide-body li > ul,
+.guide-body li > ol {
+  margin: 0.25rem 0;
+}
+.guide-body a {
+  color: #1d4ed8;
+  text-decoration: underline;
+}
+.guide-body table {
+  width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.guide-body th,
+.guide-body td {
+  border: 1px solid #d1d5db;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+.guide-body th {
+  background: #f3f4f6;
+}
+.guide-body code {
+  border-radius: 0.25rem;
+  background: #f3f4f6;
+  padding: 0.1rem 0.3rem;
+  font-size: 0.9em;
+}
+.guide-body pre {
+  margin: 0.75rem 0;
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  background: #f3f4f6;
+  padding: 0.75rem;
+}
+.guide-body pre code {
+  background: none;
+  padding: 0;
+}
+.guide-body blockquote {
+  margin: 0.75rem 0;
+  border-left: 4px solid #d1d5db;
+  padding-left: 0.75rem;
+  color: #4b5563;
+}
+@media (prefers-color-scheme: dark) {
+  .guide-body h2,
+  .guide-body th,
+  .guide-body td {
+    border-color: #374151;
+  }
+  .guide-body a {
+    color: #60a5fa;
+  }
+  .guide-body th,
+  .guide-body code,
+  .guide-body pre {
+    background: #1f2937;
+  }
+  .guide-body blockquote {
+    border-left-color: #374151;
+    color: #9ca3af;
+  }
+}
