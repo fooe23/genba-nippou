@@ -269,11 +269,14 @@ create trigger gn_carryovers_touch before update on public.gn_carryovers
 -- 現場メンバー（または管理者）か
 create or replace function public.gn_is_site_member(p_site uuid)
 returns boolean language sql stable security definer set search_path = public as $$
-  select exists (
-           select 1 from public.gn_site_members
-            where site_id = p_site and user_id = auth.uid()
-         )
-         or public.is_admin();
+  select p_site is not null
+         and (
+           exists (
+             select 1 from public.gn_site_members
+              where site_id = p_site and user_id = auth.uid()
+           )
+           or public.is_admin()
+         );
 $$;
 
 -- 自分の現場内の役割。管理者は 'approver'、メンバーでなければ null
@@ -577,28 +580,49 @@ create policy gn_report_lines_update on public.gn_report_lines for update to aut
 drop policy if exists gn_report_lines_delete on public.gn_report_lines;
 create policy gn_report_lines_delete on public.gn_report_lines for delete to authenticated using (exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id)));
 
--- ---------- 11. Storage バケット（非公開。第1計画では作成と基本ポリシーのみ） ----------
+-- ---------- 11. Storage バケット（非公開）と現場単位のアクセス制御 ----------
+-- パス規約：3つのバケット (gn-photos / gn-estimates / gn-exports) のすべてのオブジェクトは
+--   <site_id>/...   （最初のフォルダ = gn_sites.id の uuid）
+-- に保存する。例: gn-photos/0b1c...-....-....-....-............/2026-11-01/001.jpg
+-- アクセスできるのはその現場のメンバー（または管理者）だけ。
+-- 最初のフォルダが uuid でない、または現場メンバーでないオブジェクトは誰も読み書きできない。
+-- 更新・削除はさらにアップロード者本人（owner）または管理者に限る。
 insert into storage.buckets (id, name, public) values
   ('gn-photos',    'gn-photos',    false),
   ('gn-estimates', 'gn-estimates', false),
   ('gn-exports',   'gn-exports',   false)
 on conflict (id) do nothing;
 
+-- オブジェクト名の先頭フォルダを現場 uuid として取り出す。uuid でなければ null。
+create or replace function public.gn_storage_site(name text)
+returns uuid language sql immutable set search_path = public as $$
+  select case
+           when name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/'
+           then substr(name, 1, 36)::uuid
+         end;
+$$;
+
 drop policy if exists gn_photos_read on storage.objects;
-create policy gn_photos_read on storage.objects for select to authenticated using (bucket_id = 'gn-photos');
+create policy gn_photos_read on storage.objects for select to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)));
 drop policy if exists gn_photos_insert on storage.objects;
-create policy gn_photos_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-photos');
+create policy gn_photos_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)));
 drop policy if exists gn_photos_update on storage.objects;
-create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos') with check (bucket_id = 'gn-photos');
+create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin())) with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
+drop policy if exists gn_photos_delete on storage.objects;
+create policy gn_photos_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
 drop policy if exists gn_estimates_read on storage.objects;
-create policy gn_estimates_read on storage.objects for select to authenticated using (bucket_id = 'gn-estimates');
+create policy gn_estimates_read on storage.objects for select to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)));
 drop policy if exists gn_estimates_insert on storage.objects;
-create policy gn_estimates_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-estimates');
+create policy gn_estimates_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)));
 drop policy if exists gn_estimates_update on storage.objects;
-create policy gn_estimates_update on storage.objects for update to authenticated using (bucket_id = 'gn-estimates') with check (bucket_id = 'gn-estimates');
+create policy gn_estimates_update on storage.objects for update to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin())) with check (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
+drop policy if exists gn_estimates_delete on storage.objects;
+create policy gn_estimates_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
 drop policy if exists gn_exports_read on storage.objects;
-create policy gn_exports_read on storage.objects for select to authenticated using (bucket_id = 'gn-exports');
+create policy gn_exports_read on storage.objects for select to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)));
 drop policy if exists gn_exports_insert on storage.objects;
-create policy gn_exports_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-exports');
+create policy gn_exports_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)));
 drop policy if exists gn_exports_update on storage.objects;
-create policy gn_exports_update on storage.objects for update to authenticated using (bucket_id = 'gn-exports') with check (bucket_id = 'gn-exports');
+create policy gn_exports_update on storage.objects for update to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin())) with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
+drop policy if exists gn_exports_delete on storage.objects;
+create policy gn_exports_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));

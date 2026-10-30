@@ -241,6 +241,27 @@ select id, public from storage.buckets where id in ('gn-photos','gn-estimates','
 ```
 - [ ] 3件とも `public = false`
 
+**現場メンバーは自分の現場のフォルダだけ見える（Storage ポリシー）**
+
+オブジェクトは `<site_id>/...` のパスで保存する規約。ダミーの行を同じトランザクション内で作り、最後に `rollback` するので何も残らない（`storage.objects` の直接削除は禁止されているため、commit しないこと）。
+
+```sql
+begin;
+insert into storage.objects (bucket_id, name, owner) values
+  ('gn-photos', '00000000-0000-0000-0000-0000000000a1/test.txt', '<A_ID>'),
+  ('gn-photos', '00000000-0000-0000-0000-0000000000b1/test.txt', '<B_ID>'),
+  ('gn-photos', 'not-a-uuid/test.txt', '<A_ID>');
+
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+select name from storage.objects where bucket_id = 'gn-photos' order by name;
+rollback;
+```
+- [ ] Aには `...a1/test.txt`（現場X）だけが見え、`...b1/test.txt`（現場Y）と `not-a-uuid/test.txt` は見えない
+
+同じSQLの `<A_ID>`（`set_config` の行）を `<B_ID>` に変えて実行:
+- [ ] Bには `...b1/test.txt` だけが見える
+
 ## 6. 後片付け
 
 管理者として日報を削除してから、現場を削除する（日報があると現場は消せない）。
