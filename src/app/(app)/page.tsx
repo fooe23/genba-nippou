@@ -45,10 +45,10 @@ function SiteCards({ cards, today }: { cards: SiteCard[]; today: string }) {
 }
 
 export default async function HomePage() {
-  await requireProfile();
+  const profile = await requireProfile();
   const today = todayJst();
   // RLS により、社員・管理者は全現場、協力会社は割り当て現場だけが返る。
-  const [allSites, memberIds] = await Promise.all([listMySites(), listMyMemberSiteIds()]);
+  const [allSites, memberIds] = await Promise.all([listMySites(), listMyMemberSiteIds(profile.id)]);
   const sites = allSites.filter((s) => s.status === 'active');
   const statuses = await listTodayStatus(
     sites.map((s) => s.id),
@@ -67,7 +67,9 @@ export default async function HomePage() {
       <h1 className="mb-4 text-xl font-bold">担当している現場</h1>
       {cards.length === 0 ? (
         <p className="rounded-lg border border-gray-300 p-4 text-base dark:border-gray-700">
-          担当している現場がありません。管理者に現場の割り当てを依頼してください。
+          {profile.accountType === 'partner' && !profile.isAdmin
+            ? '担当している現場がありません。管理者に現場の割り当てを依頼してください。'
+            : '表示できる現場がありません。'}
         </p>
       ) : (
         <>

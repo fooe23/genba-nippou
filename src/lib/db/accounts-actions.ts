@@ -89,7 +89,7 @@ export async function createPartnerAccount(input: PartnerAccountInput): Promise<
     return {
       ok: false,
       error:
-        'アカウントは作成されましたが、協力会社の区分を設定できませんでした。そのままだと業務日報アプリにログインできてしまうため、一覧でこのアカウントの「区分を変更」から協力会社に直してください。',
+        'アカウントは作成されましたが区分の設定に失敗しました。現在は社員扱いで全現場が見えます。業務日報アプリにもログインできてしまうため、管理→アカウントで区分を協力会社に変更してください。',
     };
   }
   return { ok: true, id };

@@ -268,7 +268,7 @@ create trigger gn_carryovers_touch before update on public.gn_carryovers
 -- ---------- 7. 権限ヘルパー関数 ----------
 -- 現場を閲覧・入力できるか（日報・マスター・Storage など RLS はすべてこの関数を通る）
 --   * 管理者：すべての現場
---   * 社員（profiles.account_type = 'employee'。未設定も社員扱い）：すべての現場（割り当て不要）
+--   * 社員（profiles.account_type = 'employee'）：すべての現場（割り当て不要）
 --   * 協力会社（'partner'）：gn_site_members に割り当てられた現場だけ
 -- 承認・差戻しの権限はここでは広げない。gn_site_role（下）の reviewer / approver
 -- （管理者を含む）だけが承認できる。社員でも割り当てがなければ not_reviewer になる。
@@ -286,7 +286,7 @@ returns boolean language sql stable security definer set search_path = public as
            or exists (
              select 1 from public.profiles p
               where p.id = auth.uid()
-                and coalesce(p.account_type, 'employee') = 'employee'
+                and p.account_type = 'employee'
                 and exists (select 1 from public.gn_sites s where s.id = p_site)
            )
          );

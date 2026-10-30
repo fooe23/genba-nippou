@@ -25,7 +25,7 @@ returns boolean language sql stable security definer set search_path = public as
            or exists (
              select 1 from public.profiles p
               where p.id = auth.uid()
-                and coalesce(p.account_type, 'employee') = 'employee'
+                and p.account_type = 'employee'
                 and exists (select 1 from public.gn_sites s where s.id = p_site)
            )
          );

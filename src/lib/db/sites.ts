@@ -87,12 +87,9 @@ export async function listMySites(): Promise<Site[]> {
 }
 
 /** 自分が担当者として割り当てられている現場の id（gn_site_members）。社員・管理者は割り当てのない現場も見られるので、担当かどうかの判定に使う。 */
-export async function listMyMemberSiteIds(): Promise<string[]> {
+export async function listMyMemberSiteIds(userId: string): Promise<string[]> {
   const supabase = await createServerSupabase();
-  const { data: auth } = await supabase.auth.getUser();
-  const uid = auth.user?.id;
-  if (!uid) return [];
-  const { data, error } = await supabase.from('gn_site_members').select('site_id').eq('user_id', uid);
+  const { data, error } = await supabase.from('gn_site_members').select('site_id').eq('user_id', userId);
   if (error) throw new Error(error.message);
   return ((data ?? []) as { site_id: string }[]).map((r) => r.site_id);
 }
