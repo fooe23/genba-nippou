@@ -17,3 +17,8 @@ export function jpDate(date: string): string {
 export function monthKey(date: string): string {
   return date.slice(0, 7);
 }
+
+// 日本時間（JST）の今日を "YYYY-MM-DD" で返す。
+export function todayJst(): string {
+  return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+}
