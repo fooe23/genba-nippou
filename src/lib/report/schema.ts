@@ -228,13 +228,16 @@ export function reportWarnings(input: SaveInput, ctx?: { siteStartDate: string |
 
   let laborCount = 0;
   for (const line of input.lines) {
+    // 未選択の行は検証エラーで知らせるので、ここでは選択済みの行だけ見る。
     if (line.kind === 'labor') {
       laborCount++;
       const name = line.workerName || `${laborCount}行目`;
       if (isBefore(line.time.start, line.time.end)) w.push(`作業員「${name}」：終了が開始より前です`);
-      if (line.dailyRate === null) w.push(`作業員「${name}」：日当が未設定です（労務費が0円になります）`);
+      if (line.workerName && line.dailyRate === null) w.push(`作業員「${name}」：日当が未設定です（労務費が0円になります）`);
     } else if (line.kind === 'fuel') {
-      if (!line.kmPerL) w.push(`車両「${line.vehicleName || '未選択'}」：燃費が未設定です（燃料費が0円になります）`);
+      if (line.vehicleName && !line.kmPerL) w.push(`車両「${line.vehicleName}」：燃費が未設定です（燃料費が0円になります）`);
+    } else if (line.kind === 'lease') {
+      if (line.itemName && line.unitPrice === null) w.push(`リース「${line.itemName}」：単価が未設定です（リース費が0円になります）`);
     }
   }
   if (laborCount === 0) w.push('作業員が0人です（休工日の場合はこのまま保存できます）');

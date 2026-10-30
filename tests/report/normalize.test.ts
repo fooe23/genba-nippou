@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateReport, type SaveInput } from '@/lib/report/schema';
+import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 
 const base: SaveInput = {
   siteId: '11111111-1111-4111-8111-111111111111',
@@ -69,5 +69,19 @@ describe('validateReport の正規化', () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors).toEqual(['車両の1行目：走行距離を入力してください']);
+  });
+});
+
+describe('reportWarnings（追加）', () => {
+  it('リース単価が未設定なら警告し、未選択の行には日当・燃費の警告を出さない', () => {
+    const w = reportWarnings({
+      ...base,
+      lines: [
+        { kind: 'lease', itemId: null, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: null, note: '' },
+        { kind: 'labor', workerId: null, workerName: '', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: null, note: '' },
+        { kind: 'fuel', vehicleId: null, vehicleName: '', kmPerL: null, distanceKm: null, pricePerL: null, note: '' },
+      ],
+    });
+    expect(w).toEqual(['リース「足場材」：単価が未設定です（リース費が0円になります）']);
   });
 });

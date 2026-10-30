@@ -1,6 +1,7 @@
 import 'server-only';
 import { createServerSupabase } from '@/lib/supabase/server';
-import type { ReportStatus } from '@/lib/types';
+import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
+import type { ReportLine, ReportStatus, TimeSpec } from '@/lib/types';
 
 // 日報まわりの読み取り（RLS 前提）。
 
@@ -82,4 +83,86 @@ export async function listTodayStatus(
   return result;
 }
 
-// ─── 書き込み系（取得・保存・提出・承認など）は Task 9 以降でこのファイルに追加する ───
+// ─── 日報1件の取得（入力画面・前回コピー）。保存は reports-actions.ts（Server Action） ───
+
+export interface ReportDetail {
+  head: ReportHead | null;
+  common: TimeSpec;
+  issuesText: string;
+  notesText: string;
+  lines: ReportLine[];
+}
+
+interface ReportDetailRow extends ReportHeadRow {
+  common_start: string | null;
+  common_end: string | null;
+  common_break_min: number | null;
+  common_gap_min: number | null;
+  issues_text: string | null;
+  notes_text: string | null;
+}
+
+const DETAIL_COLUMNS = `${HEAD_COLUMNS}, common_start, common_end, common_break_min, common_gap_min, issues_text, notes_text`;
+
+const EMPTY_TIME: TimeSpec = { start: null, end: null, breakMin: null, gapMin: null };
+
+function emptyDetail(): ReportDetail {
+  return { head: null, common: { ...EMPTY_TIME }, issuesText: '', notesText: '', lines: [] };
+}
+
+async function loadDetail(row: ReportDetailRow): Promise<ReportDetail> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_report_lines')
+    .select('*')
+    .eq('report_id', row.id)
+    .order('sort_order', { ascending: true });
+  if (error) throw new Error(error.message);
+  const lines: ReportLine[] = [];
+  for (const r of (data ?? []) as LineRowRead[]) {
+    const line = fromLineRow(r);
+    if (line) lines.push(line);
+  }
+  return {
+    head: toHead(row),
+    common: {
+      start: row.common_start || null,
+      end: row.common_end || null,
+      breakMin: row.common_break_min === null ? null : Number(row.common_break_min),
+      gapMin: row.common_gap_min === null ? null : Number(row.common_gap_min),
+    },
+    issuesText: row.issues_text ?? '',
+    notesText: row.notes_text ?? '',
+    lines,
+  };
+}
+
+/** その日の日報。無ければ head: null・空行。 */
+export async function getReport(siteId: string, date: string): Promise<ReportDetail> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_daily_reports')
+    .select(DETAIL_COLUMNS)
+    .eq('site_id', siteId)
+    .eq('report_date', date)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? loadDetail(data as ReportDetailRow) : emptyDetail();
+}
+
+/** beforeDate より前で最も新しい日報（前回コピー用）。無ければ null。 */
+export async function getPreviousReport(siteId: string, beforeDate: string): Promise<ReportDetail | null> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_daily_reports')
+    .select(DETAIL_COLUMNS)
+    .eq('site_id', siteId)
+    .lt('report_date', beforeDate)
+    .order('report_date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data ? loadDetail(data as ReportDetailRow) : null;
+}
+
+// ─── 状態変更（提出・承認など）は Task 10 でこのファイルに追加する ───
