@@ -1,7 +1,18 @@
 node_modules/
 .next/
 .env*
+!.env.example
 .DS_Store
 __pycache__/
 .venv/
 .superpowers/
+
+# next.js / build
+/out/
+/build
+/coverage
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+npm-debug.log*
+*.pem
