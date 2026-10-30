@@ -5,6 +5,11 @@ import nextTs from "eslint-config-next/typescript";
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  // 計画書の指定どおり逐語で置くテスト（`as any[]` を含む）。
+  {
+    files: ['tests/report/schema.test.ts'],
+    rules: { '@typescript-eslint/no-explicit-any': 'off' },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
