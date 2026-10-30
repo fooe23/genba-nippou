@@ -77,3 +77,7 @@
 - commits f2378fd, 10154bc。gn_is_site_member を「管理者 or 割当メンバー or 社員」に変更。承認は従来どおり割当者のみ。
 - 適用：supabase/update_2026-10-31_employee_access.sql（関数1つ）。新規環境では add_profile_account_type.sql → schema_genba.sql → fix_profiles_guard.sql の順。
 - 据え置き：spec §2 の役割表の「担当者」行の文言、profile.ts の null→employee 変換（列は not null なので到達しない）
+
+## 雛形 V34 を正式採用（2026-10-31、利用者が Excel で確認済み）
+- 正式ファイル：templates/現場管理台帳_V34_原本.xlsm（V34_案 と同一）。第2計画の Excel 出力はこのファイルを原本にする。
+- 既知の注意：「＋ 行追加」マクロは新行の L 列（備考）をクリアしない（VBA Module1 の ":K" → ":L"）。残業単価 0 は空欄扱い。
