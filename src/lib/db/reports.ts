@@ -1,7 +1,8 @@
 import 'server-only';
+import { requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
-import type { ReportLine, ReportStatus, TimeSpec } from '@/lib/types';
+import type { ReportLine, ReportStatus, SiteRole, TimeSpec } from '@/lib/types';
 
 // 日報まわりの読み取り（RLS 前提）。
 
@@ -12,6 +13,7 @@ export interface ReportHead {
   weather: string | null;
   supervisor: string | null;
   status: ReportStatus;
+  rejectedReason: string | null;
   outputTotal: number;
   costTotal: number;
   manDaysTotal: number;
@@ -24,12 +26,13 @@ interface ReportHeadRow {
   weather: string | null;
   supervisor: string | null;
   status: string;
+  rejected_reason: string | null;
   output_total: number | string | null;
   cost_total: number | string | null;
   man_days_total: number | string | null;
 }
 
-const HEAD_COLUMNS = 'id, site_id, report_date, weather, supervisor, status, output_total, cost_total, man_days_total';
+const HEAD_COLUMNS = 'id, site_id, report_date, weather, supervisor, status, rejected_reason, output_total, cost_total, man_days_total';
 
 function toStatus(s: string): ReportStatus {
   return s === 'submitted' || s === 'approved' || s === 'rejected' ? s : 'draft';
@@ -43,6 +46,7 @@ function toHead(r: ReportHeadRow): ReportHead {
     weather: r.weather,
     supervisor: r.supervisor,
     status: toStatus(r.status),
+    rejectedReason: r.rejected_reason ?? null,
     outputTotal: Number(r.output_total ?? 0),
     costTotal: Number(r.cost_total ?? 0),
     manDaysTotal: Number(r.man_days_total ?? 0),
@@ -165,4 +169,83 @@ export async function getPreviousReport(siteId: string, beforeDate: string): Pro
   return data ? loadDetail(data as ReportDetailRow) : null;
 }
 
-// ─── 状態変更（提出・承認など）は Task 10 でこのファイルに追加する ───
+/** 日報IDから日報を取得する（承認画面用）。RLS により現場メンバー以外は null。 */
+export async function getReportById(reportId: string): Promise<{ siteId: string; date: string; detail: ReportDetail } | null> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.from('gn_daily_reports').select(DETAIL_COLUMNS).eq('id', reportId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const row = data as ReportDetailRow;
+  return { siteId: row.site_id, date: row.report_date, detail: await loadDetail(row) };
+}
+
+/** 現場内の自分の役割（管理者は 'approver'、メンバーでなければ null）。RPC gn_site_role。 */
+export async function getMySiteRole(siteId: string): Promise<SiteRole | null> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.rpc('gn_site_role', { p_site: siteId });
+  if (error) throw new Error(error.message);
+  return data === 'staff' || data === 'reviewer' || data === 'approver' ? data : null;
+}
+
+// ─── 承認待ち一覧（承認画面・タブのバッジ）。状態変更は reports-actions.ts ───
+
+export type SubmittedReport = ReportHead & { siteName: string; createdByName: string };
+
+interface SubmittedRow extends ReportHeadRow {
+  gn_sites: { name: string | null } | { name: string | null }[] | null;
+  profiles: { name: string | null } | { name: string | null }[] | null;
+}
+
+function one<T>(v: T | T[] | null): T | null {
+  return Array.isArray(v) ? (v[0] ?? null) : v;
+}
+
+/** 自分が確認・承認できる現場（管理者は全現場 = null）。空配列なら該当なし。 */
+async function reviewableSiteIds(profile: Profile): Promise<string[] | null> {
+  if (profile.isAdmin) return null;
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_site_members')
+    .select('site_id')
+    .eq('user_id', profile.id)
+    .in('role', ['reviewer', 'approver']);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as { site_id: string }[]).map((r) => r.site_id);
+}
+
+/** 自分が reviewer/approver の現場（管理者は全現場）の提出済み日報。日付の古い順。 */
+export async function listSubmittedReports(): Promise<SubmittedReport[]> {
+  const ids = await reviewableSiteIds(await requireProfile());
+  if (ids !== null && ids.length === 0) return [];
+  const supabase = await createServerSupabase();
+  let q = supabase
+    .from('gn_daily_reports')
+    .select(`${HEAD_COLUMNS}, gn_sites(name), profiles!gn_daily_reports_created_by_fkey(name)`)
+    .eq('status', 'submitted');
+  if (ids !== null) q = q.in('site_id', ids);
+  const { data, error } = await q.order('report_date', { ascending: true });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as SubmittedRow[]).map((r) => ({
+    ...toHead(r),
+    siteName: one(r.gn_sites)?.name ?? '',
+    createdByName: one(r.profiles)?.name ?? '',
+  }));
+}
+
+/** 承認待ちの件数（タブのバッジ用）。取得に失敗したら 0。 */
+export async function getSubmittedCount(): Promise<number> {
+  const profile = await requireProfile();
+  try {
+    const ids = await reviewableSiteIds(profile);
+    if (ids !== null && ids.length === 0) return 0;
+    const supabase = await createServerSupabase();
+    let q = supabase.from('gn_daily_reports').select('id', { count: 'exact', head: true }).eq('status', 'submitted');
+    if (ids !== null) q = q.in('site_id', ids);
+    const { count, error } = await q;
+    if (error) throw new Error(error.message);
+    return count ?? 0;
+  } catch (e) {
+    console.error('[getSubmittedCount]', e);
+    return 0;
+  }
+}

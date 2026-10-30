@@ -8,7 +8,8 @@ export interface TabItem {
   label: string;
 }
 
-export function TabBar({ tabs }: { tabs: TabItem[] }) {
+/** badges: href → 件数。0 のときは表示しない。 */
+export function TabBar({ tabs, badges = {} }: { tabs: TabItem[]; badges?: Record<string, number> }) {
   const pathname = usePathname();
   return (
     <nav
@@ -19,6 +20,7 @@ export function TabBar({ tabs }: { tabs: TabItem[] }) {
         {tabs.map((tab) => {
           const active =
             tab.href === '/' ? pathname === '/' : pathname.startsWith(tab.href);
+          const count = badges[tab.href] ?? 0;
           return (
             <li key={tab.href} className="flex-1">
               <Link
@@ -29,6 +31,14 @@ export function TabBar({ tabs }: { tabs: TabItem[] }) {
                 }`}
               >
                 {tab.label}
+                {count > 0 && (
+                  <span
+                    aria-label={`${count}件`}
+                    className="ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-xs font-bold leading-5 text-white"
+                  >
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
               </Link>
             </li>
           );

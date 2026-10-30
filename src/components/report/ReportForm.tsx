@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition, type ReactNode } from 'react';
 import { jpDate } from '@/lib/calc/format';
 import { commonHours, reportTotals } from '@/lib/calc/report';
-import { copyPreviousReport, saveReport, type SaveReportResult } from '@/lib/db/reports-actions';
+import { copyPreviousReport, saveReport, submitReport, type ReportStateResult, type SaveReportResult } from '@/lib/db/reports-actions';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import type { TimeSpec } from '@/lib/types';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
@@ -29,7 +29,11 @@ export interface ReportFormProps {
   prevDate: string;
   nextDate: string;
   status: DayStatus;
+  /** 差戻し理由（status が rejected のときに赤帯で表示）。 */
+  rejectedReason: string | null;
   readOnly: boolean;
+  /** 承認画面での閲覧用。保存バーと前日・翌日の移動を隠し、戻り先を承認一覧にする。 */
+  review?: boolean;
   siteStartDate: string | null;
   contractAmount: number | null;
   /** この日より前の日報の出来高合計（進捗率の累計に使う）。 */
@@ -39,6 +43,7 @@ export interface ReportFormProps {
   masters: ReportMasters;
 }
 
+const SUBMIT_FAILED = '提出に失敗しました。通信状況を確認してもう一度お試しください。';
 const SAVE_FAILED = '保存に失敗しました。通信状況を確認してもう一度お試しください。';
 const buttonBase = 'min-h-11 rounded-lg px-4 text-base font-bold disabled:opacity-50';
 
@@ -172,24 +177,91 @@ export function ReportForm(p: ReportFormProps) {
     });
   }
 
+  function submit() {
+    setMessage(null);
+    const checked = validateReport(input);
+    if (!checked.ok) {
+      showErrors(checked.errors);
+      return;
+    }
+    if (
+      !input.lines.some((l) => l.kind === 'labor') &&
+      !window.confirm('作業員が入力されていません。休工日として提出しますか？')
+    ) {
+      return;
+    }
+    setErrors([]);
+    const sent = json;
+    startTransition(async () => {
+      // 提出内容が最新になるよう、先に保存してから提出する。
+      let saved: SaveReportResult;
+      try {
+        saved = await saveReport(input);
+      } catch {
+        saved = { ok: false, error: SAVE_FAILED };
+      }
+      if (!saved.ok) {
+        showErrors([saved.error]);
+        return;
+      }
+      draft.discard(sent);
+      setBaseline(sent);
+      let res: ReportStateResult;
+      try {
+        res = await submitReport(saved.id);
+      } catch {
+        res = { ok: false, error: SUBMIT_FAILED };
+      }
+      if (!res.ok) {
+        showErrors([`保存しましたが提出できませんでした：${res.error}`]);
+        router.refresh();
+        return;
+      }
+      setMessage('提出しました（承認待ち）');
+      router.refresh();
+    });
+  }
+
   const weatherOptions = p.masters.weather.map((w) => ({ value: w, label: w }));
   const statusNote = pending
     ? '処理中…'
     : errors.length > 0
       ? `保存できません（${errors.length}件）`
-      : dirty ? '保存していない変更があります' : p.status === 'none' ? '未保存' : '保存済み';
+      : dirty
+        ? '保存していない変更があります'
+        : p.status === 'none'
+          ? '未保存'
+          : p.status === 'submitted'
+            ? '提出済み（承認待ち）'
+            : '保存済み';
 
   return (
     <div className="pb-28">
-      <Link href={`/sites/${p.siteId}`} className="mb-1 inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400">
-        ← {p.siteName}
+      <Link
+        href={p.review ? '/approvals' : `/sites/${p.siteId}`}
+        className="mb-1 inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400"
+      >
+        ← {p.review ? '承認待ち一覧' : p.siteName}
       </Link>
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
         <h1 className="text-xl font-bold">{p.heading}</h1>
         <span className={`rounded border px-2 py-0.5 text-sm font-bold ${STATUS_COLOR[p.status]}`}>{STATUS_LABEL[p.status]}</span>
       </div>
 
-      {p.readOnly && (
+      {p.review && <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">{p.siteName}</p>}
+
+      {p.status === 'rejected' && !p.review && (
+        <p role="alert" className="mb-4 rounded-lg border border-red-500 bg-red-50 p-3 font-bold text-red-900 dark:bg-red-950 dark:text-red-50">
+          差戻し：{p.rejectedReason || '（理由なし）'}
+        </p>
+      )}
+      {p.status === 'rejected' && p.review && p.rejectedReason && (
+        <p role="status" className="mb-4 rounded-lg border border-red-500 bg-red-50 p-3 text-red-900 dark:bg-red-950 dark:text-red-50">
+          差戻し中：{p.rejectedReason}
+        </p>
+      )}
+
+      {p.readOnly && p.status === 'approved' && (
         <p role="status" className="mb-4 rounded-lg border border-green-500 bg-green-50 p-3 font-bold text-green-900 dark:bg-green-950 dark:text-green-50">
           承認済みのため編集できません
         </p>
@@ -218,13 +290,17 @@ export function ReportForm(p: ReportFormProps) {
           <div>
             <span className="mb-1 block text-sm font-medium">日付</span>
             <div className="flex items-center gap-1">
-              <Link href={`/sites/${p.siteId}/reports/${p.prevDate}`} aria-label="前日の日報" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-400 dark:border-gray-600">
-                ◀
-              </Link>
+              {!p.review && (
+                <Link href={`/sites/${p.siteId}/reports/${p.prevDate}`} aria-label="前日の日報" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-400 dark:border-gray-600">
+                  ◀
+                </Link>
+              )}
               <span className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-gray-100 px-2 font-bold dark:bg-gray-800">{p.dateLabel}</span>
-              <Link href={`/sites/${p.siteId}/reports/${p.nextDate}`} aria-label="翌日の日報" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-400 dark:border-gray-600">
-                ▶
-              </Link>
+              {!p.review && (
+                <Link href={`/sites/${p.siteId}/reports/${p.nextDate}`} aria-label="翌日の日報" className="flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-400 dark:border-gray-600">
+                  ▶
+                </Link>
+              )}
             </div>
           </div>
           <Labeled label="天候">
@@ -290,15 +366,15 @@ export function ReportForm(p: ReportFormProps) {
         </section>
       </fieldset>
 
-      {!p.readOnly && <Band tone="warn" title="確認してください（保存はできます）" items={warnings} />}
-      <Band id="report-errors" tone="error" title="保存できません" items={errors} />
+      {!p.readOnly && !p.review && <Band tone="warn" title="確認してください（保存はできます）" items={warnings} />}
+      <Band id="report-errors" tone="error" title="保存・提出できません" items={errors} />
       {message && (
         <p role="status" className="mb-4 rounded-lg border border-blue-400 bg-blue-50 p-3 text-blue-950 dark:bg-blue-950 dark:text-blue-50">
           {message}
         </p>
       )}
 
-      {!p.readOnly && (
+      {!p.readOnly && !p.review && (
         <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-10 border-t border-gray-300 bg-background/95 px-4 py-2 backdrop-blur dark:border-gray-700">
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-2">
             <span className="min-w-0 truncate text-sm" aria-live="polite">
@@ -308,14 +384,9 @@ export function ReportForm(p: ReportFormProps) {
               <button type="button" onClick={save} disabled={pending} className={`${buttonBase} bg-blue-700 text-white`}>
                 下書き保存
               </button>
-              <span title="次の作業で有効になります">
-                <button type="button" disabled aria-describedby="submit-note" className={`${buttonBase} border border-gray-400 dark:border-gray-600`}>
-                  提出
-                </button>
-                <span id="submit-note" className="sr-only">
-                  次の作業で有効になります
-                </span>
-              </span>
+              <button type="button" onClick={submit} disabled={pending} className={`${buttonBase} border border-gray-400 dark:border-gray-600`}>
+                {p.status === 'submitted' || p.status === 'rejected' ? '再提出' : '提出'}
+              </button>
             </div>
           </div>
         </div>

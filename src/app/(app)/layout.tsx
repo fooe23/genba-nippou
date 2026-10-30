@@ -1,10 +1,13 @@
 import { APP_NAME } from '@/lib/constants';
 import { requireProfile } from '@/lib/db/profile';
+import { getSubmittedCount } from '@/lib/db/reports';
 import { logout } from './actions';
 import { TabBar, type TabItem } from './tab-bar';
 
 export default async function AppLayout({ children }: LayoutProps<'/'>) {
   const profile = await requireProfile();
+
+  const submittedCount = await getSubmittedCount();
 
   const tabs: TabItem[] = [
     { href: '/', label: 'ホーム' },
@@ -30,7 +33,7 @@ export default async function AppLayout({ children }: LayoutProps<'/'>) {
         </div>
       </header>
       <div className="flex-1">{children}</div>
-      <TabBar tabs={tabs} />
+      <TabBar tabs={tabs} badges={{ '/approvals': submittedCount }} />
     </div>
   );
 }
