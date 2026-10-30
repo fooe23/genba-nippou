@@ -124,5 +124,9 @@ export async function loadReportFormProps(
     reportId: head ? head.id : null,
     issues,
     openIssues,
+    updatedAt: head ? head.updatedAt : null,
+    createdBy: head ? head.createdBy : null,
+    currentUserId: profile.id,
+    isAdmin: profile.isAdmin,
   };
 }

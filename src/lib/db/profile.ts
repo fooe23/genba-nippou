@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { cache } from 'react';
 import { createServerSupabase } from '@/lib/supabase/server';
 
 export interface Profile {
@@ -8,8 +9,11 @@ export interface Profile {
   isAdmin: boolean;
 }
 
-/** ログイン中のユーザーのプロフィール。未ログインは null。 */
-export async function getCurrentProfile(): Promise<Profile | null> {
+/**
+ * ログイン中のユーザーのプロフィール。未ログインは null。
+ * React の cache() で1リクエストにつき1回だけ問い合わせる（レイアウトとページで共有）。
+ */
+export const getCurrentProfile = cache(async function getCurrentProfile(): Promise<Profile | null> {
   const supabase = await createServerSupabase();
   const { data: userData } = await supabase.auth.getUser();
   const user = userData.user;
@@ -31,7 +35,7 @@ export async function getCurrentProfile(): Promise<Profile | null> {
     email: data.email ?? user.email ?? '',
     isAdmin: data.is_admin === true,
   };
-}
+});
 
 /** 未ログインなら /login へ。 */
 export async function requireProfile(): Promise<Profile> {

@@ -3,7 +3,8 @@ import type { ReportLine, TimeSpec } from '@/lib/types';
 import type { SaveInput } from '@/lib/report/schema';
 
 // 日報の明細と gn_report_lines の列の相互変換（純関数。サーバーの読み書きから使う）。
-// 計算値（hours・man_days・amount・productivity）はここで計算し、クライアントの計算は信用しない。
+// 計算値（hours・man_days・amount・productivity）はここでも計算して送るが、DB のトリガー
+// （gn_report_lines_compute）が入力値から同じ式で計算し直すので、保存される値は DB 側の計算になる。
 // jsonb_populate_record は数値・uuid 列に "" を渡すとエラーになるため、空値は必ず null で送る。
 
 /** gn_report_lines の1行（id・report_id・created_at を除く）。 */
@@ -46,6 +47,8 @@ export interface ReportRow {
   common_gap_min: number | null;
   issues_text: string | null;
   notes_text: string | null;
+  /** 楽観ロック：画面を開いたときの updated_at。null なら比べない（新しい日報など）。 */
+  expected_updated_at?: string | null;
 }
 
 const EMPTY_ROW: Omit<LineRow, 'kind' | 'sort_order'> = {
@@ -266,9 +269,13 @@ export function copyableLines(lines: ReportLine[]): ReportLine[] {
   return out;
 }
 
+/** 他の端末で更新・削除されていたときの文言（楽観ロック）。 */
+export const STALE_REPORT_MESSAGE = '他の端末で更新されています。画面を再読み込みしてから保存してください。';
+
 /** gn_save_report / ガードトリガーのエラーを利用者向けの文言に変換する。 */
 export function saveErrorMessage(dbMessage: string | null | undefined): string {
   const m = dbMessage ?? '';
+  if (m.includes('stale_report')) return STALE_REPORT_MESSAGE;
   if (m.includes('approved_report_locked')) return '承認済みのため編集できません';
   if (m.includes('not_reviewer')) return 'この現場の確認者・承認者ではありません';
   return '保存に失敗しました。通信状況を確認してもう一度お試しください。';

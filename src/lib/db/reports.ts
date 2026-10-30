@@ -1,4 +1,5 @@
 import 'server-only';
+import { fetchAllPages } from '@/lib/calc/paging';
 import { requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
@@ -17,6 +18,9 @@ export interface ReportHead {
   outputTotal: number;
   costTotal: number;
   manDaysTotal: number;
+  /** 楽観ロック用（保存時に gn_save_report へ渡す）。PostgREST の文字列のまま持つ（マイクロ秒を落とさない）。 */
+  updatedAt: string | null;
+  createdBy: string | null;
 }
 
 interface ReportHeadRow {
@@ -30,9 +34,12 @@ interface ReportHeadRow {
   output_total: number | string | null;
   cost_total: number | string | null;
   man_days_total: number | string | null;
+  updated_at: string | null;
+  created_by: string | null;
 }
 
-const HEAD_COLUMNS = 'id, site_id, report_date, weather, supervisor, status, rejected_reason, output_total, cost_total, man_days_total';
+const HEAD_COLUMNS =
+  'id, site_id, report_date, weather, supervisor, status, rejected_reason, output_total, cost_total, man_days_total, updated_at, created_by';
 
 function toStatus(s: string): ReportStatus {
   return s === 'submitted' || s === 'approved' || s === 'rejected' ? s : 'draft';
@@ -50,19 +57,25 @@ function toHead(r: ReportHeadRow): ReportHead {
     outputTotal: Number(r.output_total ?? 0),
     costTotal: Number(r.cost_total ?? 0),
     manDaysTotal: Number(r.man_days_total ?? 0),
+    updatedAt: r.updated_at ?? null,
+    createdBy: r.created_by ?? null,
   };
 }
 
-/** 現場の日報の見出し（全期間、日付の昇順）。 */
+/** 現場の日報の見出し（全期間、日付の昇順）。PostgREST の max_rows（既定 1000）で切り詰められないようページングする。 */
 export async function listReportHeads(siteId: string): Promise<ReportHead[]> {
   const supabase = await createServerSupabase();
-  const { data, error } = await supabase
-    .from('gn_daily_reports')
-    .select(HEAD_COLUMNS)
-    .eq('site_id', siteId)
-    .order('report_date', { ascending: true });
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as ReportHeadRow[]).map(toHead);
+  const rows = await fetchAllPages<ReportHeadRow>(async (from, to) => {
+    const { data, error } = await supabase
+      .from('gn_daily_reports')
+      .select(HEAD_COLUMNS)
+      .eq('site_id', siteId)
+      .order('report_date', { ascending: true }) // 現場内で日付は一意なのでページ境界で重複・欠落しない
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as ReportHeadRow[];
+  });
+  return rows.map(toHead);
 }
 
 /** 各現場の「今日の日報」の状態。日報がなければ 'none'。 */
@@ -189,6 +202,7 @@ export async function getMySiteRole(siteId: string): Promise<SiteRole | null> {
 
 // ─── 承認待ち一覧（承認画面・タブのバッジ）。状態変更は reports-actions.ts ───
 
+/** createdByName は作成者の名前。管理者以外は他人の profiles を読めず null になるため、日報の作業責任者で代える。 */
 export type SubmittedReport = ReportHead & { siteName: string; createdByName: string };
 
 interface SubmittedRow extends ReportHeadRow {
@@ -228,7 +242,7 @@ export async function listSubmittedReports(): Promise<SubmittedReport[]> {
   return ((data ?? []) as unknown as SubmittedRow[]).map((r) => ({
     ...toHead(r),
     siteName: one(r.gn_sites)?.name ?? '',
-    createdByName: one(r.profiles)?.name ?? '',
+    createdByName: one(r.profiles)?.name || r.supervisor || '',
   }));
 }
 

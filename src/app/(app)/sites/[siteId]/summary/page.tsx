@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { isUuid } from '@/lib/uuid';
 import { attendance, costSummary, monthlyRows, sumRows, workerCumulative } from '@/lib/calc/aggregate';
 import { monthKey, todayJst } from '@/lib/calc/format';
 import { listWorkers } from '@/lib/db/masters';
@@ -20,6 +21,7 @@ const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 export default async function SummaryPage({ params, searchParams }: PageProps<'/sites/[siteId]/summary'>) {
   await requireProfile();
   const { siteId } = await params;
+  if (!isUuid(siteId)) notFound();
   const site = await getSite(siteId);
   if (!site) notFound();
 
@@ -57,6 +59,8 @@ export default async function SummaryPage({ params, searchParams }: PageProps<'/
   const cumulativeDays = isAll ? days : days.filter((d) => d.reportDate <= `${period}-31`);
 
   const workerNames = Object.fromEntries(workers.map((w) => [w.id, w.name]));
+  // 作業員別累計は全期間の日報を渡し、表示期間より前の分を前月繰越に入れる（Excel 雛形と同じ）
+  const workerPeriod = isAll ? { from: null, to: null } : { from: `${period}-01`, to: `${period}-31` };
 
   return (
     <main className="mx-auto w-full max-w-5xl p-4">
@@ -80,7 +84,7 @@ export default async function SummaryPage({ params, searchParams }: PageProps<'/
           periodLabel={isAll ? '工期全体' : `${Number(period.slice(0, 4))}年${Number(period.slice(5, 7))}月`}
         />}
       {tab === 'attendance' && <AttendanceTable rows={attendance(periodEntries)} />}
-      {tab === 'workers' && <WorkersTable rows={workerCumulative(periodEntries, carryovers, workerNames)} />}
+      {tab === 'workers' && <WorkersTable rows={workerCumulative(entries, carryovers, workerNames, workerPeriod)} isAll={isAll} />}
     </main>
   );
 }

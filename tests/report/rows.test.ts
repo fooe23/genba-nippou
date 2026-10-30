@@ -73,6 +73,7 @@ describe('saveErrorMessage', () => {
   it('ガードの文言を日本語にする', () => {
     expect(saveErrorMessage('approved_report_locked')).toBe('承認済みのため編集できません');
     expect(saveErrorMessage('not_reviewer')).toBe('この現場の確認者・承認者ではありません');
+    expect(saveErrorMessage('stale_report')).toBe('他の端末で更新されています。画面を再読み込みしてから保存してください。');
     expect(saveErrorMessage('new row violates row-level security')).toContain('保存に失敗しました');
   });
 });

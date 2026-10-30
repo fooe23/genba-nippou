@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isValidDraft } from '@/lib/report/draft';
+import { isServerNewer, isValidDraft } from '@/lib/report/draft';
 
 const siteId = '11111111-1111-4111-8111-111111111111';
 const date = '2026-11-05';
@@ -30,5 +30,23 @@ describe('isValidDraft', () => {
     expect(isValidDraft({ ...draft, lines: [null] }, siteId, date)).toBe(false);
     expect(isValidDraft(draft, siteId, '2026-11-06')).toBe(false);
     expect(isValidDraft({ ...draft, lines: 'x' }, siteId, date)).toBe(false);
+  });
+});
+
+describe('isServerNewer（下書きより新しいサーバーの版）', () => {
+  const v1 = '2026-10-30T12:00:00.123456+00:00';
+  const v2 = '2026-10-30T12:05:00.000001+00:00';
+  it('サーバーに日報が無ければ新しくない／同じ版なら新しくない', () => {
+    expect(isServerNewer(null, null)).toBe(false);
+    expect(isServerNewer(null, v1)).toBe(false);
+    expect(isServerNewer(v1, v1)).toBe(false);
+  });
+  it('後から保存・作成された版は新しい', () => {
+    expect(isServerNewer(v2, v1)).toBe(true);
+    expect(isServerNewer(v1, null)).toBe(true);
+    expect(isServerNewer('2026-10-30T12:00:00.123999+00:00', v1)).toBe(true); // マイクロ秒だけ違う
+  });
+  it('サーバーの版の方が古ければ新しくない', () => {
+    expect(isServerNewer(v1, v2)).toBe(false);
   });
 });

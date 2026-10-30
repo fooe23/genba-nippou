@@ -5,8 +5,10 @@ import { z } from 'zod';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
+import { listLeaseItems, listVehicles, listWorkers } from '@/lib/db/masters';
 import { getPreviousReport } from '@/lib/db/reports';
-import { copyableLines, saveErrorMessage, toLineRows, toReportRow } from '@/lib/report/rows';
+import { copyableLines, saveErrorMessage, STALE_REPORT_MESSAGE, toLineRows, toReportRow } from '@/lib/report/rows';
+import { applyMasterSnapshots, needsMasterSnapshots } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
 import type { ReportLine } from '@/lib/types';
@@ -14,36 +16,73 @@ import type { ReportLine } from '@/lib/types';
 // 日報の保存（Server Actions）。本番では throw した文言がクライアントに届かないため、
 // 例外は投げずに { ok, error } を返す。
 
-export type SaveReportResult = { ok: true; id: string } | { ok: false; error: string };
+/** updatedAt は保存後の日報の updated_at（次の保存の expectedUpdatedAt に使う）。stale は他の端末で更新・削除されていたとき。 */
+export type SaveReportResult =
+  | { ok: true; id: string; updatedAt: string | null }
+  | { ok: false; error: string; stale?: boolean };
 export type CopyPreviousResult =
   | { ok: true; date: string; lines: ReportLine[] }
   | { ok: false; error: string };
 
-export async function saveReport(input: SaveInput): Promise<SaveReportResult> {
+// PostgREST が返す timestamptz の文字列（例 2026-10-30T12:34:56.123456+00:00）。
+const timestampSchema = z
+  .string()
+  .max(64)
+  .regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/);
+
+/**
+ * 日報を保存する。expectedUpdatedAt は画面を開いたとき（または前回保存したとき）の updated_at。
+ * 渡すと DB がいまの updated_at と比べ、違えば stale_report（他の端末で更新された）で止める。
+ */
+export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | null): Promise<SaveReportResult> {
   await requireProfile();
   const checked = validateReport(input);
   if (!checked.ok) return { ok: false, error: checked.errors[0] };
   // 検証後の lines は正規化済み（金額のみ → qty=1・unitPrice=金額、amountOnly なし）。
   const v = checked.value;
+  const expected = expectedUpdatedAt ?? null;
+  if (expected !== null && !timestampSchema.safeParse(expected).success) {
+    return { ok: false, error: '日報の版の指定が正しくありません。画面を再読み込みしてください。' };
+  }
 
   try {
+    // マスターを参照している行の単価（日当・リース単価・燃費）はサーバーで決め直す。保存した値が
+    // その日の単価の複写（スナップショット）になり、集計はこの値を使う。画面のプレビューは従来どおり。
+    const lines = needsMasterSnapshots(v.lines)
+      ? applyMasterSnapshots(v.lines, v.date, await loadSnapshotMasters())
+      : v.lines;
+
     const supabase = await createServerSupabase();
     const { data, error } = await supabase.rpc('gn_save_report', {
-      p_report: toReportRow(v),
-      p_lines: toLineRows(v.lines, v.common),
+      p_report: { ...toReportRow(v), expected_updated_at: expected },
+      p_lines: toLineRows(lines, v.common),
     });
     if (error) {
       console.error('[gn_save_report]', error.message);
-      return { ok: false, error: saveErrorMessage(error.message) };
+      const message = saveErrorMessage(error.message);
+      return { ok: false, error: message, ...(message === STALE_REPORT_MESSAGE ? { stale: true } : {}) };
     }
+    const id = String(data);
+    // 次の保存の楽観ロックに使う版。読めなくても保存は済んでいるので null で返す（次回は比べない）。
+    const { data: head, error: headError } = await supabase
+      .from('gn_daily_reports')
+      .select('updated_at')
+      .eq('id', id)
+      .maybeSingle();
+    if (headError) console.error('[saveReport:updated_at]', headError.message);
     revalidatePath('/');
     revalidatePath(`/sites/${v.siteId}`);
-    revalidatePath(`/sites/${v.siteId}/reports/${v.date}`);
-    return { ok: true, id: String(data) };
+    revalidatePath('/sites/[siteId]/reports/[date]', 'page');
+    return { ok: true, id, updatedAt: (head as { updated_at: string | null } | null)?.updated_at ?? null };
   } catch (e) {
     console.error('[saveReport]', e);
     return { ok: false, error: saveErrorMessage(null) };
   }
+}
+
+async function loadSnapshotMasters() {
+  const [workers, vehicles, leaseItems] = await Promise.all([listWorkers(), listVehicles(), listLeaseItems()]);
+  return { workers, vehicles, leaseItems };
 }
 
 /** 前回の日報から作業員・車両・リースを複写する（個別時間・走行距離は空、リース数量はそのまま）。 */
@@ -65,7 +104,8 @@ export async function copyPreviousReport(siteId: string, date: string): Promise<
 // ─── 提出・承認・差戻し・承認解除 ───
 // いずれも { ok } を返す（throw しない）。権限は DB のガードトリガー（gn_report_guard）が最終判定する。
 
-export type ReportStateResult = { ok: true } | { ok: false; error: string };
+/** updatedAt は状態を変えたあとの日報の updated_at（日報画面の楽観ロック用。変更が無かったときは無し）。 */
+export type ReportStateResult = { ok: true; updatedAt?: string | null } | { ok: false; error: string };
 
 const GENERIC_ERROR = '処理に失敗しました。もう一度お試しください。';
 const reportIdSchema = z.guid();
@@ -118,7 +158,7 @@ async function changeState(
       .update(patch(profile.id))
       .eq('id', reportId)
       .in('status', from)
-      .select('id');
+      .select('id, updated_at');
     if (error) {
       console.error('[changeState]', error.message);
       return { ok: false, error: stateErrorMessage(error.message) };
@@ -130,7 +170,7 @@ async function changeState(
     revalidatePath(`/approvals/${reportId}`);
     revalidatePath(`/sites/${h.site_id}`);
     revalidatePath(`/sites/${h.site_id}/reports/${h.report_date}`);
-    return { ok: true };
+    return { ok: true, updatedAt: (data[0] as { updated_at?: string | null }).updated_at ?? null };
   } catch (e) {
     console.error('[changeState]', e);
     return { ok: false, error: GENERIC_ERROR };
@@ -166,9 +206,63 @@ export async function rejectReport(reportId: string, reason: string): Promise<Re
   }));
 }
 
-/** 管理者のみ approved → draft。 */
+/** 管理者のみ approved → draft。承認・確認の記録も消す（再提出・再承認でまた入る）。 */
 export async function reopenReport(reportId: string): Promise<ReportStateResult> {
-  return changeState(reportId, ['approved'], '承認済みの日報ではありません', () => ({ status: 'draft' }), { adminOnly: true });
+  return changeState(
+    reportId,
+    ['approved'],
+    '承認済みの日報ではありません',
+    () => ({ status: 'draft', approved_by: null, approved_at: null, reviewed_by: null }),
+    { adminOnly: true },
+  );
+}
+
+/**
+ * 日報を削除する（明細・重要事項の件も消える）。管理者はどの状態でも、作成者本人は下書き・差戻しだけ。
+ * 最終判定は RLS（gn_daily_reports_delete）。ここでも同じ条件で絞り、消えた行が無ければ削除できない状態とする。
+ */
+export async function deleteReport(reportId: string): Promise<ReportStateResult> {
+  const profile = await requireProfile();
+  if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
+  const CANNOT = '削除できる状態ではありません';
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data: head, error: headError } = await supabase
+      .from('gn_daily_reports')
+      .select('site_id, report_date, status, created_by')
+      .eq('id', reportId)
+      .maybeSingle();
+    if (headError) {
+      console.error('[deleteReport:head]', headError.message);
+      return { ok: false, error: GENERIC_ERROR };
+    }
+    if (!head) return { ok: false, error: '日報が見つかりません' };
+    const h = head as StateHead & { created_by: string | null };
+    if (!profile.isAdmin && (h.created_by !== profile.id || !['draft', 'rejected'].includes(h.status))) {
+      return { ok: false, error: CANNOT };
+    }
+
+    let q = supabase.from('gn_daily_reports').delete().eq('id', reportId);
+    if (!profile.isAdmin) q = q.eq('created_by', profile.id).in('status', ['draft', 'rejected']);
+    const { data, error } = await q.select('id');
+    if (error) {
+      console.error('[deleteReport]', error.message);
+      return { ok: false, error: GENERIC_ERROR };
+    }
+    if (!data || data.length === 0) return { ok: false, error: CANNOT };
+
+    revalidatePath('/');
+    revalidatePath('/approvals');
+    revalidatePath(`/approvals/${reportId}`);
+    revalidatePath(`/sites/${h.site_id}`);
+    revalidatePath(`/sites/${h.site_id}/summary`);
+    revalidatePath('/sites/[siteId]/reports/[date]', 'page');
+    return { ok: true };
+  } catch (e) {
+    console.error('[deleteReport]', e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
 }
 
 // ─── 重要事項の件 ───
@@ -238,19 +332,17 @@ export async function setIssueDone(issueId: string, done: boolean, doneAt?: stri
       .from('gn_report_issues')
       .update({ status: done ? 'done' : 'open', done_at: done ? (doneAt ?? todayJst()) : null })
       .eq('id', issueId)
-      .select('site_id, report_id');
+      .select('site_id');
     if (error) {
       console.error('[setIssueDone]', error.message);
       return { ok: false, error: issueErrorMessage(error.message) };
     }
-    const row = (data ?? [])[0] as { site_id: string; report_id: string } | undefined;
+    const row = (data ?? [])[0] as { site_id: string } | undefined;
     if (!row) return { ok: false, error: '件が見つからないか、権限がありません' };
 
-    const { data: head } = await supabase.from('gn_daily_reports').select('report_date').eq('id', row.report_id).maybeSingle();
     revalidatePath(`/sites/${row.site_id}`);
-    // 他の日報のバナーにも出ているため、現場の日報ページ全体を更新対象にする。
-    revalidatePath(`/sites/${row.site_id}/reports/[date]`, 'page');
-    if (head) revalidatePath(`/sites/${row.site_id}/reports/${(head as { report_date: string }).report_date}`);
+    // 他の日報のバナーにも出ているため、日報ページ全体を更新対象にする（動的セグメントのパターン指定）。
+    revalidatePath('/sites/[siteId]/reports/[date]', 'page');
     return { ok: true };
   } catch (e) {
     console.error('[setIssueDone]', e);

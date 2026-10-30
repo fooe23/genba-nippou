@@ -3,7 +3,7 @@ import { attendance, costSummary, workerCumulative, type DayTotals, type LaborEn
 
 const zeroDay: DayTotals = {
   id: 'a', siteId: 's', reportDate: '2026-11-01', weather: null, supervisor: null, status: 'draft', rejectedReason: null,
-  outputTotal: 0, costTotal: 0, manDaysTotal: 0, labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, workerCount: 0,
+  outputTotal: 0, costTotal: 0, manDaysTotal: 0, updatedAt: null, createdBy: null, labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, workerCount: 0,
 };
 
 describe('追加ケース', () => {
@@ -16,7 +16,7 @@ describe('追加ケース', () => {
   });
   it('繰越だけの作業員も累計に含まれる', () => {
     const e: LaborEntry[] = [{ reportDate: '2026-11-02', workerId: 'w1', workerName: '田中', manDays: 1, cost: 19000 }];
-    const w = workerCumulative(e, [{ workerId: 'w9', manDays: 3, laborCost: 50000, beforeDate: '2026-10-01' }], { w1: '田中', w9: '鈴木' });
+    const w = workerCumulative(e, [{ workerId: 'w9', manDays: 3, laborCost: 50000, beforeDate: '2026-10-01' }], { w1: '田中', w9: '鈴木' }, { from: null, to: null });
     const s = w.find((r) => r.workerId === 'w9')!;
     expect(s.workerName).toBe('鈴木');
     expect([s.manDays, s.cost, s.totalManDays, s.totalCost]).toEqual([0, 0, 3, 50000]);
@@ -27,7 +27,7 @@ describe('追加ケース', () => {
       { reportDate: '2026-11-02', workerId: null, workerName: '応援A', manDays: 0.5, cost: 7000 },
       { reportDate: '2026-11-03', workerId: null, workerName: '応援A', manDays: 0.5, cost: 7000 },
     ];
-    const w = workerCumulative(e, [], {});
+    const w = workerCumulative(e, [], {}, { from: null, to: null });
     expect(w).toHaveLength(1);
     expect(w[0]).toMatchObject({ workerId: null, workerName: '応援A', manDays: 1, cost: 14000 });
   });

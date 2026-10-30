@@ -107,10 +107,39 @@ export function attendance(entries: LaborEntry[]): AttendanceRow[] {
   return rows.sort((a, b) => a.workerName.localeCompare(b.workerName, 'ja'));
 }
 
-export interface WorkerCumulativeRow { workerId: string | null; workerName: string; carryManDays: number; carryCost: number; manDays: number; cost: number; totalManDays: number; totalCost: number; }
+export interface WorkerCumulativeRow {
+  workerId: string | null;
+  workerName: string;
+  /** 前月繰越 = 繰越初期値 + 表示期間より前（繰越の基準日以降）の日報。 */
+  carryManDays: number;
+  carryCost: number;
+  /** 表示期間（from〜to）の日報。 */
+  manDays: number;
+  cost: number;
+  /** 累計 = 前月繰越 + 表示期間。 */
+  totalManDays: number;
+  totalCost: number;
+  /** 繰越の基準日より前の日報の件数（繰越初期値に含まれているとみなして集計から除いた分）。 */
+  excludedCount: number;
+}
 
-/** 繰越初期値 + 渡した entries の範囲 = 累計。繰越だけの作業員も含める。 */
-export function workerCumulative(entries: LaborEntry[], carryovers: Carryover[], workerNames: Record<string, string>): WorkerCumulativeRow[] {
+/** 表示期間。from / to は両端を含む YYYY-MM-DD。null は制限なし（工期全体は両方 null）。 */
+export interface Period { from: string | null; to: string | null; }
+
+/**
+ * 作業員別累計（Excel 雛形の「作業員別 当月集計」と同じ考え方：前月繰越／当月／累計）。
+ * - 前月繰越 = 繰越初期値（gn_carryovers）+ 繰越の基準日以降で表示期間より前の日報
+ * - 当期間 = 表示期間（from〜to）の日報
+ * - 累計 = 前月繰越 + 当期間（to より後の日報は含めない）
+ * 繰越初期値は基準日より前の分を表すので、その作業員の基準日より前の日報は二重に数えないよう
+ * どこにも入れず、件数だけ excludedCount に数える。繰越だけ・前月繰越だけの作業員も含める。
+ */
+export function workerCumulative(
+  entries: LaborEntry[],
+  carryovers: Carryover[],
+  workerNames: Record<string, string>,
+  period: Period,
+): WorkerCumulativeRow[] {
   // キー: workerId があればそれ、なければ名前（先頭に区別用の接頭辞）
   const map = new Map<string, WorkerCumulativeRow>();
   const ensure = (key: string, workerId: string | null, fallbackName: string): WorkerCumulativeRow => {
@@ -119,22 +148,39 @@ export function workerCumulative(entries: LaborEntry[], carryovers: Carryover[],
       row = {
         workerId,
         workerName: (workerId !== null ? workerNames[workerId] : undefined) ?? fallbackName,
-        carryManDays: 0, carryCost: 0, manDays: 0, cost: 0, totalManDays: 0, totalCost: 0,
+        carryManDays: 0, carryCost: 0, manDays: 0, cost: 0, totalManDays: 0, totalCost: 0, excludedCount: 0,
       };
       map.set(key, row);
     }
     return row;
   };
-  for (const e of entries) {
-    const row = e.workerId !== null ? ensure(`id:${e.workerId}`, e.workerId, e.workerName) : ensure(`name:${e.workerName}`, null, e.workerName);
-    row.manDays = round2(row.manDays + e.manDays);
-    row.cost += e.cost;
-  }
+
+  const beforeDates = new Map<string, string>();
   for (const c of carryovers) {
     const row = ensure(`id:${c.workerId}`, c.workerId, workerNames[c.workerId] ?? '（不明な作業員）');
     row.carryManDays = round2(row.carryManDays + c.manDays);
     row.carryCost += c.laborCost;
+    beforeDates.set(c.workerId, c.beforeDate);
   }
+
+  for (const e of entries) {
+    if (period.to !== null && e.reportDate > period.to) continue;
+    const key = e.workerId !== null ? `id:${e.workerId}` : `name:${e.workerName}`;
+    const beforeDate = e.workerId !== null ? beforeDates.get(e.workerId) : undefined;
+    if (beforeDate !== undefined && e.reportDate < beforeDate) {
+      ensure(key, e.workerId, e.workerName).excludedCount += 1;
+      continue;
+    }
+    const row = ensure(key, e.workerId, e.workerName);
+    if (period.from !== null && e.reportDate < period.from) {
+      row.carryManDays = round2(row.carryManDays + e.manDays);
+      row.carryCost += e.cost;
+    } else {
+      row.manDays = round2(row.manDays + e.manDays);
+      row.cost += e.cost;
+    }
+  }
+
   const rows = [...map.values()];
   for (const r of rows) {
     r.totalManDays = round2(r.carryManDays + r.manDays);

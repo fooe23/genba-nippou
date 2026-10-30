@@ -6,9 +6,16 @@ function key(siteId: string, date: string): string {
   return `gn_draft:${siteId}:${date}`;
 }
 
-export function saveDraft(siteId: string, date: string, data: SaveInput): void {
+/**
+ * serverUpdatedAt は、下書きのもとになったサーバーの日報の updated_at（未保存の日報なら null）。
+ * 開き直したときにサーバーの方が新しければ、復元すると上書きになることを知らせるのに使う。
+ */
+export function saveDraft(siteId: string, date: string, data: SaveInput, serverUpdatedAt: string | null): void {
   try {
-    window.localStorage.setItem(key(siteId, date), JSON.stringify({ ...data, savedAt: new Date().toISOString() }));
+    window.localStorage.setItem(
+      key(siteId, date),
+      JSON.stringify({ ...data, savedAt: new Date().toISOString(), serverUpdatedAt }),
+    );
   } catch {
     // 保存できなくても入力は続けられる。
   }
@@ -39,7 +46,28 @@ export function isValidDraft(v: unknown, siteId: string, date: string): v is Sav
   });
 }
 
-export function loadDraft(siteId: string, date: string): SaveInput | null {
+export interface LoadedDraft {
+  data: SaveInput;
+  /** 下書きのもとになったサーバーの updated_at。古い形式の下書き・未保存の日報なら null。 */
+  serverUpdatedAt: string | null;
+}
+
+/**
+ * サーバーの日報が、下書きのもとになった版より新しいか（他の端末で保存された・後から作られた）。
+ * どちらも PostgREST が返した文字列のまま比べる（同じ文字列なら同じ版）。
+ */
+export function isServerNewer(serverUpdatedAt: string | null, draftServerUpdatedAt: string | null): boolean {
+  if (serverUpdatedAt === null) return false;
+  if (draftServerUpdatedAt === null) return true;
+  if (serverUpdatedAt === draftServerUpdatedAt) return false;
+  const s = Date.parse(serverUpdatedAt);
+  const d = Date.parse(draftServerUpdatedAt);
+  if (Number.isNaN(s) || Number.isNaN(d)) return true;
+  // 文字列が違い、ミリ秒まで同じならマイクロ秒の差なので新しいとみなす
+  return s >= d;
+}
+
+export function loadDraft(siteId: string, date: string): LoadedDraft | null {
   try {
     const raw = window.localStorage.getItem(key(siteId, date));
     if (!raw) return null;
@@ -49,10 +77,10 @@ export function loadDraft(siteId: string, date: string): SaveInput | null {
       clearDraft(siteId, date);
       return null;
     }
-    // savedAt は保存時刻のメタ情報なので取り除く。
-    const { savedAt: _savedAt, ...data } = parsed as SaveInput & { savedAt?: string };
+    // savedAt・serverUpdatedAt はメタ情報なので取り除く。
+    const { savedAt: _savedAt, serverUpdatedAt, ...data } = parsed as SaveInput & { savedAt?: string; serverUpdatedAt?: unknown };
     void _savedAt;
-    return data;
+    return { data, serverUpdatedAt: typeof serverUpdatedAt === 'string' ? serverUpdatedAt : null };
   } catch {
     return null;
   }
