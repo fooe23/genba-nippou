@@ -15,12 +15,13 @@ export async function getCurrentProfile(): Promise<Profile | null> {
   const user = userData.user;
   if (!user) return null;
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('profiles')
     .select('id, name, email, is_admin')
     .eq('id', user.id)
     .maybeSingle();
 
+  if (error) console.error('[profiles]', error.message);
   if (!data) {
     return { id: user.id, name: '', email: user.email ?? '', isAdmin: false };
   }

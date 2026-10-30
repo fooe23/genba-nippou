@@ -28,9 +28,12 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  // セッションを検証・更新する（getSession ではなく getClaims を使う）
-  const { data } = await supabase.auth.getClaims();
-  const isLoggedIn = !!data?.claims;
+  // セッションを検証・更新する。ページ側（requireProfile）と同じ getUser() で判定し、
+  // 失効済みセッションで / と /login を行き来するリダイレクトループを防ぐ。
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const isLoggedIn = !!user;
   const { pathname } = request.nextUrl;
   const isLoginPage = pathname === LOGIN_PATH;
 

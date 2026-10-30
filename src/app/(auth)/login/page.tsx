@@ -16,18 +16,27 @@ export default function LoginPage() {
     e.preventDefault();
     setError('');
     setLoading(true);
-    const supabase = createBrowserSupabase();
-    const { error: signInError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    if (signInError) {
-      setError('メールアドレスまたはパスワードが違います');
+    try {
+      const supabase = createBrowserSupabase();
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      if (signInError) {
+        setError(
+          signInError.status === 400
+            ? 'メールアドレスまたはパスワードが違います'
+            : '通信エラーが発生しました。しばらくしてからもう一度お試しください。',
+        );
+        return;
+      }
+      router.replace('/');
+      router.refresh();
+    } catch {
+      setError('通信エラーが発生しました。しばらくしてからもう一度お試しください。');
+    } finally {
       setLoading(false);
-      return;
     }
-    router.replace('/');
-    router.refresh();
   }
 
   return (
