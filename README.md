@@ -73,9 +73,9 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 既存の業務日報アプリと同じプロジェクトを使う。
 
 1. SQL Editor → New query に `supabase/schema_genba.sql` を全部貼り付けて Run。何度実行しても安全で、既存アプリのテーブルは変更されない。`gn_` テーブル、RLS、Storage バケット（`gn-estimates` `gn-photos` `gn-exports`）が作られる。
-2. `supabase/verify_rls.md` の手順で権限を確認し、結果をチェックボックスに記録する（担当外の現場が見えないこと、承認権限など）。
-3. 最初の管理者：SQL Editor で `update public.profiles set is_admin = true where email = '<管理者のメール>';` を実行する。以降の担当者の割り当ては管理画面から行う。
-4. 公開後に Authentication → URL Configuration を設定する（次章の手順 3）。
+2. 最初の管理者：SQL Editor で `update public.profiles set is_admin = true where email = '<管理者のメール>';` を実行する。以降の担当者の割り当ては管理画面から行う。
+3. `supabase/verify_rls.md` の手順で権限を確認し、結果をチェックボックスに記録する（担当外の現場が見えないこと、承認権限など。管理者アカウントが必要なので手順2の後に行う）。共用プロジェクトに検証用の現場（検証現場X／Y）などのテスト行を作るため、最後の「7. 後片付け」で必ず削除する。
+4. 公開後に Authentication → URL Configuration を設定する（次章の手順 4）。
 
 ## GitHub と Vercel
 
@@ -83,6 +83,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 2. ローカルで接続して push する。マージ前は `phase1` ブランチ、`main` へマージ後は `main`。
    ```bash
    git remote add origin <リポジトリURL>
+   git branch --show-current   # phase1 と表示されることを確認
    git push -u origin phase1
    ```
 3. Vercel → Add New → Project → GitHub のリポジトリを Import。Framework は Next.js のまま。Environment Variables に次の2つを設定して Deploy する。
@@ -110,6 +111,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 ## 既知の制約
 
 - 未実装：Excel出力、PDF出力、積算書の取り込みと連携、写真の添付（第2〜4計画）。
+- マスターのExcel取り込みは未実装（第4計画）。
 - 1現場につき1日1枚の日報。
 - Storage のオブジェクトパスは先頭を `<site_id>/…` にする。RLS が先頭要素の現場IDで権限を判定するため、この規約を外れるとアクセスできない。
 - 作業内容の行は手入力のみ（積算内訳からの選択は第3計画）。
