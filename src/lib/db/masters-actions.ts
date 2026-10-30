@@ -6,16 +6,20 @@ import { requireAdmin } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
 import {
   leaseItemInputSchema,
+  leaseItemWithRateSchema,
   optionInputSchema,
   parseOrThrow,
   rateInputSchema,
   supplierInputSchema,
   vehicleInputSchema,
   workerInputSchema,
+  workerWithRateSchema,
   type LeaseItemInput,
+  type LeaseItemWithRateInput,
   type SupplierInput,
   type VehicleInput,
   type WorkerInput,
+  type WorkerWithRateInput,
 } from '@/lib/db/masters-schemas';
 
 const PATH = '/admin/masters';
@@ -153,4 +157,59 @@ export async function upsertWeather(name: string, sortOrder: number): Promise<vo
     .upsert({ name: v.name, sort_order: v.sortOrder }, { onConflict: 'name' });
   if (error) throw new Error(error.message);
   revalidatePath(PATH);
+}
+
+// 新規作成と初回単価を1アクションで行う。単価の登録に失敗したら作成した行を削除して巻き戻す
+// （再試行しても重複登録にならない）。検証は書き込み前に両方済ませる。
+async function createWithRate(
+  masterTable: string,
+  rateTable: string,
+  ownerColumn: string,
+  master: Record<string, unknown>,
+  amount: number,
+  effectiveFrom: string,
+): Promise<string> {
+  const supabase = await createServerSupabase();
+  const id = await saveRow(supabase, masterTable, undefined, master);
+  const { error } = await supabase
+    .from(rateTable)
+    .insert({ [ownerColumn]: id, amount, effective_from: effectiveFrom });
+  if (error) {
+    const { error: rollbackError } = await supabase.from(masterTable).delete().eq('id', id);
+    if (rollbackError) {
+      throw new Error('単価の登録に失敗し、作成した行の取り消しにも失敗しました。一覧を確認してください。');
+    }
+    throw new Error('単価の登録に失敗したため、登録を取り消しました。もう一度お試しください。');
+  }
+  return id;
+}
+
+export async function createWorkerWithRate(input: WorkerWithRateInput): Promise<string> {
+  await requireAdmin();
+  const v = parseOrThrow(workerWithRateSchema, input);
+  const id = await createWithRate(
+    'gn_workers',
+    'gn_worker_rates',
+    'worker_id',
+    { name: v.name, trade: nullable(v.trade), note: nullable(v.note) },
+    v.amount,
+    v.effectiveFrom,
+  );
+  revalidatePath(PATH);
+  return id;
+}
+
+export async function createLeaseItemWithRate(input: LeaseItemWithRateInput): Promise<string> {
+  await requireAdmin();
+  const v = parseOrThrow(leaseItemWithRateSchema, input);
+  const id = await createWithRate(
+    'gn_lease_items',
+    'gn_lease_item_rates',
+    'item_id',
+    { name: v.name, spec: nullable(v.spec), note: nullable(v.note) },
+    v.amount,
+    v.effectiveFrom,
+  );
+  revalidatePath(PATH);
+  return id;
 }

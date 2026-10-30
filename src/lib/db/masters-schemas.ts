@@ -66,6 +66,16 @@ export const leaseItemInputSchema = z.object({
 });
 export type LeaseItemInput = z.input<typeof leaseItemInputSchema>;
 
+export const workerWithRateSchema = workerInputSchema
+  .pick({ name: true, trade: true, note: true })
+  .extend({ amount: amountSchema, effectiveFrom: dateSchema });
+export type WorkerWithRateInput = z.input<typeof workerWithRateSchema>;
+
+export const leaseItemWithRateSchema = leaseItemInputSchema
+  .pick({ name: true, spec: true, note: true })
+  .extend({ amount: amountSchema, effectiveFrom: dateSchema });
+export type LeaseItemWithRateInput = z.input<typeof leaseItemWithRateSchema>;
+
 export const rateInputSchema = z.object({
   ownerId: idSchema,
   amount: amountSchema,

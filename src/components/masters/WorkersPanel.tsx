@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { yen } from '@/lib/calc/format';
 import { rateAt } from '@/lib/calc/rates';
-import { addWorkerRate, upsertWorker } from '@/lib/db/masters-actions';
+import { addWorkerRate, createWorkerWithRate, upsertWorker } from '@/lib/db/masters-actions';
 import type { Worker } from '@/lib/db/masters';
 import { amountSchema, dateSchema, firstError, workerInputSchema } from '@/lib/db/masters-schemas';
 import {
@@ -76,8 +76,12 @@ function WorkerForm({ worker, onDone }: { worker: Worker | null; onDone: () => v
       return;
     }
     run(async () => {
-      const id = await upsertWorker(input);
-      if (!worker && rateRaw !== '') await addWorkerRate(id, rateAmount, rateDate);
+      // 新規＋初回単価は1アクション（途中失敗は巻き戻され、成功後はダイアログを閉じるので重複しない）
+      if (!worker && rateRaw !== '') {
+        await createWorkerWithRate({ ...input, amount: rateAmount, effectiveFrom: rateDate });
+      } else {
+        await upsertWorker(input);
+      }
     }, onDone);
   }
 

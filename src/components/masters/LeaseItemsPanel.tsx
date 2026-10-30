@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { yen } from '@/lib/calc/format';
 import { rateAt } from '@/lib/calc/rates';
-import { addLeaseItemRate, upsertLeaseItem } from '@/lib/db/masters-actions';
+import { addLeaseItemRate, createLeaseItemWithRate, upsertLeaseItem } from '@/lib/db/masters-actions';
 import type { LeaseItem } from '@/lib/db/masters';
 import { amountSchema, dateSchema, firstError, leaseItemInputSchema } from '@/lib/db/masters-schemas';
 import {
@@ -70,8 +70,11 @@ function LeaseItemForm({ item, onDone }: { item: LeaseItem | null; onDone: () =>
       return;
     }
     run(async () => {
-      const id = await upsertLeaseItem(input);
-      if (!item && rateRaw !== '') await addLeaseItemRate(id, rateAmount, rateDate);
+      if (!item && rateRaw !== '') {
+        await createLeaseItemWithRate({ ...input, amount: rateAmount, effectiveFrom: rateDate });
+      } else {
+        await upsertLeaseItem(input);
+      }
     }, onDone);
   }
 
