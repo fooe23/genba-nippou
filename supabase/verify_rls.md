@@ -262,7 +262,129 @@ rollback;
 同じSQLの `<A_ID>`（`set_config` の行）を `<B_ID>` に変えて実行:
 - [ ] Bには `...b1/test.txt` だけが見える
 
-## 6. 後片付け
+## 6. 承認ガードの追加検証（insert への適用・承認系の列・指摘事項の現場整合）
+
+**6-1. Aが最初から `approved` の日報を insert する（not_reviewer で失敗するはず）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+insert into public.gn_daily_reports (site_id, report_date, status, approved_by, approved_at)
+values ('00000000-0000-0000-0000-0000000000a1', '2026-11-03', 'approved', '<A_ID>', now());
+rollback;
+```
+- [ ] エラーメッセージが `not_reviewer` だった
+
+**6-2. Aが draft の日報に `approved_by` だけを書き込む（status は変えない。not_reviewer で失敗するはず）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+update public.gn_daily_reports set approved_by = '<A_ID>'
+ where site_id = '00000000-0000-0000-0000-0000000000a1' and report_date = '2026-11-02';
+rollback;
+```
+- [ ] エラーメッセージが `not_reviewer` だった（`reviewed_by` / `approved_at` / `rejected_reason` でも同様）
+
+**6-3. Aが `created_by` を他人にして insert しても A に上書きされる**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+insert into public.gn_daily_reports (site_id, report_date, created_by)
+values ('00000000-0000-0000-0000-0000000000a1', '2026-11-04', '<B_ID>')
+returning report_date, created_by;
+rollback;
+```
+- [ ] 返ってきた `created_by` が `<A_ID>`（Bではない）だった
+
+**6-4. reviewer は承認できる（正のケース）**
+
+管理者権限でBを現場Xの `reviewer` にする（Bは現場Yの staff のまま）:
+```sql
+insert into public.gn_site_members (site_id, user_id, role) values ('00000000-0000-0000-0000-0000000000a1', '<B_ID>', 'reviewer')
+on conflict (site_id, user_id) do nothing;
+```
+Bが 2026-11-02 の日報を承認する:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<B_ID>","role":"authenticated"}', true);
+update public.gn_daily_reports
+   set status = 'approved', approved_by = '<B_ID>', approved_at = now(), reviewed_by = '<B_ID>'
+ where site_id = '00000000-0000-0000-0000-0000000000a1' and report_date = '2026-11-02'
+returning status, approved_by;
+commit;
+```
+- [ ] エラーなく更新でき、`status = approved` が返った
+
+**6-5. 管理者が承認を取り消すと、Aがまた編集できる**
+
+管理者が差し戻し（承認系の列もクリア）:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<ADMIN_ID>","role":"authenticated"}', true);
+update public.gn_daily_reports
+   set status = 'submitted', approved_by = null, approved_at = null, reviewed_by = null
+ where site_id = '00000000-0000-0000-0000-0000000000a1' and report_date = '2026-11-02';
+commit;
+```
+Aが編集:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+update public.gn_daily_reports set weather = '曇り'
+ where site_id = '00000000-0000-0000-0000-0000000000a1' and report_date = '2026-11-02'
+returning weather, status;
+rollback;
+```
+- [ ] エラーなく更新できた（`approved_report_locked` にならない）
+
+**6-6. 他現場の日報に指摘事項を付けられない**
+
+Bが現場Yで日報を作る（B は現場Yの staff）:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<B_ID>","role":"authenticated"}', true);
+select public.gn_save_report(
+  '{"site_id":"00000000-0000-0000-0000-0000000000b1","report_date":"2026-11-01"}'::jsonb, '[]'::jsonb);
+commit;
+```
+Bの日報の id を調べて控える（管理者権限でそのまま実行）:
+```sql
+select id from public.gn_daily_reports where site_id = '00000000-0000-0000-0000-0000000000b1' and report_date = '2026-11-01';
+```
+AがそのidをBの日報として指定し、現場Xを名乗って指摘事項を追加しようとする（`<B_REPORT_ID>` を置き換える）:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+insert into public.gn_report_issues (site_id, report_id, body)
+values ('00000000-0000-0000-0000-0000000000a1', '<B_REPORT_ID>', 'なりすまし指摘');
+rollback;
+```
+- [ ] エラーメッセージが `report_not_found` だった（Aにはその日報が見えないため。指摘事項は作られない）
+
+Aが自分の現場Xの日報に、site_id を現場Yと偽って追加する:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+insert into public.gn_report_issues (site_id, report_id, body)
+select '00000000-0000-0000-0000-0000000000b1', id, '正しい現場に補正される' from public.gn_daily_reports
+ where report_date = '2026-11-01' and site_id = '00000000-0000-0000-0000-0000000000a1'
+returning site_id, body;
+rollback;
+```
+- [ ] 返ってきた `site_id` が現場X（`...a1`）に補正されていた
+
+**6-7. 通常の保存は引き続き通る**
+- [ ] 手順3の `gn_save_report`（draft の日報への2回保存）が、ガード追加後も同じ結果で成功する（`gn_save_report` は承認系の4列と status を変更しないため）
+
+## 7. 後片付け
 
 管理者として日報を削除してから、現場を削除する（日報があると現場は消せない）。
 

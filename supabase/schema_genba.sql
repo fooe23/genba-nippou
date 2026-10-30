@@ -290,25 +290,59 @@ returns text language sql stable security definer set search_path = public as $$
 $$;
 
 -- ---------- 8. ガードトリガー ----------
--- 承認済み日報の変更禁止（管理者は除く）／承認・差戻しは reviewer 以上のみ
+-- 日報のガード（insert / update 両方）：
+--   * 承認済み日報の変更禁止（管理者は除く）
+--   * status を approved / rejected にできるのは reviewer 以上（管理者含む）のみ。
+--     insert で最初から approved/rejected を作ることも同様に禁止
+--   * reviewed_by / approved_by / approved_at / rejected_reason は reviewer 以上だけが変更可
+--     （担当者は insert で入れることも、update で値を変えることもできない）
+--   * insert 時、管理者以外は created_by を auth.uid() に強制（なりすまし防止）
+-- gn_save_report はこの4列に触れず status も変えない（insert は draft、on conflict update は
+-- 本文の列のみ）ので、draft / submitted / rejected の日報では担当者でもこのガードを通る。
 -- メッセージ文字列はクライアントが判定に使うため変更しないこと
 create or replace function public.gn_report_guard()
 returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_reviewer boolean;
 begin
+  v_reviewer := coalesce(public.gn_site_role(new.site_id), '') in ('reviewer','approver');
+
+  if tg_op = 'INSERT' then
+    if new.status not in ('draft','submitted') and not v_reviewer then
+      raise exception using message = 'not_reviewer';
+    end if;
+    if not v_reviewer and (
+         new.reviewed_by is not null or new.approved_by is not null
+         or new.approved_at is not null or new.rejected_reason is not null) then
+      raise exception using message = 'not_reviewer';
+    end if;
+    if not public.is_admin() then
+      new.created_by := auth.uid();
+    end if;
+    return new;
+  end if;
+
+  -- update
   if old.status = 'approved' and not public.is_admin() then
     raise exception using message = 'approved_report_locked';
   end if;
-  if new.status is distinct from old.status and new.status in ('approved','rejected') then
-    if coalesce(public.gn_site_role(new.site_id), '') not in ('reviewer','approver') then
-      raise exception using message = 'not_reviewer';
-    end if;
+  if new.status is distinct from old.status and new.status in ('approved','rejected')
+     and not v_reviewer then
+    raise exception using message = 'not_reviewer';
+  end if;
+  if not v_reviewer and (
+       new.reviewed_by     is distinct from old.reviewed_by
+       or new.approved_by     is distinct from old.approved_by
+       or new.approved_at     is distinct from old.approved_at
+       or new.rejected_reason is distinct from old.rejected_reason) then
+    raise exception using message = 'not_reviewer';
   end if;
   return new;
 end;
 $$;
 
 drop trigger if exists gn_report_guard on public.gn_daily_reports;
-create trigger gn_report_guard before update on public.gn_daily_reports
+create trigger gn_report_guard before insert or update on public.gn_daily_reports
   for each row execute function public.gn_report_guard();
 
 -- 親日報が承認済みなら明細の追加・変更・削除を禁止（管理者は除く）
@@ -339,6 +373,29 @@ $$;
 drop trigger if exists gn_report_lines_guard on public.gn_report_lines;
 create trigger gn_report_lines_guard before insert or update or delete on public.gn_report_lines
   for each row execute function public.gn_report_lines_guard();
+
+-- 指摘事項の site_id は親日報の site_id に強制する（他現場の日報への紐付けを防ぐ）。
+-- security invoker：親日報の検索は呼び出しユーザーの RLS（gn_daily_reports の select =
+-- 現場メンバーのみ）が効くので、他現場の日報は見つからず report_not_found になる。
+-- 念のため gn_is_site_member でも明示的に確認する。
+-- BEFORE トリガーは RLS の with check より先に走るので、強制後の site_id が検査される。
+create or replace function public.gn_report_issues_guard()
+returns trigger language plpgsql security invoker set search_path = public as $$
+declare
+  v_site uuid;
+begin
+  select r.site_id into v_site from public.gn_daily_reports r where r.id = new.report_id;
+  if v_site is null or not public.gn_is_site_member(v_site) then
+    raise exception using message = 'report_not_found';
+  end if;
+  new.site_id := v_site;
+  return new;
+end;
+$$;
+
+drop trigger if exists gn_report_issues_guard on public.gn_report_issues;
+create trigger gn_report_issues_guard before insert or update on public.gn_report_issues
+  for each row execute function public.gn_report_issues_guard();
 
 -- ---------- 9. 日報の保存（upsert + 明細の置き換え + 合計の再計算） ----------
 -- security invoker：呼び出しユーザーの RLS とガードトリガーがそのまま効く。
