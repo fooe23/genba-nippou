@@ -1,0 +1,1489 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>工事現場作業日報 入力ガイド</title>
+<style>
+  :root {
+    --primary: #1a5276;
+    --primary-light: #2980b9;
+    --accent: #e67e22;
+    --accent-light: #f39c12;
+    --success: #27ae60;
+    --danger: #c0392b;
+    --bg: #f8f9fa;
+    --card-bg: #ffffff;
+    --text: #2c3e50;
+    --text-light: #7f8c8d;
+    --border: #dce1e6;
+    --yellow-cell: #fff9c4;
+    --blue-cell: #e3f2fd;
+    --green-cell: #e8f5e9;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", "Meiryo", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.8;
+    font-size: 15px;
+  }
+
+  /* ===== COVER PAGE ===== */
+  .cover {
+    min-height: 100vh;
+    background: linear-gradient(135deg, var(--primary) 0%, #1a3c5e 50%, #0d2137 100%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    text-align: center;
+    padding: 40px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .cover::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: radial-gradient(circle at 30% 70%, rgba(230,126,34,0.15) 0%, transparent 50%),
+                radial-gradient(circle at 70% 30%, rgba(41,128,185,0.15) 0%, transparent 50%);
+    animation: pulse 8s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+  }
+  .cover-icon {
+    width: 100px;
+    height: 100px;
+    margin-bottom: 30px;
+    position: relative;
+    z-index: 1;
+  }
+  .cover h1 {
+    font-size: 2.4em;
+    font-weight: 800;
+    letter-spacing: 0.05em;
+    margin-bottom: 10px;
+    position: relative;
+    z-index: 1;
+  }
+  .cover .subtitle {
+    font-size: 1.1em;
+    opacity: 0.85;
+    margin-bottom: 30px;
+    position: relative;
+    z-index: 1;
+  }
+  .cover .version {
+    font-size: 0.85em;
+    opacity: 0.6;
+    position: relative;
+    z-index: 1;
+  }
+  .cover .company {
+    font-size: 1.3em;
+    font-weight: 600;
+    margin-bottom: 8px;
+    position: relative;
+    z-index: 1;
+    color: var(--accent-light);
+  }
+
+  /* ===== NAVIGATION ===== */
+  .toc {
+    max-width: 900px;
+    margin: 40px auto;
+    padding: 0 20px;
+  }
+  .toc h2 {
+    font-size: 1.5em;
+    color: var(--primary);
+    border-bottom: 3px solid var(--primary);
+    padding-bottom: 8px;
+    margin-bottom: 20px;
+  }
+  .toc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+  }
+  .toc-item {
+    background: var(--card-bg);
+    border-radius: 10px;
+    padding: 18px 20px;
+    border-left: 4px solid var(--primary-light);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+    transition: transform 0.2s, box-shadow 0.2s;
+    text-decoration: none;
+    color: var(--text);
+    display: block;
+  }
+  .toc-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.1);
+  }
+  .toc-item .toc-num {
+    font-size: 1.6em;
+    font-weight: 800;
+    color: var(--primary-light);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .toc-item .toc-title {
+    font-weight: 600;
+    font-size: 1em;
+  }
+  .toc-item .toc-desc {
+    font-size: 0.82em;
+    color: var(--text-light);
+    margin-top: 4px;
+  }
+
+  /* ===== MAIN CONTENT ===== */
+  .content {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+  .section {
+    margin-bottom: 50px;
+  }
+  .section-header {
+    background: linear-gradient(135deg, var(--primary), var(--primary-light));
+    color: #fff;
+    padding: 20px 28px;
+    border-radius: 12px 12px 0 0;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  .section-header .sec-num {
+    font-size: 2em;
+    font-weight: 800;
+    opacity: 0.5;
+    line-height: 1;
+  }
+  .section-header h2 {
+    font-size: 1.4em;
+    font-weight: 700;
+  }
+  .section-body {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-top: none;
+    border-radius: 0 0 12px 12px;
+    padding: 28px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.05);
+  }
+
+  h3 {
+    font-size: 1.15em;
+    color: var(--primary);
+    margin: 28px 0 12px;
+    padding-left: 12px;
+    border-left: 4px solid var(--accent);
+  }
+  h3:first-child { margin-top: 0; }
+
+  h4 {
+    font-size: 1em;
+    color: var(--primary-light);
+    margin: 18px 0 8px;
+  }
+
+  p { margin-bottom: 12px; }
+
+  /* ===== EXCEL SAMPLE IMAGES (SVG) ===== */
+  .excel-sample {
+    background: #fff;
+    border: 2px solid #b0bec5;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 16px 0;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .excel-sample svg {
+    display: block;
+    min-width: 100%;
+  }
+  .sample-caption {
+    background: #eceff1;
+    padding: 8px 14px;
+    font-size: 0.85em;
+    color: var(--text-light);
+    border-top: 1px solid #cfd8dc;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .sample-caption::before {
+    content: '📷';
+    font-size: 1em;
+  }
+
+  /* ===== STEP BOXES ===== */
+  .step {
+    background: var(--blue-cell);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin: 14px 0;
+    border-left: 4px solid var(--primary-light);
+  }
+  .step-num {
+    display: inline-block;
+    background: var(--primary-light);
+    color: #fff;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    text-align: center;
+    line-height: 28px;
+    font-weight: 700;
+    font-size: 0.85em;
+    margin-right: 8px;
+  }
+
+  /* ===== TIP / WARNING / IMPORTANT ===== */
+  .tip, .warning, .important {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    font-size: 0.95em;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .tip {
+    background: #e8f8f5;
+    border-left: 4px solid var(--success);
+  }
+  .warning {
+    background: #fdf2e9;
+    border-left: 4px solid var(--accent);
+  }
+  .important {
+    background: #fdedec;
+    border-left: 4px solid var(--danger);
+  }
+  .tip-icon, .warning-icon, .important-icon {
+    font-size: 1.3em;
+    flex-shrink: 0;
+  }
+
+  /* ===== TABLE ===== */
+  .info-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 14px 0;
+    font-size: 0.92em;
+  }
+  .info-table th {
+    background: var(--primary);
+    color: #fff;
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+  }
+  .info-table td {
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .info-table tr:nth-child(even) td {
+    background: #f5f7fa;
+  }
+  .info-table .yellow {
+    background: var(--yellow-cell) !important;
+    font-weight: 600;
+  }
+  .info-table .auto {
+    background: var(--green-cell) !important;
+    color: #1b5e20;
+    font-size: 0.85em;
+  }
+
+  /* ===== FLOW DIAGRAM ===== */
+  .flow {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 0;
+    margin: 20px 0;
+  }
+  .flow-step {
+    background: var(--primary-light);
+    color: #fff;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 0.9em;
+    text-align: center;
+    min-width: 120px;
+  }
+  .flow-arrow {
+    font-size: 1.5em;
+    color: var(--accent);
+    padding: 0 6px;
+    font-weight: 700;
+  }
+
+  /* ===== BADGE ===== */
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 12px;
+    font-size: 0.78em;
+    font-weight: 600;
+  }
+  .badge-yellow {
+    background: var(--yellow-cell);
+    color: #f57f17;
+    border: 1px solid #f9a825;
+  }
+  .badge-green {
+    background: var(--green-cell);
+    color: #2e7d32;
+    border: 1px solid #66bb6a;
+  }
+  .badge-blue {
+    background: var(--blue-cell);
+    color: #1565c0;
+    border: 1px solid #42a5f5;
+  }
+
+  /* ===== CHECKLIST ===== */
+  .checklist {
+    list-style: none;
+    margin: 14px 0;
+  }
+  .checklist li {
+    padding: 8px 0 8px 32px;
+    position: relative;
+    border-bottom: 1px solid #eee;
+  }
+  .checklist li::before {
+    content: '☐';
+    position: absolute;
+    left: 4px;
+    font-size: 1.2em;
+    color: var(--primary-light);
+  }
+
+  /* ===== MESSAGE BOX ===== */
+  .message-box {
+    background: linear-gradient(135deg, #fef9e7, #fdebd0);
+    border: 2px solid var(--accent);
+    border-radius: 12px;
+    padding: 28px;
+    margin: 24px 0;
+    text-align: center;
+  }
+  .message-box h3 {
+    border: none;
+    padding: 0;
+    text-align: center;
+    color: var(--accent);
+    font-size: 1.3em;
+    margin-bottom: 14px;
+  }
+  .message-box p {
+    font-size: 1.05em;
+    line-height: 2;
+  }
+
+  /* ===== PHILOSOPHY BOX ===== */
+  .philosophy {
+    background: linear-gradient(135deg, var(--primary), #0d2137);
+    color: #fff;
+    border-radius: 16px;
+    padding: 40px 32px;
+    margin: 30px 0;
+    text-align: center;
+  }
+  .philosophy h3 {
+    color: var(--accent-light);
+    border: none;
+    padding: 0;
+    font-size: 1.4em;
+    margin-bottom: 20px;
+  }
+  .philosophy p {
+    font-size: 1.05em;
+    line-height: 2;
+    opacity: 0.92;
+  }
+  .philosophy .quote {
+    font-size: 1.2em;
+    font-style: italic;
+    margin: 20px 0;
+    padding: 16px;
+    border-top: 1px solid rgba(255,255,255,0.2);
+    border-bottom: 1px solid rgba(255,255,255,0.2);
+    color: var(--accent-light);
+  }
+
+  /* ===== RULE BOX ===== */
+  .rule-box {
+    background: #fff;
+    border: 3px solid var(--danger);
+    border-radius: 12px;
+    padding: 24px;
+    margin: 20px 0;
+    position: relative;
+  }
+  .rule-box::before {
+    content: '絶対ルール';
+    position: absolute;
+    top: -14px;
+    left: 20px;
+    background: var(--danger);
+    color: #fff;
+    padding: 2px 16px;
+    border-radius: 20px;
+    font-weight: 700;
+    font-size: 0.85em;
+  }
+
+  /* ===== KB SHORTCUT ===== */
+  kbd {
+    background: #eee;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-family: monospace;
+    font-size: 0.9em;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+  }
+
+  /* ===== FOOTER ===== */
+  .footer {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-light);
+    font-size: 0.85em;
+    border-top: 1px solid var(--border);
+    margin-top: 40px;
+  }
+
+  /* ===== PRINT ===== */
+  @media print {
+    .cover { min-height: auto; padding: 60px 20px; page-break-after: always; }
+    .toc { page-break-after: always; }
+    .section { page-break-inside: avoid; }
+    body { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ========== COVER PAGE ========== -->
+<div class="cover">
+  <svg class="cover-icon" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+    <rect x="15" y="10" width="70" height="80" rx="4" fill="none" stroke="#fff" stroke-width="3"/>
+    <line x1="28" y1="28" x2="72" y2="28" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>
+    <line x1="28" y1="38" x2="72" y2="38" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>
+    <line x1="28" y1="48" x2="60" y2="48" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>
+    <line x1="28" y1="58" x2="65" y2="58" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>
+    <line x1="28" y1="68" x2="55" y2="68" stroke="rgba(255,255,255,0.5)" stroke-width="2"/>
+    <circle cx="72" cy="72" r="18" fill="#e67e22" opacity="0.9"/>
+    <path d="M64 72 L70 78 L80 66" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
+  <div class="company">オオホリ建託 建築事業部</div>
+  <h1>工事現場作業日報<br>入力ガイド</h1>
+  <div class="subtitle">日次報告書 VBA版（プルダウン・行追加付き）v23 対応</div>
+  <div class="version">作成日：2026年6月 ｜ 対象：現場管理者・作業責任者</div>
+</div>
+
+<!-- ========== TABLE OF CONTENTS ========== -->
+<div class="toc">
+  <h2>目次</h2>
+  <div class="toc-grid">
+    <a href="#sec1" class="toc-item">
+      <span class="toc-num">01</span>
+      <span class="toc-title">日報の全体構成</span>
+      <span class="toc-desc">ブックの構造とシートの役割を理解する</span>
+    </a>
+    <a href="#sec2" class="toc-item">
+      <span class="toc-num">02</span>
+      <span class="toc-title">初期設定（マスター登録）</span>
+      <span class="toc-desc">現場情報・作業員・車両・リース品の登録</span>
+    </a>
+    <a href="#sec3" class="toc-item">
+      <span class="toc-num">03</span>
+      <span class="toc-title">日報の入力方法</span>
+      <span class="toc-desc">5つのセクションの入力手順を画像付きで解説</span>
+    </a>
+    <a href="#sec4" class="toc-item">
+      <span class="toc-num">04</span>
+      <span class="toc-title">月次集計・原価集計の確認</span>
+      <span class="toc-desc">自動集計結果と手入力項目の確認方法</span>
+    </a>
+    <a href="#sec5" class="toc-item">
+      <span class="toc-num">05</span>
+      <span class="toc-title">PDF変換とメール送信</span>
+      <span class="toc-desc">日次の絶対ルール：PDFで報告する手順</span>
+    </a>
+    <a href="#sec6" class="toc-item">
+      <span class="toc-num">06</span>
+      <span class="toc-title">運用ルールとファイル管理</span>
+      <span class="toc-desc">命名規則・保存・月次ファイル管理</span>
+    </a>
+    <a href="#sec7" class="toc-item">
+      <span class="toc-num">07</span>
+      <span class="toc-title">日報を書く意義</span>
+      <span class="toc-desc">なぜ毎日の報告が成果と成長につながるのか</span>
+    </a>
+    <a href="#sec8" class="toc-item">
+      <span class="toc-num">08</span>
+      <span class="toc-title">入力チェックリスト</span>
+      <span class="toc-desc">送信前の最終確認リスト</span>
+    </a>
+  </div>
+</div>
+
+<!-- ========== CONTENT ========== -->
+<div class="content">
+
+<!-- ===== SECTION 1: 全体構成 ===== -->
+<div class="section" id="sec1">
+  <div class="section-header">
+    <span class="sec-num">01</span>
+    <h2>日報の全体構成</h2>
+  </div>
+  <div class="section-body">
+    <p>本日報ブックは <strong>35枚のシート</strong> で構成されています。大きく3つの層に分かれており、マスター登録 → 日次入力 → 自動集計の流れで運用します。</p>
+
+    <div class="flow">
+      <div class="flow-step">マスター登録<br><small>（初回のみ）</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">日報入力<br><small>（毎日）</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">PDF変換<br><small>（毎日）</small></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step">メール送信<br><small>（毎日）</small></div>
+    </div>
+
+    <table class="info-table">
+      <thead>
+        <tr><th>シート名</th><th>役割</th><th>入力頻度</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>マスター</strong></td><td>作業員・取引先・車両・リース品の基本情報を登録</td><td>初回 + 随時更新</td></tr>
+        <tr><td><strong>現場情報マスター</strong></td><td>現場名・客先・工事番号・契約金額などを登録 → 全日報ヘッダーに自動反映</td><td>初回（現場着手時）</td></tr>
+        <tr><td><strong>1日〜31日</strong>（31枚）</td><td>日々の作業員・車両・資材・経費を記録</td><td>毎日</td></tr>
+        <tr><td><strong>月次集計</strong></td><td>31日分の原価を自動集計 + 進捗率を手入力</td><td>自動 + 毎日確認</td></tr>
+        <tr><td><strong>現場原価集計</strong></td><td>現場全体の原価・粗利・利益率を一覧表示</td><td>自動（確認のみ）</td></tr>
+        <tr><td><strong>集計データ</strong></td><td>全日報の明細を一覧化（分析用）</td><td>自動（触らない）</td></tr>
+      </tbody>
+    </table>
+
+    <div class="tip">
+      <span class="tip-icon">💡</span>
+      <div><strong>色の意味：</strong>
+        <span class="badge badge-yellow">黄色セル</span> = あなたが入力するセル、
+        <span class="badge badge-green">緑色セル</span> = 自動計算されるセル（触らない）、
+        <span class="badge badge-blue">青色セル</span> = プルダウン選択セル
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION 2: 初期設定 ===== -->
+<div class="section" id="sec2">
+  <div class="section-header">
+    <span class="sec-num">02</span>
+    <h2>初期設定（マスター登録）</h2>
+  </div>
+  <div class="section-body">
+    <p>現場に着手する際、最初に2つのマスターシートを設定します。ここで登録した情報が、日報シートのプルダウンや自動入力に使われます。</p>
+
+    <h3>2-1. 現場情報マスター</h3>
+    <p>「現場情報マスター」シートを開き、黄色セル（C4〜C12）に現場の基本情報を入力します。</p>
+
+    <!-- SVG: 現場情報マスター -->
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <!-- Title bar -->
+        <rect x="0" y="0" width="820" height="30" fill="#217346"/>
+        <text x="10" y="20" fill="#fff" font-size="13" font-weight="bold">シート: 現場情報マスター</text>
+        <text x="700" y="20" fill="rgba(255,255,255,0.6)" font-size="11">入力サンプル</text>
+        <!-- Header note -->
+        <rect x="0" y="30" width="820" height="24" fill="#e3f2fd"/>
+        <text x="10" y="47" fill="#1565c0" font-size="11">※ 黄色セルが入力欄です。登録した情報は全日報シートのヘッダーに自動転記されます。</text>
+        <!-- Grid -->
+        <rect x="0" y="54" width="820" height="280" fill="#fff" stroke="#bbb"/>
+        <!-- Column headers -->
+        <rect x="0" y="54" width="50" height="24" fill="#f0f0f0" stroke="#ccc"/>
+        <text x="25" y="70" text-anchor="middle" fill="#666" font-size="10">行</text>
+        <rect x="50" y="54" width="160" height="24" fill="#f0f0f0" stroke="#ccc"/>
+        <text x="130" y="70" text-anchor="middle" fill="#666" font-size="10">B列（項目名）</text>
+        <rect x="210" y="54" width="360" height="24" fill="#f0f0f0" stroke="#ccc"/>
+        <text x="390" y="70" text-anchor="middle" fill="#666" font-size="10">C〜F列（入力欄）</text>
+        <rect x="570" y="54" width="250" height="24" fill="#f0f0f0" stroke="#ccc"/>
+        <text x="695" y="70" text-anchor="middle" fill="#666" font-size="10">G列（入力ガイド）</text>
+
+        <!-- Data rows -->
+        <!-- Row 4: 現場名 -->
+        <rect x="0" y="78" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="96" text-anchor="middle" fill="#999" font-size="10">4</text>
+        <rect x="50" y="78" width="160" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="60" y="96" fill="#333" font-size="12" font-weight="bold">現場名</text>
+        <rect x="210" y="78" width="360" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="220" y="96" fill="#333" font-size="12">静岡中央ビル改修工事</text>
+        <rect x="570" y="78" width="250" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="580" y="96" fill="#888" font-size="10">工事現場の正式名称</text>
+
+        <!-- Row 5: 客先名 -->
+        <rect x="0" y="106" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="124" text-anchor="middle" fill="#999" font-size="10">5</text>
+        <rect x="50" y="106" width="160" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="60" y="124" fill="#333" font-size="12" font-weight="bold">客先名（請求先）</text>
+        <rect x="210" y="106" width="360" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="220" y="124" fill="#333" font-size="12">株式会社 山田建設</text>
+        <rect x="570" y="106" width="250" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="580" y="124" fill="#888" font-size="10">発注者・請求先名</text>
+
+        <!-- Row 6: 工事名 -->
+        <rect x="0" y="134" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="152" text-anchor="middle" fill="#999" font-size="10">6</text>
+        <rect x="50" y="134" width="160" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="60" y="152" fill="#333" font-size="12" font-weight="bold">工事名</text>
+        <rect x="210" y="134" width="360" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="220" y="152" fill="#333" font-size="12">外壁タイル補修・防水工事</text>
+        <rect x="570" y="134" width="250" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="580" y="152" fill="#888" font-size="10">工事の種別・正式工事名</text>
+
+        <!-- Row 7: 工事番号 -->
+        <rect x="0" y="162" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="180" text-anchor="middle" fill="#999" font-size="10">7</text>
+        <rect x="50" y="162" width="160" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="60" y="180" fill="#333" font-size="12" font-weight="bold">工事番号</text>
+        <rect x="210" y="162" width="360" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="220" y="180" fill="#333" font-size="12">YK-2026-0045</text>
+        <rect x="570" y="162" width="250" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="580" y="180" fill="#888" font-size="10">発注者の工事番号・契約番号</text>
+
+        <!-- Row 9: 工事総額 -->
+        <rect x="0" y="190" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="208" text-anchor="middle" fill="#999" font-size="10">9</text>
+        <rect x="50" y="190" width="160" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="60" y="208" fill="#333" font-size="12" font-weight="bold">工事総請負金額</text>
+        <rect x="210" y="190" width="360" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="220" y="208" fill="#333" font-size="12">15,000,000 円（税込）</text>
+        <rect x="570" y="190" width="250" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="580" y="208" fill="#888" font-size="10">契約金額（税込・円）</text>
+
+        <!-- Row 10-11: 着工・竣工 -->
+        <rect x="0" y="218" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="236" text-anchor="middle" fill="#999" font-size="10">10</text>
+        <rect x="50" y="218" width="160" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="60" y="236" fill="#333" font-size="12" font-weight="bold">着工予定日</text>
+        <rect x="210" y="218" width="360" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="220" y="236" fill="#333" font-size="12">2026年6月1日</text>
+        <rect x="570" y="218" width="250" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="580" y="236" fill="#888" font-size="10">例：2025年4月1日</text>
+
+        <rect x="0" y="246" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="264" text-anchor="middle" fill="#999" font-size="10">11</text>
+        <rect x="50" y="246" width="160" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="60" y="264" fill="#333" font-size="12" font-weight="bold">竣工予定日</text>
+        <rect x="210" y="246" width="360" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="220" y="264" fill="#333" font-size="12">2026年8月31日</text>
+        <rect x="570" y="246" width="250" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="580" y="264" fill="#888" font-size="10">例：2025年4月30日</text>
+
+        <!-- Row 12: 請負の種類 -->
+        <rect x="0" y="274" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="292" text-anchor="middle" fill="#999" font-size="10">12</text>
+        <rect x="50" y="274" width="160" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="60" y="292" fill="#333" font-size="12" font-weight="bold">請負の種類</text>
+        <rect x="210" y="274" width="360" height="28" fill="#e3f2fd" stroke="#42a5f5"/>
+        <text x="220" y="292" fill="#333" font-size="12">元請け ▼</text>
+        <rect x="570" y="274" width="250" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="580" y="292" fill="#888" font-size="10">元請け / 下請 / 常用</text>
+
+        <!-- Legend -->
+        <rect x="10" y="310" width="14" height="14" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="30" y="322" fill="#666" font-size="10">= 手入力セル</text>
+        <rect x="120" y="310" width="14" height="14" fill="#e3f2fd" stroke="#42a5f5"/>
+        <text x="140" y="322" fill="#666" font-size="10">= プルダウン選択</text>
+      </svg>
+      <div class="sample-caption">現場情報マスター 入力サンプル</div>
+    </div>
+
+    <h3>2-2. マスター（作業員・車両・リース品）</h3>
+    <p>「マスター」シートには4つのマスターテーブルがあります。日報入力時のプルダウン候補や、日当・単価の自動入力に使われます。</p>
+
+    <!-- SVG: マスターシート -->
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 260" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="30" fill="#217346"/>
+        <text x="10" y="20" fill="#fff" font-size="13" font-weight="bold">シート: マスター</text>
+
+        <!-- 4 tables side by side -->
+        <!-- Table 1: 作業員 -->
+        <rect x="10" y="40" width="190" height="24" fill="#1a5276" rx="4"/>
+        <text x="105" y="56" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">作業員マスター（A〜E列）</text>
+        <rect x="10" y="64" width="40" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="30" y="78" text-anchor="middle" fill="#666" font-size="9">No.</text>
+        <rect x="50" y="64" width="70" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="85" y="78" text-anchor="middle" fill="#666" font-size="9">作業員名</text>
+        <rect x="120" y="64" width="40" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="140" y="78" text-anchor="middle" fill="#666" font-size="9">職種</text>
+        <rect x="160" y="64" width="40" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="180" y="78" text-anchor="middle" fill="#666" font-size="9">日当</text>
+        <!-- Sample data -->
+        <rect x="10" y="84" width="40" height="20" fill="#fff" stroke="#ddd"/>
+        <text x="30" y="98" text-anchor="middle" fill="#999" font-size="9">1</text>
+        <rect x="50" y="84" width="70" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="55" y="98" fill="#333" font-size="9">田中 太郎</text>
+        <rect x="120" y="84" width="40" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="125" y="98" fill="#333" font-size="9">大工</text>
+        <rect x="160" y="84" width="40" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="165" y="98" fill="#333" font-size="9">18,000</text>
+        <rect x="10" y="104" width="40" height="20" fill="#fff" stroke="#ddd"/>
+        <text x="30" y="118" text-anchor="middle" fill="#999" font-size="9">2</text>
+        <rect x="50" y="104" width="70" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="55" y="118" fill="#333" font-size="9">佐藤 花子</text>
+        <rect x="120" y="104" width="40" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="125" y="118" fill="#333" font-size="9">鉄筋工</text>
+        <rect x="160" y="104" width="40" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="165" y="118" fill="#333" font-size="9">20,000</text>
+
+        <!-- Table 2: 取引先 -->
+        <rect x="215" y="40" width="190" height="24" fill="#1a5276" rx="4"/>
+        <text x="310" y="56" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">取引先マスター（G〜K列）</text>
+        <rect x="215" y="64" width="40" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="235" y="78" text-anchor="middle" fill="#666" font-size="9">No.</text>
+        <rect x="255" y="64" width="80" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="295" y="78" text-anchor="middle" fill="#666" font-size="9">取引先名</text>
+        <rect x="335" y="64" width="35" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="352" y="78" text-anchor="middle" fill="#666" font-size="9">区分</text>
+        <rect x="370" y="64" width="35" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="387" y="78" text-anchor="middle" fill="#666" font-size="9">担当</text>
+        <rect x="215" y="84" width="40" height="20" fill="#fff" stroke="#ddd"/>
+        <text x="235" y="98" text-anchor="middle" fill="#999" font-size="9">1</text>
+        <rect x="255" y="84" width="80" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="260" y="98" fill="#333" font-size="9">ABC建材</text>
+        <rect x="335" y="84" width="35" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="340" y="98" fill="#333" font-size="9">材料</text>
+        <rect x="370" y="84" width="35" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="375" y="98" fill="#333" font-size="9">鈴木</text>
+
+        <!-- Table 3: 車両 -->
+        <rect x="420" y="40" width="190" height="24" fill="#1a5276" rx="4"/>
+        <text x="515" y="56" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">車両マスター（M〜Q列）</text>
+        <rect x="420" y="64" width="40" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="440" y="78" text-anchor="middle" fill="#666" font-size="9">No.</text>
+        <rect x="460" y="64" width="80" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="500" y="78" text-anchor="middle" fill="#666" font-size="9">車両名</text>
+        <rect x="540" y="64" width="35" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="557" y="78" text-anchor="middle" fill="#666" font-size="9">種別</text>
+        <rect x="575" y="64" width="35" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="592" y="78" text-anchor="middle" fill="#666" font-size="9">燃費</text>
+        <rect x="420" y="84" width="40" height="20" fill="#fff" stroke="#ddd"/>
+        <text x="440" y="98" text-anchor="middle" fill="#999" font-size="9">1</text>
+        <rect x="460" y="84" width="80" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="465" y="98" fill="#333" font-size="9">ハイエース 1234</text>
+        <rect x="540" y="84" width="35" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="545" y="98" fill="#333" font-size="9">バン</text>
+        <rect x="575" y="84" width="35" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="580" y="98" fill="#333" font-size="9">10.0</text>
+
+        <!-- Table 4: リース品 -->
+        <rect x="625" y="40" width="185" height="24" fill="#1a5276" rx="4"/>
+        <text x="717" y="56" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">リース品マスター（S〜W列）</text>
+        <rect x="625" y="64" width="35" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="642" y="78" text-anchor="middle" fill="#666" font-size="9">No.</text>
+        <rect x="660" y="64" width="60" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="690" y="78" text-anchor="middle" fill="#666" font-size="9">品目名</text>
+        <rect x="720" y="64" width="45" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="742" y="78" text-anchor="middle" fill="#666" font-size="9">規格</text>
+        <rect x="765" y="64" width="45" height="20" fill="#ddd" stroke="#bbb"/>
+        <text x="787" y="78" text-anchor="middle" fill="#666" font-size="9">単価/日</text>
+        <rect x="625" y="84" width="35" height="20" fill="#fff" stroke="#ddd"/>
+        <text x="642" y="98" text-anchor="middle" fill="#999" font-size="9">1</text>
+        <rect x="660" y="84" width="60" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="665" y="98" fill="#333" font-size="9">足場材</text>
+        <rect x="720" y="84" width="45" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="725" y="98" fill="#333" font-size="9">枠組</text>
+        <rect x="765" y="84" width="45" height="20" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="770" y="98" fill="#333" font-size="9">3,500</text>
+
+        <!-- Note -->
+        <rect x="10" y="140" width="800" height="50" fill="#fef9e7" stroke="#f9a825" rx="6"/>
+        <text x="25" y="162" fill="#e67e22" font-size="12" font-weight="bold">ポイント</text>
+        <text x="25" y="180" fill="#555" font-size="11">マスターに登録した作業員名・車両名・リース品目は、日報シートでプルダウンから選択できます。日当やリース単価も自動入力されます。</text>
+
+        <!-- Max rows note -->
+        <text x="10" y="210" fill="#888" font-size="10">※ 作業員・取引先：最大30件 ｜ 車両・リース品：最大20件 まで登録可能</text>
+
+        <!-- 繰越 section -->
+        <rect x="10" y="225" width="800" height="30" fill="#e8f5e9" stroke="#66bb6a" rx="4"/>
+        <text x="25" y="245" fill="#2e7d32" font-size="11">📊 作業員別 当月集計（行35以降）：前月繰越の黄色セルに先月の累計額を転記すると、複数月の累計集計が可能です。</text>
+      </svg>
+      <div class="sample-caption">マスターシート 4つのマスターテーブル構成</div>
+    </div>
+
+    <div class="warning">
+      <span class="warning-icon">⚠️</span>
+      <div>マスター登録を先に行わないと、日報シートでプルダウンが使えず、日当や単価の自動入力も機能しません。<strong>必ず現場着手前にマスターを完成させてください。</strong></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION 3: 日報入力 ===== -->
+<div class="section" id="sec3">
+  <div class="section-header">
+    <span class="sec-num">03</span>
+    <h2>日報の入力方法（日次シート）</h2>
+  </div>
+  <div class="section-body">
+    <p>毎日の作業終了後、その日に対応する日付シート（例：「3日」シート）を開いて入力します。日報シートは5つのセクションで構成されています。</p>
+
+    <!-- ===== HEADER ===== -->
+    <h3>3-1. ヘッダー部（行1〜4）</h3>
+
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 160" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="30" fill="#217346"/>
+        <text x="10" y="20" fill="#fff" font-size="13" font-weight="bold">シート: 3日（日報シート ヘッダー部）</text>
+        <!-- Row 1: Title -->
+        <rect x="0" y="30" width="820" height="28" fill="#1a5276"/>
+        <text x="410" y="49" text-anchor="middle" fill="#fff" font-size="14" font-weight="bold">工 事 現 場 作 業 日 報</text>
+        <!-- Row 2 -->
+        <rect x="0" y="58" width="100" height="26" fill="#eee" stroke="#ccc"/>
+        <text x="50" y="76" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">現場名</text>
+        <rect x="100" y="58" width="200" height="26" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="110" y="76" fill="#2e7d32" font-size="11">静岡中央ビル改修工事</text>
+        <rect x="300" y="58" width="110" height="26" fill="#eee" stroke="#ccc"/>
+        <text x="355" y="76" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">客先名（請求先）</text>
+        <rect x="410" y="58" width="170" height="26" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="420" y="76" fill="#2e7d32" font-size="11">株式会社 山田建設</text>
+        <rect x="580" y="58" width="60" height="26" fill="#eee" stroke="#ccc"/>
+        <text x="610" y="76" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">日　付</text>
+        <rect x="640" y="58" width="90" height="26" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="650" y="76" fill="#333" font-size="11">2026/6/3</text>
+        <rect x="730" y="58" width="90" height="26" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="735" y="76" fill="#2e7d32" font-size="10">日当合計 ¥56,000</text>
+
+        <!-- Row 3 -->
+        <rect x="0" y="84" width="100" height="26" fill="#eee" stroke="#ccc"/>
+        <text x="50" y="102" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">工事番号</text>
+        <rect x="100" y="84" width="200" height="26" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="110" y="102" fill="#2e7d32" font-size="11">YK-2026-0045</text>
+        <rect x="300" y="84" width="110" height="26" fill="#eee" stroke="#ccc"/>
+        <text x="355" y="102" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">天　候</text>
+        <rect x="410" y="84" width="170" height="26" fill="#e3f2fd" stroke="#42a5f5"/>
+        <text x="420" y="102" fill="#333" font-size="11">晴れ ▼</text>
+        <rect x="580" y="84" width="60" height="26" fill="#eee" stroke="#ccc"/>
+        <text x="610" y="102" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">作業責任者</text>
+        <rect x="640" y="84" width="90" height="26" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="650" y="102" fill="#333" font-size="11">大堀 一郎</text>
+        <rect x="730" y="84" width="90" height="26" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="735" y="102" fill="#2e7d32" font-size="10">燃料費 ¥2,800</text>
+
+        <!-- Row 4 -->
+        <rect x="0" y="110" width="100" height="26" fill="#eee" stroke="#ccc"/>
+        <text x="50" y="128" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">工事概要</text>
+        <rect x="100" y="110" width="630" height="26" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="110" y="128" fill="#2e7d32" font-size="11">外壁タイル補修・防水工事</text>
+        <rect x="730" y="110" width="90" height="26" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="735" y="126" fill="#c0392b" font-size="10" font-weight="bold">本日原価合計</text>
+        <text x="735" y="136" fill="#c0392b" font-size="9">¥74,300</text>
+
+        <!-- Legend -->
+        <rect x="10" y="142" width="12" height="12" fill="#e8f5e9" stroke="#66bb6a"/>
+        <text x="28" y="153" fill="#666" font-size="9">自動入力（マスターから転記）</text>
+        <rect x="200" y="142" width="12" height="12" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="218" y="153" fill="#666" font-size="9">手入力が必要</text>
+        <rect x="340" y="142" width="12" height="12" fill="#e3f2fd" stroke="#42a5f5"/>
+        <text x="358" y="153" fill="#666" font-size="9">プルダウン選択</text>
+      </svg>
+      <div class="sample-caption">日報ヘッダー部 — 入力が必要なのは「日付」「天候」「作業責任者」の3項目のみ</div>
+    </div>
+
+    <table class="info-table">
+      <thead><tr><th>セル</th><th>項目</th><th>入力方法</th></tr></thead>
+      <tbody>
+        <tr><td>F2</td><td>日付</td><td class="yellow">手入力（例：2026/6/3）</td></tr>
+        <tr><td>D3</td><td>天候</td><td class="yellow">プルダウンから選択（晴れ / 曇り / 雨 / 雪 / 晴れ時々曇り 等）</td></tr>
+        <tr><td>F3</td><td>作業責任者</td><td class="yellow">手入力（当日の現場責任者名）</td></tr>
+        <tr><td>B2, D2</td><td>現場名・客先名</td><td class="auto">現場情報マスターから自動転記</td></tr>
+        <tr><td>H2〜H4</td><td>合計金額</td><td class="auto">各セクションの入力から自動計算</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ===== SECTION: Workers ===== -->
+    <h3>3-2.【作業員】セクション（行5〜16）</h3>
+    <p>当日の作業に従事した作業員を入力します。マスターに登録済みの作業員はプルダウンから選択でき、職種と日当が自動で入力されます。</p>
+
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 220" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="28" fill="#1a5276"/>
+        <text x="15" y="19" fill="#fff" font-size="13" font-weight="bold">【作業員】</text>
+        <!-- Column headers -->
+        <rect x="0" y="28" width="50" height="24" fill="#2c3e50" stroke="#1a252f"/>
+        <text x="25" y="44" text-anchor="middle" fill="#fff" font-size="10">項番</text>
+        <rect x="50" y="28" width="150" height="24" fill="#2c3e50" stroke="#1a252f"/>
+        <text x="125" y="44" text-anchor="middle" fill="#fff" font-size="10">作業員名</text>
+        <rect x="200" y="28" width="100" height="24" fill="#2c3e50" stroke="#1a252f"/>
+        <text x="250" y="44" text-anchor="middle" fill="#fff" font-size="10">職　種</text>
+        <rect x="300" y="28" width="50" height="24" fill="#2c3e50" stroke="#1a252f"/>
+        <text x="325" y="44" text-anchor="middle" fill="#fff" font-size="10">単位</text>
+        <rect x="350" y="28" width="70" height="24" fill="#2c3e50" stroke="#1a252f"/>
+        <text x="385" y="44" text-anchor="middle" fill="#fff" font-size="10">人数</text>
+        <rect x="420" y="28" width="110" height="24" fill="#2c3e50" stroke="#1a252f"/>
+        <text x="475" y="44" text-anchor="middle" fill="#fff" font-size="10">日当（円）</text>
+        <rect x="530" y="28" width="130" height="24" fill="#2c3e50" stroke="#1a252f"/>
+        <text x="595" y="44" text-anchor="middle" fill="#fff" font-size="10">労務費（円）</text>
+        <rect x="660" y="28" width="160" height="24" fill="#2c3e50" stroke="#1a252f"/>
+        <text x="740" y="44" text-anchor="middle" fill="#fff" font-size="10">備考</text>
+
+        <!-- Data row 1 -->
+        <rect x="0" y="52" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="70" text-anchor="middle" fill="#999" font-size="11">1</text>
+        <rect x="50" y="52" width="150" height="28" fill="#e3f2fd" stroke="#42a5f5"/>
+        <text x="60" y="70" fill="#333" font-size="11">田中 太郎 ▼</text>
+        <rect x="200" y="52" width="100" height="28" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="210" y="70" fill="#2e7d32" font-size="11">大工</text>
+        <rect x="300" y="52" width="50" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="325" y="70" text-anchor="middle" fill="#888" font-size="11">人</text>
+        <rect x="350" y="52" width="70" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="385" y="70" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">1</text>
+        <rect x="420" y="52" width="110" height="28" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="475" y="70" text-anchor="middle" fill="#2e7d32" font-size="11">18,000</text>
+        <rect x="530" y="52" width="130" height="28" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="595" y="70" text-anchor="middle" fill="#2e7d32" font-size="11" font-weight="bold">18,000</text>
+        <rect x="660" y="52" width="160" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="670" y="70" fill="#333" font-size="10">外壁タイル補修</text>
+
+        <!-- Data row 2 -->
+        <rect x="0" y="80" width="50" height="28" fill="#f8f9fa" stroke="#ddd"/>
+        <text x="25" y="98" text-anchor="middle" fill="#999" font-size="11">2</text>
+        <rect x="50" y="80" width="150" height="28" fill="#e3f2fd" stroke="#42a5f5"/>
+        <text x="60" y="98" fill="#333" font-size="11">佐藤 花子 ▼</text>
+        <rect x="200" y="80" width="100" height="28" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="210" y="98" fill="#2e7d32" font-size="11">鉄筋工</text>
+        <rect x="300" y="80" width="50" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="325" y="98" text-anchor="middle" fill="#888" font-size="11">人</text>
+        <rect x="350" y="80" width="70" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="385" y="98" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">1</text>
+        <rect x="420" y="80" width="110" height="28" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="475" y="98" text-anchor="middle" fill="#2e7d32" font-size="11">20,000</text>
+        <rect x="530" y="80" width="130" height="28" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="595" y="98" text-anchor="middle" fill="#2e7d32" font-size="11" font-weight="bold">20,000</text>
+        <rect x="660" y="80" width="160" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="670" y="98" fill="#333" font-size="10">配筋作業</text>
+
+        <!-- Data row 3 -->
+        <rect x="0" y="108" width="50" height="28" fill="#fff" stroke="#ddd"/>
+        <text x="25" y="126" text-anchor="middle" fill="#999" font-size="11">3</text>
+        <rect x="50" y="108" width="150" height="28" fill="#e3f2fd" stroke="#42a5f5"/>
+        <text x="60" y="126" fill="#333" font-size="11">鈴木 次郎 ▼</text>
+        <rect x="200" y="108" width="100" height="28" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="210" y="126" fill="#2e7d32" font-size="11">作業員</text>
+        <rect x="300" y="108" width="50" height="28" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="325" y="126" text-anchor="middle" fill="#888" font-size="11">人</text>
+        <rect x="350" y="108" width="70" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="385" y="126" text-anchor="middle" fill="#333" font-size="12" font-weight="bold">1</text>
+        <rect x="420" y="108" width="110" height="28" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="475" y="126" text-anchor="middle" fill="#2e7d32" font-size="11">18,000</text>
+        <rect x="530" y="108" width="130" height="28" fill="#e8f5e9" stroke="#ccc"/>
+        <text x="595" y="126" text-anchor="middle" fill="#2e7d32" font-size="11" font-weight="bold">18,000</text>
+        <rect x="660" y="108" width="160" height="28" fill="#fff9c4" stroke="#f9a825"/>
+        <text x="670" y="126" fill="#333" font-size="10">資材搬入補助</text>
+
+        <!-- Empty row -->
+        <rect x="0" y="136" width="50" height="24" fill="#f8f9fa" stroke="#ddd"/>
+        <text x="25" y="152" text-anchor="middle" fill="#ccc" font-size="11">4</text>
+        <rect x="50" y="136" width="150" height="24" fill="#fafafa" stroke="#eee"/>
+        <rect x="200" y="136" width="100" height="24" fill="#fafafa" stroke="#eee"/>
+        <rect x="300" y="136" width="50" height="24" fill="#fafafa" stroke="#eee"/>
+        <rect x="350" y="136" width="70" height="24" fill="#fafafa" stroke="#eee"/>
+        <rect x="420" y="136" width="110" height="24" fill="#fafafa" stroke="#eee"/>
+        <rect x="530" y="136" width="130" height="24" fill="#fafafa" stroke="#eee"/>
+        <rect x="660" y="136" width="160" height="24" fill="#fafafa" stroke="#eee"/>
+        <text x="410" y="152" text-anchor="middle" fill="#ccc" font-size="10">（最大10名まで入力可能）</text>
+
+        <!-- Subtotal -->
+        <rect x="420" y="168" width="110" height="26" fill="#1a5276"/>
+        <text x="475" y="186" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">労務費合計</text>
+        <rect x="530" y="168" width="130" height="26" fill="#e8f5e9" stroke="#27ae60" stroke-width="2"/>
+        <text x="595" y="186" text-anchor="middle" fill="#1b5e20" font-size="12" font-weight="bold">¥56,000</text>
+
+        <!-- Annotation arrows -->
+        <text x="60" y="210" fill="#1565c0" font-size="10">← プルダウンで選択</text>
+        <text x="350" y="210" fill="#e67e22" font-size="10">← 手入力</text>
+        <text x="530" y="210" fill="#27ae60" font-size="10">← 人数 × 日当 で自動計算</text>
+      </svg>
+      <div class="sample-caption">作業員セクション入力サンプル — 作業員名をプルダウンで選択 → 人数を入力 → 労務費が自動計算</div>
+    </div>
+
+    <div class="step"><span class="step-num">1</span> B列「作業員名」セルをクリック → プルダウン（▼）からマスター登録済みの作業員を選択</div>
+    <div class="step"><span class="step-num">2</span> C列「職種」と F列「日当」は自動入力されます（触らないでください）</div>
+    <div class="step"><span class="step-num">3</span> E列「人数」に、その作業員の当日の人工数を入力（通常は「1」）</div>
+    <div class="step"><span class="step-num">4</span> H列「備考」に当日の作業内容を簡潔に記入</div>
+
+    <!-- ===== SECTION: Vehicles ===== -->
+    <h3>3-3.【使用車両・燃料費】セクション（行17〜28）</h3>
+    <p>当日使用した車両と走行距離を記録します。燃費はマスターから自動入力され、燃料費が自動計算されます。</p>
+
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 140" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="28" fill="#1a5276"/>
+        <text x="15" y="19" fill="#fff" font-size="13" font-weight="bold">【使用車両・燃料費】</text>
+        <!-- Headers -->
+        <rect x="0" y="28" width="50" height="22" fill="#2c3e50"/><text x="25" y="43" text-anchor="middle" fill="#fff" font-size="9">項番</text>
+        <rect x="50" y="28" width="150" height="22" fill="#2c3e50"/><text x="125" y="43" text-anchor="middle" fill="#fff" font-size="9">車両名／ナンバー</text>
+        <rect x="200" y="28" width="90" height="22" fill="#2c3e50"/><text x="245" y="43" text-anchor="middle" fill="#fff" font-size="9">燃費(km/L)</text>
+        <rect x="290" y="28" width="50" height="22" fill="#2c3e50"/><text x="315" y="43" text-anchor="middle" fill="#fff" font-size="9">単位</text>
+        <rect x="340" y="28" width="100" height="22" fill="#2c3e50"/><text x="390" y="43" text-anchor="middle" fill="#fff" font-size="9">走行距離(km)</text>
+        <rect x="440" y="28" width="100" height="22" fill="#2c3e50"/><text x="490" y="43" text-anchor="middle" fill="#fff" font-size="9">燃料単価(円/L)</text>
+        <rect x="540" y="28" width="120" height="22" fill="#2c3e50"/><text x="600" y="43" text-anchor="middle" fill="#fff" font-size="9">燃料費（円）</text>
+        <rect x="660" y="28" width="160" height="22" fill="#2c3e50"/><text x="740" y="43" text-anchor="middle" fill="#fff" font-size="9">備考</text>
+        <!-- Data -->
+        <rect x="0" y="50" width="50" height="26" fill="#fff" stroke="#ddd"/><text x="25" y="67" text-anchor="middle" fill="#999" font-size="10">1</text>
+        <rect x="50" y="50" width="150" height="26" fill="#e3f2fd" stroke="#42a5f5"/><text x="60" y="67" fill="#333" font-size="10">ハイエース 1234 ▼</text>
+        <rect x="200" y="50" width="90" height="26" fill="#e8f5e9" stroke="#ccc"/><text x="245" y="67" text-anchor="middle" fill="#2e7d32" font-size="10">10.0</text>
+        <rect x="290" y="50" width="50" height="26" fill="#f5f5f5" stroke="#ddd"/><text x="315" y="67" text-anchor="middle" fill="#888" font-size="10">L</text>
+        <rect x="340" y="50" width="100" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="390" y="67" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">40</text>
+        <rect x="440" y="50" width="100" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="490" y="67" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">170</text>
+        <rect x="540" y="50" width="120" height="26" fill="#e8f5e9" stroke="#ccc"/><text x="600" y="67" text-anchor="middle" fill="#2e7d32" font-size="11" font-weight="bold">680</text>
+        <rect x="660" y="50" width="160" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="670" y="67" fill="#333" font-size="10">現場⇔倉庫往復</text>
+        <!-- Formula note -->
+        <rect x="340" y="84" width="320" height="22" fill="#fef9e7" stroke="#f9a825" rx="4"/>
+        <text x="350" y="99" fill="#e67e22" font-size="10">計算式: 走行距離(40km) ÷ 燃費(10km/L) × 単価(170円) = 680円</text>
+        <!-- Subtotal -->
+        <rect x="440" y="112" width="100" height="22" fill="#1a5276"/><text x="490" y="127" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold">車両費合計</text>
+        <rect x="540" y="112" width="120" height="22" fill="#e8f5e9" stroke="#27ae60" stroke-width="2"/><text x="600" y="127" text-anchor="middle" fill="#1b5e20" font-size="11" font-weight="bold">¥680</text>
+      </svg>
+      <div class="sample-caption">使用車両セクション — 車両をプルダウンで選択 → 走行距離と燃料単価を入力 → 燃料費が自動計算</div>
+    </div>
+
+    <!-- ===== SECTION: Lease ===== -->
+    <h3>3-4.【リース備品・建設機械・道具】セクション（行29〜37）</h3>
+    <p>レンタル・リースしている機材や足場材等を記録します。品目名をプルダウンで選ぶと規格と単価が自動入力されます。数量を入力すれば金額が算出されます。</p>
+
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 100" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="28" fill="#1a5276"/>
+        <text x="15" y="19" fill="#fff" font-size="13" font-weight="bold">【リース備品・建設機械・道具】</text>
+        <rect x="0" y="28" width="50" height="22" fill="#2c3e50"/><text x="25" y="43" text-anchor="middle" fill="#fff" font-size="9">項番</text>
+        <rect x="50" y="28" width="150" height="22" fill="#2c3e50"/><text x="125" y="43" text-anchor="middle" fill="#fff" font-size="9">品目名</text>
+        <rect x="200" y="28" width="120" height="22" fill="#2c3e50"/><text x="260" y="43" text-anchor="middle" fill="#fff" font-size="9">規格・型式</text>
+        <rect x="320" y="28" width="60" height="22" fill="#2c3e50"/><text x="350" y="43" text-anchor="middle" fill="#fff" font-size="9">単位</text>
+        <rect x="380" y="28" width="70" height="22" fill="#2c3e50"/><text x="415" y="43" text-anchor="middle" fill="#fff" font-size="9">数量</text>
+        <rect x="450" y="28" width="110" height="22" fill="#2c3e50"/><text x="505" y="43" text-anchor="middle" fill="#fff" font-size="9">リース単価(円/日)</text>
+        <rect x="560" y="28" width="110" height="22" fill="#2c3e50"/><text x="615" y="43" text-anchor="middle" fill="#fff" font-size="9">リース費（円）</text>
+        <rect x="670" y="28" width="150" height="22" fill="#2c3e50"/><text x="745" y="43" text-anchor="middle" fill="#fff" font-size="9">備考</text>
+        <!-- Data -->
+        <rect x="0" y="50" width="50" height="26" fill="#fff" stroke="#ddd"/><text x="25" y="67" text-anchor="middle" fill="#999" font-size="10">1</text>
+        <rect x="50" y="50" width="150" height="26" fill="#e3f2fd" stroke="#42a5f5"/><text x="60" y="67" fill="#333" font-size="10">足場材 ▼</text>
+        <rect x="200" y="50" width="120" height="26" fill="#e8f5e9" stroke="#ccc"/><text x="210" y="67" fill="#2e7d32" font-size="10">枠組</text>
+        <rect x="320" y="50" width="60" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="350" y="67" text-anchor="middle" fill="#333" font-size="10">式</text>
+        <rect x="380" y="50" width="70" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="415" y="67" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">1</text>
+        <rect x="450" y="50" width="110" height="26" fill="#e8f5e9" stroke="#ccc"/><text x="505" y="67" text-anchor="middle" fill="#2e7d32" font-size="10">3,500</text>
+        <rect x="560" y="50" width="110" height="26" fill="#e8f5e9" stroke="#ccc"/><text x="615" y="67" text-anchor="middle" fill="#2e7d32" font-size="11" font-weight="bold">3,500</text>
+        <rect x="670" y="50" width="150" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="680" y="67" fill="#333" font-size="10">外壁面使用</text>
+        <!-- Subtotal -->
+        <rect x="450" y="78" width="110" height="22" fill="#1a5276"/><text x="505" y="93" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold">リース費合計</text>
+        <rect x="560" y="78" width="110" height="22" fill="#e8f5e9" stroke="#27ae60" stroke-width="2"/><text x="615" y="93" text-anchor="middle" fill="#1b5e20" font-size="11" font-weight="bold">¥3,500</text>
+      </svg>
+      <div class="sample-caption">リース備品セクション — 品目名を選択 → 単位・数量を入力 → リース費が自動計算</div>
+    </div>
+
+    <!-- ===== SECTION: Cash Purchase ===== -->
+    <h3>3-5.【現金購入（備品・道具）】セクション（行38〜47）</h3>
+    <p>ホームセンター等で現金購入した消耗品や道具類を記録します。このセクションはすべて手入力です。</p>
+
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 100" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="28" fill="#1a5276"/>
+        <text x="15" y="19" fill="#fff" font-size="13" font-weight="bold">【現金購入（備品・道具）】</text>
+        <rect x="0" y="28" width="50" height="22" fill="#2c3e50"/><text x="25" y="43" text-anchor="middle" fill="#fff" font-size="9">項番</text>
+        <rect x="50" y="28" width="140" height="22" fill="#2c3e50"/><text x="120" y="43" text-anchor="middle" fill="#fff" font-size="9">品目名</text>
+        <rect x="190" y="28" width="120" height="22" fill="#2c3e50"/><text x="250" y="43" text-anchor="middle" fill="#fff" font-size="9">規格・型式</text>
+        <rect x="310" y="28" width="50" height="22" fill="#2c3e50"/><text x="335" y="43" text-anchor="middle" fill="#fff" font-size="9">単位</text>
+        <rect x="360" y="28" width="70" height="22" fill="#2c3e50"/><text x="395" y="43" text-anchor="middle" fill="#fff" font-size="9">数量</text>
+        <rect x="430" y="28" width="110" height="22" fill="#2c3e50"/><text x="485" y="43" text-anchor="middle" fill="#fff" font-size="9">購入単価（円）</text>
+        <rect x="540" y="28" width="120" height="22" fill="#2c3e50"/><text x="600" y="43" text-anchor="middle" fill="#fff" font-size="9">購入金額（円）</text>
+        <rect x="660" y="28" width="160" height="22" fill="#2c3e50"/><text x="740" y="43" text-anchor="middle" fill="#fff" font-size="9">購入先</text>
+        <!-- Data -->
+        <rect x="0" y="50" width="50" height="26" fill="#fff" stroke="#ddd"/><text x="25" y="67" text-anchor="middle" fill="#999" font-size="10">1</text>
+        <rect x="50" y="50" width="140" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="60" y="67" fill="#333" font-size="10">養生テープ</text>
+        <rect x="190" y="50" width="120" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="200" y="67" fill="#333" font-size="10">50mm×25m 緑</text>
+        <rect x="310" y="50" width="50" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="335" y="67" text-anchor="middle" fill="#333" font-size="10">巻</text>
+        <rect x="360" y="50" width="70" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="395" y="67" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">5</text>
+        <rect x="430" y="50" width="110" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="485" y="67" text-anchor="middle" fill="#333" font-size="10">280</text>
+        <rect x="540" y="50" width="120" height="26" fill="#e8f5e9" stroke="#ccc"/><text x="600" y="67" text-anchor="middle" fill="#2e7d32" font-size="11" font-weight="bold">1,400</text>
+        <rect x="660" y="50" width="160" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="670" y="67" fill="#333" font-size="10">コメリ 静岡南店</text>
+        <!-- Subtotal -->
+        <rect x="430" y="78" width="110" height="22" fill="#1a5276"/><text x="485" y="93" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold">現金購入合計</text>
+        <rect x="540" y="78" width="120" height="22" fill="#e8f5e9" stroke="#27ae60" stroke-width="2"/><text x="600" y="93" text-anchor="middle" fill="#1b5e20" font-size="11" font-weight="bold">¥1,400</text>
+      </svg>
+      <div class="sample-caption">現金購入セクション — 全項目が手入力。購入金額（数量×単価）は自動計算。</div>
+    </div>
+
+    <!-- ===== SECTION: Credit Purchase ===== -->
+    <h3>3-6.【買掛購入（資材・材料・備品）】セクション（行48〜59）</h3>
+    <p>取引先への掛け買い（月末請求）で購入した資材・材料を記録します。入力方法は現金購入と同じで、最後の列が「仕入先」に変わります。</p>
+
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 100" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="28" fill="#1a5276"/>
+        <text x="15" y="19" fill="#fff" font-size="13" font-weight="bold">【買掛購入（資材・材料・備品）】</text>
+        <rect x="0" y="28" width="50" height="22" fill="#2c3e50"/><text x="25" y="43" text-anchor="middle" fill="#fff" font-size="9">項番</text>
+        <rect x="50" y="28" width="140" height="22" fill="#2c3e50"/><text x="120" y="43" text-anchor="middle" fill="#fff" font-size="9">品目名</text>
+        <rect x="190" y="28" width="120" height="22" fill="#2c3e50"/><text x="250" y="43" text-anchor="middle" fill="#fff" font-size="9">規格・型式</text>
+        <rect x="310" y="28" width="50" height="22" fill="#2c3e50"/><text x="335" y="43" text-anchor="middle" fill="#fff" font-size="9">単位</text>
+        <rect x="360" y="28" width="70" height="22" fill="#2c3e50"/><text x="395" y="43" text-anchor="middle" fill="#fff" font-size="9">数量</text>
+        <rect x="430" y="28" width="110" height="22" fill="#2c3e50"/><text x="485" y="43" text-anchor="middle" fill="#fff" font-size="9">仕入単価（円）</text>
+        <rect x="540" y="28" width="120" height="22" fill="#2c3e50"/><text x="600" y="43" text-anchor="middle" fill="#fff" font-size="9">仕入金額（円）</text>
+        <rect x="660" y="28" width="160" height="22" fill="#2c3e50"/><text x="740" y="43" text-anchor="middle" fill="#fff" font-size="9">仕入先</text>
+        <!-- Data -->
+        <rect x="0" y="50" width="50" height="26" fill="#fff" stroke="#ddd"/><text x="25" y="67" text-anchor="middle" fill="#999" font-size="10">1</text>
+        <rect x="50" y="50" width="140" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="60" y="67" fill="#333" font-size="10">外壁タイル</text>
+        <rect x="190" y="50" width="120" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="200" y="67" fill="#333" font-size="10">150角 ベージュ</text>
+        <rect x="310" y="50" width="50" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="335" y="67" text-anchor="middle" fill="#333" font-size="10">枚</text>
+        <rect x="360" y="50" width="70" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="395" y="67" text-anchor="middle" fill="#333" font-size="11" font-weight="bold">50</text>
+        <rect x="430" y="50" width="110" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="485" y="67" text-anchor="middle" fill="#333" font-size="10">250</text>
+        <rect x="540" y="50" width="120" height="26" fill="#e8f5e9" stroke="#ccc"/><text x="600" y="67" text-anchor="middle" fill="#2e7d32" font-size="11" font-weight="bold">12,500</text>
+        <rect x="660" y="50" width="160" height="26" fill="#fff9c4" stroke="#f9a825"/><text x="670" y="67" fill="#333" font-size="10">ABC建材</text>
+        <!-- Subtotal -->
+        <rect x="430" y="78" width="110" height="22" fill="#1a5276"/><text x="485" y="93" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold">買掛購入合計</text>
+        <rect x="540" y="78" width="120" height="22" fill="#e8f5e9" stroke="#27ae60" stroke-width="2"/><text x="600" y="93" text-anchor="middle" fill="#1b5e20" font-size="11" font-weight="bold">¥12,500</text>
+      </svg>
+      <div class="sample-caption">買掛購入セクション — 掛け買いの資材を記録。仕入金額は自動計算。</div>
+    </div>
+
+    <div class="tip">
+      <span class="tip-icon">💡</span>
+      <div><strong>VBA機能について：</strong>このブックにはVBAマクロが搭載されています。行が足りない場合はマクロボタンで行追加が可能です。ファイルを開く際は<strong>「マクロを有効にする」</strong>を選択してください。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION 4: 月次集計 ===== -->
+<div class="section" id="sec4">
+  <div class="section-header">
+    <span class="sec-num">04</span>
+    <h2>月次集計・原価集計の確認</h2>
+  </div>
+  <div class="section-body">
+    <h3>4-1. 月次集計シート</h3>
+    <p>日報を入力すると、「月次集計」シートに31日分の原価が自動で一覧表示されます。ここで手入力が必要なのは3項目だけです。</p>
+
+    <table class="info-table">
+      <thead><tr><th>列</th><th>項目</th><th>入力方法</th></tr></thead>
+      <tbody>
+        <tr><td>A〜I</td><td>日付・天候・作業員数・各原価</td><td class="auto">日報シートから自動集計</td></tr>
+        <tr><td>J</td><td>工事出来高（円）</td><td class="yellow">手入力 — その日の施工完了分の金額を記入</td></tr>
+        <tr><td>K</td><td>進捗率（%）</td><td class="yellow">手入力 — 全体に対する累計進捗率</td></tr>
+        <tr><td>L</td><td>備考</td><td class="yellow">手入力 — 施工内容・作業詳細（施工箇所・工種・具体的な作業内容）</td></tr>
+      </tbody>
+    </table>
+
+    <h3>4-2. 現場原価集計シート</h3>
+    <p>現場全体の損益を一目で確認できるサマリーシートです。すべて自動計算で、手入力は不要です。</p>
+
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 200" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="30" fill="#217346"/>
+        <text x="10" y="20" fill="#fff" font-size="13" font-weight="bold">シート: 現場原価集計（最終集計）</text>
+
+        <rect x="20" y="40" width="780" height="150" fill="#fff" stroke="#bbb" rx="6"/>
+
+        <!-- Cost breakdown -->
+        <text x="40" y="65" fill="#333" font-size="12" font-weight="bold">原価内訳</text>
+        <rect x="40" y="72" width="160" height="20" fill="#eee" stroke="#ddd"/><text x="50" y="87" fill="#333" font-size="10">労務費合計</text>
+        <rect x="200" y="72" width="120" height="20" fill="#e8f5e9" stroke="#ccc"/><text x="260" y="87" text-anchor="middle" fill="#2e7d32" font-size="10">¥1,680,000</text>
+        <rect x="320" y="72" width="60" height="20" fill="#e8f5e9" stroke="#ccc"/><text x="350" y="87" text-anchor="middle" fill="#2e7d32" font-size="10">42.5%</text>
+
+        <rect x="40" y="92" width="160" height="20" fill="#eee" stroke="#ddd"/><text x="50" y="107" fill="#333" font-size="10">車両費（燃料）合計</text>
+        <rect x="200" y="92" width="120" height="20" fill="#e8f5e9" stroke="#ccc"/><text x="260" y="107" text-anchor="middle" fill="#2e7d32" font-size="10">¥85,000</text>
+        <rect x="320" y="92" width="60" height="20" fill="#e8f5e9" stroke="#ccc"/><text x="350" y="107" text-anchor="middle" fill="#2e7d32" font-size="10">2.1%</text>
+
+        <rect x="40" y="112" width="160" height="20" fill="#eee" stroke="#ddd"/><text x="50" y="127" fill="#333" font-size="10">原価合計</text>
+        <rect x="200" y="112" width="120" height="20" fill="#1a5276" stroke="#ccc"/><text x="260" y="127" text-anchor="middle" fill="#fff" font-size="10" font-weight="bold">¥3,950,000</text>
+
+        <!-- P&L -->
+        <text x="450" y="65" fill="#333" font-size="12" font-weight="bold">損益サマリー</text>
+        <rect x="450" y="72" width="160" height="20" fill="#eee" stroke="#ddd"/><text x="460" y="87" fill="#333" font-size="10">工事総請負金額</text>
+        <rect x="610" y="72" width="150" height="20" fill="#e8f5e9" stroke="#ccc"/><text x="685" y="87" text-anchor="middle" fill="#2e7d32" font-size="10">¥15,000,000</text>
+        <rect x="450" y="92" width="160" height="20" fill="#eee" stroke="#ddd"/><text x="460" y="107" fill="#333" font-size="10">総原価</text>
+        <rect x="610" y="92" width="150" height="20" fill="#e8f5e9" stroke="#ccc"/><text x="685" y="107" text-anchor="middle" fill="#2e7d32" font-size="10">¥3,950,000</text>
+        <rect x="450" y="112" width="160" height="26" fill="#27ae60"/><text x="460" y="130" fill="#fff" font-size="11" font-weight="bold">粗利益</text>
+        <rect x="610" y="112" width="150" height="26" fill="#27ae60"/><text x="685" y="130" text-anchor="middle" fill="#fff" font-size="12" font-weight="bold">¥11,050,000</text>
+        <rect x="450" y="138" width="160" height="22" fill="#eee" stroke="#ddd"/><text x="460" y="154" fill="#333" font-size="10">粗利率</text>
+        <rect x="610" y="138" width="150" height="22" fill="#e8f5e9" stroke="#27ae60" stroke-width="2"/><text x="685" y="154" text-anchor="middle" fill="#27ae60" font-size="12" font-weight="bold">73.7%</text>
+        <rect x="450" y="160" width="160" height="22" fill="#eee" stroke="#ddd"/><text x="460" y="176" fill="#333" font-size="10">最終進捗率</text>
+        <rect x="610" y="160" width="150" height="22" fill="#e8f5e9" stroke="#ccc"/><text x="685" y="176" text-anchor="middle" fill="#2e7d32" font-size="10">26.3%</text>
+      </svg>
+      <div class="sample-caption">現場原価集計 — 原価構成比と粗利益が一目でわかるサマリー（全項目自動計算）</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION 5: PDF & Email ===== -->
+<div class="section" id="sec5">
+  <div class="section-header">
+    <span class="sec-num">05</span>
+    <h2>PDF変換とメール送信【日次の絶対ルール】</h2>
+  </div>
+  <div class="section-body">
+
+    <div class="rule-box" style="padding-top: 30px;">
+      <p style="font-size: 1.1em; font-weight: 700; color: var(--danger); text-align: center; margin-bottom: 12px;">
+        毎日の作業終了後、日報を入力し、PDFに変換して、指定メンバーにメール送信すること。
+      </p>
+      <p style="text-align: center; color: #555;">例外なし。現場作業日には必ず実行してください。</p>
+    </div>
+
+    <h3>5-1. PDF変換の手順</h3>
+
+    <h4>方法A：Excelから直接PDF保存（推奨）</h4>
+    <div class="step"><span class="step-num">1</span> 日報の入力が完了したら、送信する日付シート（例：「3日」）を選択した状態にする</div>
+    <div class="step"><span class="step-num">2</span> <kbd>Ctrl</kbd> + <kbd>P</kbd> で印刷画面を開く（Mac: <kbd>⌘</kbd> + <kbd>P</kbd>）</div>
+    <div class="step"><span class="step-num">3</span> プリンターを <strong>「Microsoft Print to PDF」</strong> または <strong>「PDFとして保存」</strong> に変更</div>
+    <div class="step"><span class="step-num">4</span> 印刷範囲が「作業中のシート」になっていることを確認して「印刷」をクリック</div>
+    <div class="step"><span class="step-num">5</span> 保存先を選び、下記の命名規則でファイル名を付けて保存</div>
+
+    <div class="warning">
+      <span class="warning-icon">📝</span>
+      <div><strong>ファイル名の命名規則：</strong><br>
+        <code style="background:#fff;padding:4px 10px;border-radius:4px;border:1px solid #ddd;font-size:1em;">
+          日報_[現場名]_[日付].pdf
+        </code><br>
+        例：<code>日報_静岡中央ビル改修_20260603.pdf</code>
+      </div>
+    </div>
+
+    <h4>方法B：「名前を付けて保存」からPDF</h4>
+    <div class="step"><span class="step-num">1</span> 「ファイル」→「名前を付けて保存」を選択</div>
+    <div class="step"><span class="step-num">2</span> 「ファイルの種類」を <strong>「PDF (*.pdf)」</strong> に変更</div>
+    <div class="step"><span class="step-num">3</span> 「オプション」で「選択したシート」にチェックが入っていることを確認</div>
+    <div class="step"><span class="step-num">4</span> ファイル名を命名規則に従って入力し、「保存」をクリック</div>
+
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 180" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="30" fill="#217346"/>
+        <text x="10" y="20" fill="#fff" font-size="13" font-weight="bold">PDF変換の操作イメージ</text>
+        <!-- Dialog mock -->
+        <rect x="60" y="45" width="700" height="125" fill="#f0f0f0" stroke="#999" rx="6"/>
+        <rect x="60" y="45" width="700" height="28" fill="#e0e0e0" rx="6"/>
+        <text x="75" y="64" fill="#333" font-size="11" font-weight="bold">名前を付けて保存</text>
+        <!-- File name input -->
+        <text x="85" y="95" fill="#555" font-size="10">ファイル名(N):</text>
+        <rect x="190" y="82" width="400" height="24" fill="#fff" stroke="#999" rx="3"/>
+        <text x="200" y="99" fill="#333" font-size="11">日報_静岡中央ビル改修_20260603</text>
+        <!-- File type dropdown -->
+        <text x="85" y="125" fill="#555" font-size="10">ファイルの種類(T):</text>
+        <rect x="190" y="112" width="400" height="24" fill="#fff" stroke="#42a5f5" stroke-width="2" rx="3"/>
+        <text x="200" y="129" fill="#1565c0" font-size="11" font-weight="bold">PDF (*.pdf)</text>
+        <text x="570" y="129" fill="#1565c0" font-size="11">▼</text>
+        <!-- Save button -->
+        <rect x="620" y="138" width="120" height="28" fill="#217346" rx="4"/>
+        <text x="680" y="157" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">保存(S)</text>
+        <!-- Arrow annotation -->
+        <line x1="590" y1="124" x2="600" y2="124" stroke="#c0392b" stroke-width="2"/>
+        <text x="605" y="118" fill="#c0392b" font-size="10" font-weight="bold">ここを</text>
+        <text x="605" y="132" fill="#c0392b" font-size="10" font-weight="bold">PDFに変更！</text>
+      </svg>
+      <div class="sample-caption">「名前を付けて保存」ダイアログ — ファイルの種類を「PDF」に変更して保存</div>
+    </div>
+
+    <h3>5-2. メール送信の手順</h3>
+
+    <div class="step"><span class="step-num">1</span> メールソフト（Outlook等）を開き、<strong>新規メール</strong>を作成</div>
+    <div class="step"><span class="step-num">2</span> <strong>宛先：</strong>社内メーリングリスト（建築事業部の指定アドレス）を入力<br>
+      <small style="color:#888;">※ メーリングリストが設定されていない場合は、上長・工事管理者・経理担当者を個別にTo/Ccに設定</small>
+    </div>
+    <div class="step"><span class="step-num">3</span> <strong>件名：</strong>以下の形式で統一<br>
+      <code style="background:#fff;padding:4px 10px;border-radius:4px;border:1px solid #ddd;">【日報】[現場名] [日付]</code><br>
+      例：<code>【日報】静岡中央ビル改修 2026/6/3</code>
+    </div>
+    <div class="step"><span class="step-num">4</span> <strong>添付ファイル：</strong>先ほど保存したPDFファイルを添付</div>
+    <div class="step"><span class="step-num">5</span> <strong>本文：</strong>簡潔に当日のサマリーを記載（以下テンプレート参照）</div>
+    <div class="step"><span class="step-num">6</span> 内容を確認して <strong>送信</strong></div>
+
+    <div class="excel-sample">
+      <svg viewBox="0 0 820 280" xmlns="http://www.w3.org/2000/svg" font-family="'Yu Gothic','Meiryo',sans-serif">
+        <rect x="0" y="0" width="820" height="30" fill="#0078d4"/>
+        <text x="10" y="20" fill="#fff" font-size="13" font-weight="bold">メール作成イメージ</text>
+        <!-- Email form -->
+        <rect x="0" y="30" width="820" height="250" fill="#fff" stroke="#ddd"/>
+        <!-- To -->
+        <rect x="10" y="38" width="60" height="24" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="40" y="55" text-anchor="middle" fill="#555" font-size="10">宛先</text>
+        <rect x="70" y="38" width="740" height="24" fill="#fff" stroke="#ddd"/>
+        <text x="80" y="55" fill="#333" font-size="11">kensetsu-jigyoubu@oh-group.co.jp（メーリングリスト）</text>
+        <!-- Subject -->
+        <rect x="10" y="66" width="60" height="24" fill="#f5f5f5" stroke="#ddd"/>
+        <text x="40" y="83" text-anchor="middle" fill="#555" font-size="10">件名</text>
+        <rect x="70" y="66" width="740" height="24" fill="#fff" stroke="#ddd"/>
+        <text x="80" y="83" fill="#333" font-size="11" font-weight="bold">【日報】静岡中央ビル改修 2026/6/3</text>
+        <!-- Attachment -->
+        <rect x="70" y="94" width="260" height="24" fill="#e3f2fd" stroke="#42a5f5" rx="4"/>
+        <text x="80" y="111" fill="#1565c0" font-size="10">📎 日報_静岡中央ビル改修_20260603.pdf (124KB)</text>
+        <!-- Body -->
+        <line x1="10" y1="125" x2="810" y2="125" stroke="#eee"/>
+        <text x="20" y="145" fill="#333" font-size="11">お疲れ様です。本日の現場管理日報を送付いたします。</text>
+        <text x="20" y="170" fill="#333" font-size="11">■ 現場名：静岡中央ビル改修工事</text>
+        <text x="20" y="188" fill="#333" font-size="11">■ 天　候：晴れ</text>
+        <text x="20" y="206" fill="#333" font-size="11">■ 作業員：3名</text>
+        <text x="20" y="224" fill="#333" font-size="11">■ 本日原価：¥74,300</text>
+        <text x="20" y="242" fill="#333" font-size="11">■ 主な作業：外壁タイル補修（3階南面完了）、配筋作業（基礎部）</text>
+        <text x="20" y="268" fill="#333" font-size="11">詳細は添付PDFをご確認ください。よろしくお願いいたします。</text>
+      </svg>
+      <div class="sample-caption">メール送信テンプレート — 件名フォーマットと本文サマリーの記載例</div>
+    </div>
+
+    <div class="important">
+      <span class="important-icon">🚨</span>
+      <div><strong>送信前の最終チェック：</strong>PDFを開いて、入力漏れや金額の誤りがないか必ず確認してから送信してください。一度送信したメールは取り消せません。</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION 6: 運用ルール ===== -->
+<div class="section" id="sec6">
+  <div class="section-header">
+    <span class="sec-num">06</span>
+    <h2>運用ルールとファイル管理</h2>
+  </div>
+  <div class="section-body">
+    <h3>6-1. ファイルの命名規則</h3>
+    <p>本ファイルは <strong>1ヶ月分の日報を記録する月別ブック</strong> です。工期が複数月にわたる場合は、月ごとに別ファイルとして保存してください。</p>
+
+    <table class="info-table">
+      <thead><tr><th>用途</th><th>命名規則</th><th>例</th></tr></thead>
+      <tbody>
+        <tr><td>月別Excelブック</td><td>[現場名]_[年月].xlsm</td><td>静岡中央ビル改修_2026年06月.xlsm</td></tr>
+        <tr><td>日次PDF</td><td>日報_[現場名]_[日付8桁].pdf</td><td>日報_静岡中央ビル改修_20260603.pdf</td></tr>
+        <tr><td>メール件名</td><td>【日報】[現場名] [日付]</td><td>【日報】静岡中央ビル改修 2026/6/3</td></tr>
+      </tbody>
+    </table>
+
+    <h3>6-2. マクロ（VBA）の注意事項</h3>
+    <div class="warning">
+      <span class="warning-icon">⚠️</span>
+      <div>
+        ファイルを開く際は「マクロを有効にする」を必ず選択してください。無効にすると、プルダウンや行追加機能が動作しません。<br>
+        また、保存時は必ず <strong>.xlsm形式（マクロ有効ブック）</strong> で保存してください。.xlsx形式で保存するとマクロが失われます。
+      </div>
+    </div>
+
+    <h3>6-3. 月替わり時の操作</h3>
+    <div class="step"><span class="step-num">1</span> 当月ファイルの「マスター」シートで当月集計の合計値を確認・記録</div>
+    <div class="step"><span class="step-num">2</span> テンプレートから新しい月のファイルをコピーして作成</div>
+    <div class="step"><span class="step-num">3</span> 新月のマスターシートで「前月繰越」の黄色セルに先月の累計額を転記</div>
+    <div class="step"><span class="step-num">4</span> 現場情報マスターは前月と同じ内容で設定（変更がなければコピーでOK）</div>
+  </div>
+</div>
+
+<!-- ===== SECTION 7: 日報の意義 ===== -->
+<div class="section" id="sec7">
+  <div class="section-header">
+    <span class="sec-num">07</span>
+    <h2>日報を書く意義 — なぜ毎日の報告が大切なのか</h2>
+  </div>
+  <div class="section-body">
+
+    <div class="philosophy">
+      <h3>現場の一日は、二度と戻らない</h3>
+      <p>
+        毎日の現場には、天候があり、人がいて、材料が動き、工程が進む。<br>
+        その一つひとつの積み重ねが、やがて建物という形になる。<br>
+        日報は、その「足跡」を記録する唯一の手段です。
+      </p>
+      <div class="quote">
+        「記録しなければ、なかったことと同じ。<br>
+        記録すれば、それは資産になる。」
+      </div>
+    </div>
+
+    <h3>日報がもたらす3つの価値</h3>
+
+    <h4>1. 自分自身の「稼ぎ」を可視化する</h4>
+    <p>日報に記録された労務費・原価は、あなた自身とチームが一日にどれだけの価値を生み出したかの証です。日当合計は単なる数字ではなく、職人として現場に立った証明であり、会社の売上を支える根幹です。日報を通じて自分の稼ぎを意識することで、コスト意識が自然と身につき、より効率的な現場運営につながります。</p>
+
+    <h4>2. プロセスを残すことで、結果が変わる</h4>
+    <p>良い結果は偶然生まれるものではありません。毎日の作業内容、使った材料、かかった費用——このプロセスの記録があるからこそ、うまくいった理由がわかり、問題が起きた原因を突き止められます。日報は「振り返り」の原点です。プロセスなき結果には再現性がなく、プロセスを記録する日報があるからこそ、次の現場でも同じ成功を繰り返せます。</p>
+
+    <h4>3. チームの信頼と連携を築く</h4>
+    <p>日報を毎日欠かさず送信することは、現場の状況をリアルタイムで共有することです。上長は現場に行かなくても状況を把握でき、経理は原価を追跡でき、次工程の担当者は準備を進められます。「報告がある現場」は信頼される現場です。そして信頼される現場管理者は、より大きな仕事を任されます。</p>
+
+    <div class="message-box">
+      <h3>日報は「やらされる作業」ではない</h3>
+      <p>
+        日報は、あなた自身の仕事の価値を証明し、<br>
+        チームに安心を届け、<br>
+        明日の現場をもっと良くするための<br>
+        <strong>「自分への投資」</strong>です。<br><br>
+        今日の現場で起きたこと、感じたこと、気づいたこと。<br>
+        それを5分で記録する。その積み重ねが、<br>
+        <strong>1年後のあなたを確実に変えます。</strong>
+      </p>
+    </div>
+
+    <div class="rule-box" style="padding-top: 30px; text-align: center;">
+      <p style="font-size: 1.15em; font-weight: 700; color: var(--danger);">
+        現場作業を終えたら、その日のうちに日報を書いてPDFで送信する。<br>
+        これが建築事業部の「絶対ルール」です。
+      </p>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION 8: チェックリスト ===== -->
+<div class="section" id="sec8">
+  <div class="section-header">
+    <span class="sec-num">08</span>
+    <h2>送信前チェックリスト</h2>
+  </div>
+  <div class="section-body">
+    <p>PDFに変換してメール送信する前に、以下の項目をすべて確認してください。</p>
+
+    <ul class="checklist">
+      <li><strong>日付（F2）</strong>が正しい日付になっているか</li>
+      <li><strong>天候（D3）</strong>がプルダウンから選択されているか</li>
+      <li><strong>作業責任者（F3）</strong>が記入されているか</li>
+      <li><strong>作業員</strong>の人数は実際の出面と一致しているか</li>
+      <li><strong>車両</strong>の走行距離と燃料単価が記入されているか</li>
+      <li><strong>リース品</strong>の数量に漏れはないか</li>
+      <li><strong>現金購入</strong>の品目と購入先が正確に記載されているか（レシート確認）</li>
+      <li><strong>買掛購入</strong>の仕入先名が正確か</li>
+      <li><strong>本日原価合計（H4）</strong>の金額に違和感はないか</li>
+      <li>PDFに変換して内容が正しく表示されるか確認したか</li>
+      <li>メールの宛先（メーリングリスト）が正しいか</li>
+      <li>メールの件名が <code>【日報】[現場名] [日付]</code> の形式か</li>
+      <li>PDFファイルが添付されているか</li>
+    </ul>
+
+    <div class="tip">
+      <span class="tip-icon">✅</span>
+      <div>すべてのチェックが完了したら、メールを送信してください。お疲れ様でした。</div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /content -->
+
+<!-- ========== FOOTER ========== -->
+<div class="footer">
+  <p>オオホリ建託 建築事業部 ｜ 工事現場作業日報 入力ガイド ｜ 2026年6月作成</p>
+  <p>本ガイドに関するお問い合わせは建築事業部管理課までご連絡ください。</p>
+</div>
+
+</body>
+</html>
