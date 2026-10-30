@@ -18,7 +18,7 @@ describe('validateReport の正規化', () => {
       ...base,
       lines: [
         { kind: 'cash', itemName: '雑費', spec: '', unit: '', qty: null, unitPrice: null, vendor: '', amountOnly: 1500 },
-        { kind: 'credit', itemName: 'タイル', spec: '', unit: '枚', qty: 50, unitPrice: 250, supplierId: null, vendor: 'ABC建材', amountOnly: null },
+        { kind: 'credit', itemName: 'タイル', spec: '', unit: '枚', qty: 50, unitPrice: 250, supplierId: null, vendor: 'ABC建材' },
       ],
     });
     expect(r.ok).toBe(true);
@@ -34,6 +34,17 @@ describe('validateReport の正規化', () => {
     });
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.errors[0]).toBe('現金の1行目：単価を入力してください（または「金額のみ入力」）');
+  });
+
+  it('金額のみ入力で金額が空なら「金額を入力してください」の1件だけ', () => {
+    for (const amountOnly of [null, '']) {
+      const r = validateReport({
+        ...base,
+        lines: [{ kind: 'cash', itemName: '雑費', spec: '', unit: '', qty: null, unitPrice: null, vendor: '', amountOnly }],
+      });
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.errors).toEqual(['現金の1行目：金額を入力してください']);
+    }
   });
 
   it('空文字の時刻・数値・ID・天候は null になる', () => {

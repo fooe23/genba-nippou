@@ -123,8 +123,13 @@ const leaseSchema = z.object({
 });
 
 // 現金・買掛: 数量と単価の両方、または金額のみ（amountOnly）のどちらか。
+// amountOnly のキーがあって空（null）なら「金額のみ入力」で金額が未入力。
 function purchaseCheck(v: { qty: number | null; unitPrice: number | null; amountOnly?: number | null }, ctx: z.RefinementCtx) {
-  if (v.amountOnly !== null && v.amountOnly !== undefined) return;
+  if (v.amountOnly === null) {
+    ctx.addIssue({ code: 'custom', message: '金額を入力してください', path: ['amountOnly'] });
+    return;
+  }
+  if (v.amountOnly !== undefined) return;
   if (v.qty === null) ctx.addIssue({ code: 'custom', message: '数量を入力してください（または「金額のみ入力」）', path: ['qty'] });
   if (v.unitPrice === null) ctx.addIssue({ code: 'custom', message: '単価を入力してください（または「金額のみ入力」）', path: ['unitPrice'] });
 }

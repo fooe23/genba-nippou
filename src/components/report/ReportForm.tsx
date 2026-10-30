@@ -110,8 +110,14 @@ export function ReportForm(p: ReportFormProps) {
 
   function restoreDraft() {
     const d = draft.takePending();
-    if (d) setState(fromInput(d));
-    setMessage('保存していない入力を復元しました。「下書き保存」で保存してください。');
+    if (!d) return;
+    try {
+      setState(fromInput(d));
+      setMessage('保存していない入力を復元しました。「下書き保存」で保存してください。');
+    } catch {
+      draft.discard();
+      setMessage('保存していない入力を読み込めなかったため破棄しました。');
+    }
   }
 
   function copyPrevious() {

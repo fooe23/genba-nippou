@@ -59,7 +59,8 @@ export function row<L>(line: L): Row<L> {
 }
 
 function purchaseRow<L extends CashLineInput | CreditLineInput>(line: L): Row<L> {
-  const amountMode = line.amountOnly !== null && line.amountOnly !== undefined;
+  // 金額のみ入力のときだけ amountOnly のキーを持つ（空欄なら null）。
+  const amountMode = line.amountOnly !== undefined;
   return { key: newKey(), line, amountMode };
 }
 

@@ -1,0 +1,34 @@
+import { describe, expect, it } from 'vitest';
+import { isValidDraft } from '@/lib/report/draft';
+
+const siteId = '11111111-1111-4111-8111-111111111111';
+const date = '2026-11-05';
+const draft = {
+  siteId,
+  date,
+  weather: null,
+  supervisor: '大堀',
+  common: { start: '08:00', end: '17:00', breakMin: 60, gapMin: 0 },
+  issuesText: '',
+  notesText: '',
+  lines: [
+    { kind: 'labor', workerId: null, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 19000, note: '' },
+    { kind: 'cash', itemName: '雑費', spec: '', unit: '', qty: null, unitPrice: null, vendor: '', amountOnly: 1500 },
+  ],
+  savedAt: '2026-11-05T09:00:00.000Z',
+};
+
+describe('isValidDraft', () => {
+  it('正しい形の下書きは受け付ける', () => {
+    expect(isValidDraft(draft, siteId, date)).toBe(true);
+  });
+  it('time の無い作業員行・不明な kind・別の現場/日付は不可', () => {
+    const { time: _time, ...noTime } = draft.lines[0];
+    void _time;
+    expect(isValidDraft({ ...draft, lines: [noTime] }, siteId, date)).toBe(false);
+    expect(isValidDraft({ ...draft, lines: [{ kind: 'photo' }] }, siteId, date)).toBe(false);
+    expect(isValidDraft({ ...draft, lines: [null] }, siteId, date)).toBe(false);
+    expect(isValidDraft(draft, siteId, '2026-11-06')).toBe(false);
+    expect(isValidDraft({ ...draft, lines: 'x' }, siteId, date)).toBe(false);
+  });
+});

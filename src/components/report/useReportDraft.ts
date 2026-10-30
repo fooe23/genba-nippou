@@ -9,7 +9,7 @@ const INTERVAL_MS = 2000;
 /**
  * 端末への下書き自動保存。
  * - 開いた時に下書きがあり、サーバーの内容（baseline）と違えば pending に入れる（復元／破棄を選ばせる）。
- * - 選ぶまでは自動保存しない（下書きを上書きしないため）。
+ * - 選ぶまでは自動保存しない（下書きを上書きしないため）。ただし選ばずに入力を始めたら破棄扱いにして自動保存を再開する。
  * - 以降は2秒ごとに、変更があれば保存。サーバーと同じ内容に戻れば下書きを消す。画面を離れる時にも保存する。
  */
 export function useReportDraft({
@@ -41,13 +41,23 @@ export function useReportDraft({
   // 初回だけ: 下書きの有無を確認する（localStorage はサーバー描画では読めないため effect で行う）。
   useEffect(() => {
     const d = enabled ? loadDraft(siteId, date) : null;
-    const differs = d !== null && normalize(d) !== base.current;
+    let differs = false;
+    try {
+      differs = d !== null && normalize(d) !== base.current;
+    } catch {
+      differs = false; // 形の合わない古い下書きは破棄扱い
+    }
     if (d !== null && !differs) clearDraft(siteId, date);
     setPending(differs ? d : null);
     setChecked(true);
     // マウント時に一度だけ確認する。
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 復元帯を出したまま入力を始めたら「破棄」を選んだものとみなし、自動保存を再開する（再開時にすぐ保存して
+  // 古い下書きを置き換える）。何もしないと入力中の内容に端末の控えが無く、後から「復元」を押すと上書きされる。
+  // json と baseline は同じ正規化（toInput）を通した文字列なので、フォーカスの出入りだけでは変わらない。
+  if (pending !== null && json !== baseline) setPending(null);
 
   const active = enabled && checked && pending === null;
 
@@ -60,6 +70,7 @@ export function useReportDraft({
       else saveDraft(siteId, date, JSON.parse(cur) as SaveInput);
       written.current = cur;
     };
+    flush();
     const id = window.setInterval(flush, INTERVAL_MS);
     const onHide = () => {
       if (document.visibilityState === 'hidden') flush();
