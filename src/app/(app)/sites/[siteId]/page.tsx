@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { isUuid } from '@/lib/uuid';
 import { todayJst } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
 import { listOpenIssues, listReportHeads } from '@/lib/db/reports';
@@ -12,6 +13,7 @@ export const metadata = { title: '現場' };
 export default async function SiteDetailPage({ params }: PageProps<'/sites/[siteId]'>) {
   await requireProfile();
   const { siteId } = await params;
+  if (!isUuid(siteId)) notFound();
   const site = await getSite(siteId);
   if (!site) notFound();
   const [heads, issues] = await Promise.all([listReportHeads(siteId), listOpenIssues(siteId)]);

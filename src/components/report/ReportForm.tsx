@@ -2,10 +2,19 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, useTransition, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { jpDate } from '@/lib/calc/format';
 import { commonHours, reportTotals } from '@/lib/calc/report';
-import { addIssue, copyPreviousReport, saveReport, setIssueDone, submitReport, type ReportStateResult, type SaveReportResult } from '@/lib/db/reports-actions';
+import {
+  addIssue,
+  copyPreviousReport,
+  deleteReport,
+  saveReport,
+  setIssueDone,
+  submitReport,
+  type ReportStateResult,
+  type SaveReportResult,
+} from '@/lib/db/reports-actions';
 import type { Issue } from '@/lib/db/reports';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import type { TimeSpec } from '@/lib/types';
@@ -49,10 +58,17 @@ export interface ReportFormProps {
   issues: Issue[];
   /** 現場の対応中の件（バナー用。この日報の件も含む）。 */
   openIssues: Issue[];
+  /** 保存済みの日報の updated_at（楽観ロック用）。未保存なら null。 */
+  updatedAt: string | null;
+  /** 日報の作成者（削除できるかの判定用）。未保存なら null。 */
+  createdBy: string | null;
+  currentUserId: string;
+  isAdmin: boolean;
 }
 
 const SUBMIT_FAILED = '提出に失敗しました。通信状況を確認してもう一度お試しください。';
 const SAVE_FAILED = '保存に失敗しました。通信状況を確認してもう一度お試しください。';
+const DELETE_FAILED = '削除に失敗しました。通信状況を確認してもう一度お試しください。';
 const buttonBase = 'min-h-11 rounded-lg px-4 text-base font-bold disabled:opacity-50';
 
 function Labeled({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
@@ -64,7 +80,7 @@ function Labeled({ label, children, className = '' }: { label: string; children:
   );
 }
 
-function Band({ id, tone, title, items }: { id?: string; tone: 'warn' | 'error'; title: string; items: string[] }) {
+function Band({ id, tone, title, items, action }: { id?: string; tone: 'warn' | 'error'; title: string; items: string[]; action?: ReactNode }) {
   if (items.length === 0) return null;
   const cls =
     tone === 'warn'
@@ -78,6 +94,7 @@ function Band({ id, tone, title, items }: { id?: string; tone: 'warn' | 'error';
           <li key={m}>{m}</li>
         ))}
       </ul>
+      {action}
     </div>
   );
 }
@@ -188,9 +205,30 @@ function IssueList({ reportId, issues, onChanged }: { reportId: string | null; i
   );
 }
 
-/** 日報入力フォーム。上から 見出し → 基本情報 → 前回コピー → 共通時間 → 6表 → 集計 → 重要事項・連絡事項 → 警告 → 保存。 */
+/**
+ * 日報入力フォーム。
+ * 自分の保存・提出で変わった updatedAt は覚えておき、それ以外の版（他の端末の保存・削除）が画面の再読み込みで
+ * 届いたら、入力欄を作り直してサーバーの内容を表示する。未保存の入力は作り直す前に端末の下書きに残るので、
+ * 作り直した後の復元帯（「サーバーの内容がこの下書きより新しいです」）から戻せる。
+ */
 export function ReportForm(p: ReportFormProps) {
+  const [own, setOwn] = useState<string[]>([]);
+  const [seen, setSeen] = useState(p.updatedAt);
+  const [generation, setGeneration] = useState(0);
+  if (p.updatedAt !== seen) {
+    setSeen(p.updatedAt);
+    if (p.updatedAt === null || !own.includes(p.updatedAt)) setGeneration((g) => g + 1);
+  }
+  const onOwnVersion = useCallback((v: string) => setOwn((o) => [...o, v]), []);
+  return <ReportFormBody key={generation} {...p} onOwnVersion={onOwnVersion} />;
+}
+
+/** 上から 見出し → 基本情報 → 前回コピー → 共通時間 → 6表 → 集計 → 重要事項・連絡事項 → 警告 → 保存。 */
+function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion: (v: string) => void }) {
   const router = useRouter();
+  // 楽観ロック：いまの入力のもとになったサーバーの版。自分が保存・提出するたびに新しい版に進める。
+  const [expected, setExpected] = useState(p.updatedAt);
+  const [stale, setStale] = useState(false);
   const [state, setState] = useState<FormState>(() => fromInput(p.initial));
   const [baseline, setBaseline] = useState(() => JSON.stringify(toInput(p.siteId, p.date, fromInput(p.initial))));
   const [errors, setErrors] = useState<string[]>([]);
@@ -213,10 +251,12 @@ export function ReportForm(p: ReportFormProps) {
     baseline,
     normalize: (d) => JSON.stringify(toInput(p.siteId, p.date, fromInput(d))),
     enabled: !p.readOnly,
+    serverUpdatedAt: expected,
   });
 
-  function showErrors(list: string[]) {
+  function showErrors(list: string[], isStale = false) {
     setErrors(list);
+    setStale(isStale);
     window.requestAnimationFrame(() => document.getElementById('report-errors')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
   }
 
@@ -264,6 +304,12 @@ export function ReportForm(p: ReportFormProps) {
     });
   }
 
+  function recordVersion(v: string | null | undefined) {
+    if (v === undefined) return;
+    setExpected(v);
+    if (v !== null) onOwnVersion(v);
+  }
+
   function save() {
     setMessage(null);
     const checked = validateReport(input);
@@ -272,18 +318,20 @@ export function ReportForm(p: ReportFormProps) {
       return;
     }
     setErrors([]);
+    setStale(false);
     const sent = json;
     startTransition(async () => {
       let res: SaveReportResult;
       try {
-        res = await saveReport(input);
+        res = await saveReport(input, expected);
       } catch {
         res = { ok: false, error: SAVE_FAILED };
       }
       if (!res.ok) {
-        showErrors([res.error]);
+        showErrors([res.error], res.stale === true);
         return;
       }
+      recordVersion(res.updatedAt);
       draft.discard(sent);
       setBaseline(sent);
       setMessage('下書き保存しました。');
@@ -305,19 +353,21 @@ export function ReportForm(p: ReportFormProps) {
       return;
     }
     setErrors([]);
+    setStale(false);
     const sent = json;
     startTransition(async () => {
       // 提出内容が最新になるよう、先に保存してから提出する。
       let saved: SaveReportResult;
       try {
-        saved = await saveReport(input);
+        saved = await saveReport(input, expected);
       } catch {
         saved = { ok: false, error: SAVE_FAILED };
       }
       if (!saved.ok) {
-        showErrors([saved.error]);
+        showErrors([saved.error], saved.stale === true);
         return;
       }
+      recordVersion(saved.updatedAt);
       draft.discard(sent);
       setBaseline(sent);
       let res: ReportStateResult;
@@ -331,8 +381,44 @@ export function ReportForm(p: ReportFormProps) {
         router.refresh();
         return;
       }
+      recordVersion(res.updatedAt);
       setMessage('提出しました（承認待ち）');
       router.refresh();
+    });
+  }
+
+  function reload() {
+    // 他の端末の版が届けば ReportForm が入力欄を作り直す（未保存の入力は下書きに残り、復元を選べる）。
+    startTransition(() => router.refresh());
+  }
+
+  const reportId = p.reportId;
+  const canDelete =
+    reportId !== null &&
+    !p.review &&
+    (p.isAdmin || (p.createdBy !== null && p.createdBy === p.currentUserId && (p.status === 'draft' || p.status === 'rejected')));
+
+  function remove() {
+    if (reportId === null) return;
+    if (!window.confirm('この日報を削除します。明細と重要事項も消えます。よろしいですか？')) return;
+    setMessage(null);
+    setErrors([]);
+    setStale(false);
+    const current = json;
+    startTransition(async () => {
+      let res: ReportStateResult;
+      try {
+        res = await deleteReport(reportId);
+      } catch {
+        res = { ok: false, error: DELETE_FAILED };
+      }
+      if (!res.ok) {
+        showErrors([res.error]);
+        return;
+      }
+      // 端末の下書きも消し、画面を離れる時の自動保存で書き戻さないようにする。
+      draft.discard(current);
+      router.push(`/sites/${p.siteId}`);
     });
   }
 
@@ -384,7 +470,11 @@ export function ReportForm(p: ReportFormProps) {
 
       {draft.pending && (
         <div role="alert" className="mb-4 rounded-lg border border-blue-500 bg-blue-50 p-3 text-blue-950 dark:bg-blue-950 dark:text-blue-50">
-          <p className="font-bold">保存していない入力があります。復元しますか？</p>
+          <p className="font-bold">
+            {draft.pendingNewer
+              ? 'サーバーの内容がこの下書きより新しいです。復元すると上書きされます。'
+              : '保存していない入力があります。復元しますか？'}
+          </p>
           <div className="mt-2 flex gap-2">
             <button type="button" onClick={restoreDraft} className={`${buttonBase} bg-blue-700 text-white`}>
               復元
@@ -484,11 +574,39 @@ export function ReportForm(p: ReportFormProps) {
       <IssueList reportId={p.reportId} issues={p.issues} onChanged={() => router.refresh()} />
 
       {!p.readOnly && !p.review && <Band tone="warn" title="確認してください（保存はできます）" items={warnings} />}
-      <Band id="report-errors" tone="error" title="保存・提出できません" items={errors} />
+      <Band
+        id="report-errors"
+        tone="error"
+        title="保存・提出できません"
+        items={errors}
+        action={
+          stale ? (
+            <button type="button" onClick={reload} disabled={pending} className={`${buttonBase} mt-2 bg-red-700 text-white`}>
+              再読み込み
+            </button>
+          ) : undefined
+        }
+      />
       {message && (
         <p role="status" className="mb-4 rounded-lg border border-blue-400 bg-blue-50 p-3 text-blue-950 dark:bg-blue-950 dark:text-blue-50">
           {message}
         </p>
+      )}
+
+      {canDelete && (
+        <div className="mb-6 mt-10 border-t border-gray-300 pt-4 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={remove}
+            disabled={pending}
+            className={`${buttonBase} w-full border border-red-600 text-red-700 sm:w-auto dark:border-red-500 dark:text-red-400`}
+          >
+            この日報を削除
+          </button>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            {p.isAdmin ? '管理者はどの状態の日報も削除できます。' : '下書き・差戻しの日報は、作成した人が削除できます。'}
+          </p>
+        </div>
       )}
 
       {!p.readOnly && !p.review && (

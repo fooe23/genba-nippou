@@ -44,7 +44,7 @@ export default async function ApprovalsPage() {
                     <span className="min-w-0">
                       <span className="block font-bold">{jpDate(r.reportDate)}</span>
                       <span className="block truncate text-sm text-gray-600 dark:text-gray-400">
-                        作成者：{r.createdByName || '—'}
+                        作成者／責任者：{r.createdByName || '—'}
                       </span>
                     </span>
                     <span className="shrink-0 text-right text-sm tabular-nums">

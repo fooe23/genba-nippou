@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { clearDraft, loadDraft, saveDraft } from '@/lib/report/draft';
+import { clearDraft, isServerNewer, loadDraft, saveDraft } from '@/lib/report/draft';
 import type { SaveInput } from '@/lib/report/schema';
 
 const INTERVAL_MS = 2000;
@@ -11,6 +11,8 @@ const INTERVAL_MS = 2000;
  * - 開いた時に下書きがあり、サーバーの内容（baseline）と違えば pending に入れる（復元／破棄を選ばせる）。
  * - 選ぶまでは自動保存しない（下書きを上書きしないため）。ただし選ばずに入力を始めたら破棄扱いにして自動保存を再開する。
  * - 以降は2秒ごとに、変更があれば保存。サーバーと同じ内容に戻れば下書きを消す。画面を離れる時にも保存する。
+ * - 下書きには、もとになったサーバーの日報の版（serverUpdatedAt）も入れる。開いた時にサーバーの方が
+ *   新しければ（他の端末で保存された）、pendingNewer で「復元すると上書きされる」ことを知らせる。
  */
 export function useReportDraft({
   siteId,
@@ -19,6 +21,7 @@ export function useReportDraft({
   baseline,
   normalize,
   enabled,
+  serverUpdatedAt,
 }: {
   siteId: string;
   date: string;
@@ -26,29 +29,35 @@ export function useReportDraft({
   baseline: string;
   normalize: (d: SaveInput) => string;
   enabled: boolean;
+  /** いまの入力のもとになったサーバーの日報の updated_at（未保存の日報なら null）。 */
+  serverUpdatedAt: string | null;
 }) {
   const [pending, setPending] = useState<SaveInput | null>(null);
+  const [pendingNewer, setPendingNewer] = useState(false);
   const [checked, setChecked] = useState(false);
   const latest = useRef(json);
   const base = useRef(baseline);
   const written = useRef(json);
+  const version = useRef(serverUpdatedAt);
 
   useEffect(() => {
     latest.current = json;
     base.current = baseline;
-  }, [json, baseline]);
+    version.current = serverUpdatedAt;
+  }, [json, baseline, serverUpdatedAt]);
 
   // 初回だけ: 下書きの有無を確認する（localStorage はサーバー描画では読めないため effect で行う）。
   useEffect(() => {
     const d = enabled ? loadDraft(siteId, date) : null;
     let differs = false;
     try {
-      differs = d !== null && normalize(d) !== base.current;
+      differs = d !== null && normalize(d.data) !== base.current;
     } catch {
       differs = false; // 形の合わない古い下書きは破棄扱い
     }
     if (d !== null && !differs) clearDraft(siteId, date);
-    setPending(differs ? d : null);
+    setPending(differs && d !== null ? d.data : null);
+    setPendingNewer(differs && d !== null && isServerNewer(version.current, d.serverUpdatedAt));
     setChecked(true);
     // マウント時に一度だけ確認する。
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -67,7 +76,7 @@ export function useReportDraft({
       const cur = latest.current;
       if (cur === written.current) return;
       if (cur === base.current) clearDraft(siteId, date);
-      else saveDraft(siteId, date, JSON.parse(cur) as SaveInput);
+      else saveDraft(siteId, date, JSON.parse(cur) as SaveInput, version.current);
       written.current = cur;
     };
     flush();
@@ -87,6 +96,8 @@ export function useReportDraft({
 
   return {
     pending,
+    /** 復元を勧めている下書きより、サーバーの日報の方が新しい（復元すると他の端末の保存を上書きする）。 */
+    pendingNewer,
     /** 復元を選んだ: 下書きを返し、以降は自動保存を再開する。 */
     takePending(): SaveInput | null {
       const d = pending;

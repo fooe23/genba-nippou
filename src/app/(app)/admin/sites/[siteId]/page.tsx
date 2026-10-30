@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { isUuid } from '@/lib/uuid';
 import { yen } from '@/lib/calc/format';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
 import { requireAdmin } from '@/lib/db/profile';
@@ -29,6 +30,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 export default async function SiteEditPage({ params }: PageProps<'/admin/sites/[siteId]'>) {
   await requireAdmin();
   const { siteId } = await params;
+  if (!isUuid(siteId)) notFound();
   const site = await getSite(siteId);
   if (!site) notFound();
 

@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { isUuid } from '@/lib/uuid';
 import { requireProfile } from '@/lib/db/profile';
 import { getMySiteRole, getReportById } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
@@ -8,12 +9,10 @@ import { ReportForm } from '@/components/report/ReportForm';
 
 export const metadata = { title: '日報の確認' };
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export default async function ApprovalDetailPage({ params }: PageProps<'/approvals/[reportId]'>) {
   const profile = await requireProfile();
   const { reportId } = await params;
-  if (!UUID.test(reportId)) notFound();
+  if (!isUuid(reportId)) notFound();
   const found = await getReportById(reportId);
   if (!found || !found.detail.head) notFound();
   const site = await getSite(found.siteId);

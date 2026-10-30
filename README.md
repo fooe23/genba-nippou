@@ -35,7 +35,7 @@ src/components/     画面部品（report, site, sites, approval, summary, maste
 src/lib/            calc=計算, db=Supabase 読み書き, report=日報フォーム, supabase=クライアント
 src/content/        アプリ内ガイドの本文
 src/proxy.ts        ログイン状態の確認（未ログインは /login へ）
-supabase/           schema_genba.sql（スキーマ）、verify_rls.md（権限の確認手順）
+supabase/           schema_genba.sql（スキーマ）、fix_profiles_guard.sql（既存 profiles の保護）、verify_rls.md（権限の確認手順）
 tests/              Vitest
 scripts/            check-sql.mjs（SQL の構文検査）
 templates/          Excel 雛形（第2計画で使用）
@@ -66,16 +66,27 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 | `npm test` | Vitest（単体テスト） |
 | `npm run lint` | ESLint |
 | `npm run build` | 本番ビルド（型検査を含む） |
-| `npm run check:sql` | `supabase/schema_genba.sql` の構文検査（DB には接続しない） |
+| `npm run check:sql` | `supabase/*.sql`（`schema_genba.sql`・`fix_profiles_guard.sql`）の構文検査（DB には接続しない） |
 
 ## Supabase の準備
 
 既存の業務日報アプリと同じプロジェクトを使う。
 
 1. SQL Editor → New query に `supabase/schema_genba.sql` を全部貼り付けて Run。何度実行しても安全で、既存アプリのテーブルは変更されない。`gn_` テーブル、RLS、Storage バケット（`gn-estimates` `gn-photos` `gn-exports`）が作られる。
-2. 最初の管理者：SQL Editor で `update public.profiles set is_admin = true where email = '<管理者のメール>';` を実行する。以降の担当者の割り当ては管理画面から行う。
-3. `supabase/verify_rls.md` の手順で権限を確認し、結果をチェックボックスに記録する（担当外の現場が見えないこと、承認権限など。管理者アカウントが必要なので手順2の後に行う）。共用プロジェクトに検証用の現場（検証現場X／Y）などのテスト行を作るため、最後の「7. 後片付け」で必ず削除する。
-4. 公開後に Authentication → URL Configuration を設定する（次章の手順 4）。
+2. 次章「既存アプリの profiles 保護（必須）」の `supabase/fix_profiles_guard.sql` を実行する。
+3. 最初の管理者：SQL Editor で `update public.profiles set is_admin = true where email = '<管理者のメール>';` を実行する（SQL Editor からの変更は手順2の保護の対象外なので通る）。以降の担当者の割り当ては管理画面から行う。
+4. `supabase/verify_rls.md` の手順で権限を確認し、結果をチェックボックスに記録する（担当外の現場が見えないこと、承認権限など。管理者アカウントが必要なので手順3の後に行う）。共用プロジェクトに検証用の現場（検証現場X／Y）などのテスト行を作るため、最後の「7. 後片付け」で必ず削除する。
+5. 公開後に Authentication → URL Configuration を設定する（「GitHub と Vercel」の手順 4）。
+
+## 既存アプリの profiles 保護（必須）
+
+既存の業務日報アプリの `profiles` の更新ポリシー（`profiles_update using (id = auth.uid() or public.is_admin())`）には `with check` が無い。そのため、ログインできる人なら誰でも、ブラウザから Supabase の API を直接呼んで自分の `is_admin` を `true` に書き換えられる（管理者への自己昇格）。現場日報アプリは `is_admin` で全現場の閲覧・承認・マスター管理を許すので、この穴は現場日報アプリにとっても致命的になる。
+
+`supabase/fix_profiles_guard.sql` は、既存のポリシーには手を付けず、`profiles` にトリガー（`gn_profiles_guard`）を1つ追加して「管理者以外のアプリ利用者が `is_admin` を変える・`is_admin = true` の行を作る」ことだけを `is_admin_locked` で止める。名前などほかの列の更新、SQL Editor・service_role からの変更、既存アプリの security definer 関数からの変更はこれまでどおり通る。
+
+- SQL Editor で1回だけ実行する（何度実行しても安全）。
+- `profiles` は既存アプリと共用のテーブルなので、適用するかどうかはプロジェクトの管理者（既存アプリの持ち主）が決める。適用前に既存アプリの動作（プロフィール編集・管理者による権限変更）に影響がないことを確認すること。
+- 確認手順は `supabase/verify_rls.md` の「8. 既存 profiles の保護」。
 
 ## GitHub と Vercel
 
