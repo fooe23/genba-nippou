@@ -35,7 +35,7 @@ src/components/     画面部品（report, site, sites, approval, summary, maste
 src/lib/            calc=計算, db=Supabase 読み書き, report=日報フォーム, supabase=クライアント
 src/content/        アプリ内ガイドの本文
 src/proxy.ts        ログイン状態の確認（未ログインは /login へ）
-supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、verify_rls.md（権限の確認手順）
+supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、verify_rls.md（権限の確認手順）
 tests/              Vitest
 scripts/            check-sql.mjs（SQL の構文検査）
 templates/          Excel 雛形（第2計画で使用）
@@ -66,17 +66,17 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 | `npm test` | Vitest（単体テスト） |
 | `npm run lint` | ESLint |
 | `npm run build` | 本番ビルド（型検査を含む） |
-| `npm run check:sql` | `supabase/*.sql`（`schema_genba.sql`・`add_profile_account_type.sql`・`fix_profiles_guard.sql`）の構文検査（DB には接続しない） |
+| `npm run check:sql` | `supabase/*.sql`（`schema_genba.sql`・`add_profile_account_type.sql`・`fix_profiles_guard.sql`・`update_2026-10-31_employee_access.sql`）の構文検査（DB には接続しない） |
 
 ## Supabase の準備
 
 既存の業務日報アプリと同じプロジェクトを使う。
 
-1. SQL Editor → New query に `supabase/schema_genba.sql` を全部貼り付けて Run。何度実行しても安全で、既存アプリのテーブルは変更されない。`gn_` テーブル、RLS、Storage バケット（`gn-estimates` `gn-photos` `gn-exports`）が作られる。
-2. `supabase/add_profile_account_type.sql` を実行する（`profiles` に区分 `account_type`［社員 `employee`／協力会社 `partner`］と会社名 `company_name` の列を追加する。協力会社の職長は現場日報専用のアカウントで、業務日報アプリ側は別途修正する。何度実行しても安全。`fix_profiles_guard.sql` がこの列を参照するので、必ず先に実行する）。
+1. `supabase/add_profile_account_type.sql` を実行する（`profiles` に区分 `account_type`［社員 `employee`／協力会社 `partner`］と会社名 `company_name` の列を追加する。協力会社の職長は現場日報専用のアカウントで、業務日報アプリ側は別途修正する。何度実行しても安全。`schema_genba.sql` の権限関数と `fix_profiles_guard.sql` がこの列を参照するので、必ず先に実行する）。
+2. SQL Editor → New query に `supabase/schema_genba.sql` を全部貼り付けて Run。何度実行しても安全で、既存アプリのテーブルは変更されない。`gn_` テーブル、RLS、Storage バケット（`gn-estimates` `gn-photos` `gn-exports`）が作られる。権限は「社員と管理者は全現場、協力会社は割り当て現場だけ」。既に全体を適用済みなら、権限関数だけを差し替える `supabase/update_2026-10-31_employee_access.sql` を実行すれば足りる（`schema_genba.sql` を再実行しても同じ結果）。
 3. 次章「既存アプリの profiles 保護（必須）」の `supabase/fix_profiles_guard.sql` を実行する。
 4. 最初の管理者：SQL Editor で `update public.profiles set is_admin = true where email = '<管理者のメール>';` を実行する（SQL Editor からの変更は手順3の保護の対象外なので通る）。以降の担当者の割り当ては管理画面から行う。
-5. `supabase/verify_rls.md` の手順で権限を確認し、結果をチェックボックスに記録する（担当外の現場が見えないこと、承認権限など。管理者アカウントが必要なので手順4の後に行う）。共用プロジェクトに検証用の現場（検証現場X／Y）などのテスト行を作るため、最後の「7. 後片付け」で必ず削除する。
+5. `supabase/verify_rls.md` の手順で権限を確認し、結果をチェックボックスに記録する（協力会社が担当外の現場を見られないこと、社員は全現場に入力できるが承認はできないこと、承認権限など。管理者アカウントが必要なので手順4の後に行う）。共用プロジェクトに検証用の現場（検証現場X／Y）などのテスト行を作るため、最後の「7. 後片付け」で必ず削除する。
 6. 公開後に Authentication → URL Configuration を設定する（「GitHub と Vercel」の手順 4）。
 
 ## 既存アプリの profiles 保護（必須）
@@ -116,7 +116,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 - [ ] 提出できる（状態が「承認待ち」になる）
 - [ ] 承認者のアカウントで承認画面に表示され、承認できる
 - [ ] 集計（月次・原価・出面）に反映されている
-- [ ] 担当外の現場が見えない（担当外のアカウントで確認）
+- [ ] 協力会社のアカウントでは、担当外の現場が見えない
+- [ ] 社員のアカウントでは、ホームの「その他の現場」から担当外の現場にも入力できる（承認はできない）
 
 確認日：____年__月__日　確認者：__________　URL：__________
 

@@ -266,16 +266,29 @@ create trigger gn_carryovers_touch before update on public.gn_carryovers
   for each row execute function public.touch_updated_at();
 
 -- ---------- 7. 権限ヘルパー関数 ----------
--- 現場メンバー（または管理者）か
+-- 現場を閲覧・入力できるか（日報・マスター・Storage など RLS はすべてこの関数を通る）
+--   * 管理者：すべての現場
+--   * 社員（profiles.account_type = 'employee'。未設定も社員扱い）：すべての現場（割り当て不要）
+--   * 協力会社（'partner'）：gn_site_members に割り当てられた現場だけ
+-- 承認・差戻しの権限はここでは広げない。gn_site_role（下）の reviewer / approver
+-- （管理者を含む）だけが承認できる。社員でも割り当てがなければ not_reviewer になる。
+-- 前提：profiles.account_type 列（add_profile_account_type.sql）。先にそちらを実行しておくこと。
+-- 同じ内容の単独ファイル：update_2026-10-31_employee_access.sql
 create or replace function public.gn_is_site_member(p_site uuid)
 returns boolean language sql stable security definer set search_path = public as $$
   select p_site is not null
          and (
-           exists (
+           public.is_admin()
+           or exists (
              select 1 from public.gn_site_members
               where site_id = p_site and user_id = auth.uid()
            )
-           or public.is_admin()
+           or exists (
+             select 1 from public.profiles p
+              where p.id = auth.uid()
+                and coalesce(p.account_type, 'employee') = 'employee'
+                and exists (select 1 from public.gn_sites s where s.id = p_site)
+           )
          );
 $$;
 

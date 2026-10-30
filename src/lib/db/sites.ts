@@ -75,7 +75,7 @@ function toSite(r: SiteRow): Site {
   };
 }
 
-/** 自分が見られる現場（RLS により担当の現場だけ、管理者は全件）。進行中を先に、その中は名前順。 */
+/** 自分が見られる現場（RLS により、社員・管理者は全件、協力会社は割り当て現場だけ）。進行中を先に、その中は名前順。 */
 export async function listMySites(): Promise<Site[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase.from('gn_sites').select(SITE_COLUMNS);
@@ -84,6 +84,17 @@ export async function listMySites(): Promise<Site[]> {
     if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
     return a.name.localeCompare(b.name, 'ja');
   });
+}
+
+/** 自分が担当者として割り当てられている現場の id（gn_site_members）。社員・管理者は割り当てのない現場も見られるので、担当かどうかの判定に使う。 */
+export async function listMyMemberSiteIds(): Promise<string[]> {
+  const supabase = await createServerSupabase();
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth.user?.id;
+  if (!uid) return [];
+  const { data, error } = await supabase.from('gn_site_members').select('site_id').eq('user_id', uid);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as { site_id: string }[]).map((r) => r.site_id);
 }
 
 export async function getSite(siteId: string): Promise<Site | null> {

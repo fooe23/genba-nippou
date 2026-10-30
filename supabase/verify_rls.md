@@ -12,20 +12,37 @@
 
 ## 0. 準備：テスト用アカウントの確認
 
-既存アプリのアカウントから、管理者1名・担当者2名（A, B）を選ぶ。ID を調べる:
+権限のルール：**社員（`employee`）はすべての現場に入力できる／協力会社（`partner`）は割り当てられた現場だけ／管理者はすべて**。
+「担当外の現場が見えない」ことを確かめるテスト（手順2・3・5）には、**協力会社のアカウント**を使う（社員は担当外でも見えるため、隔離の証明にならない）。
+
+既存アプリのアカウントから、管理者1名・テスト担当者3名を選ぶ。
+
+- A：現場Xの担当者になる。この検証の間だけ**協力会社**にする
+- B：現場Yの担当者になる。この検証の間だけ**協力会社**にする
+- C：**社員**で、どの現場にも割り当てない（担当外でも入力でき、承認はできないことを確かめる）
+
+ID と現在の区分を調べる:
 
 ```sql
-select id, name, email, is_admin from public.profiles order by is_admin desc, created_at;
+select id, name, email, is_admin, account_type from public.profiles order by is_admin desc, created_at;
 ```
 
-以降のSQLの `<ADMIN_ID>` `<A_ID>` `<B_ID>` を、それぞれの `id`（uuid）に置き換える。
-`<ADMIN_ID>` は `is_admin = true` のユーザーであること。
+以降のSQLの `<ADMIN_ID>` `<A_ID>` `<B_ID>` `<C_ID>` を、それぞれの `id`（uuid）に置き換える。
+`<ADMIN_ID>` は `is_admin = true` のユーザーであること。**A・B・C の元の `account_type` を控えておく**（手順7で戻す）。
 
-- [ ] 管理者・A・B の3人分の id を控えた
+A と B を協力会社にする（SQL Editor からの変更は `fix_profiles_guard.sql` の対象外なので通る）。C は `employee` のままにする（違う場合は `employee` に直す）:
+
+```sql
+update public.profiles set account_type = 'partner' where id in ('<A_ID>', '<B_ID>');
+update public.profiles set account_type = 'employee' where id = '<C_ID>';
+```
+
+- [ ] 管理者・A・B・C の4人分の id と、A・B・C の元の `account_type` を控えた
+- [ ] A・B が `partner`、C が `employee` になった
 
 ## 1. テスト用の現場とメンバーを作る
 
-現場X（Aが `staff`）と現場Y（Bが `staff`）を作る。SQL Editor は管理者権限（RLS 対象外）で動くので、そのまま実行できる。
+現場X（Aが `staff`）と現場Y（Bが `staff`）を作る。C はどの現場にも割り当てない。SQL Editor は管理者権限（RLS 対象外）で動くので、そのまま実行できる。
 
 ```sql
 insert into public.gn_sites (id, name) values
@@ -45,7 +62,7 @@ on conflict (site_id, user_id) do nothing;
 
 「ユーザーとして実行」する書き方。`set local role` はそのトランザクション内だけ有効。
 
-**Aとして読む（現場Xだけ見えるはず）**
+**Aとして読む（協力会社なので、割り当てられた現場Xだけ見えるはず）**
 ```sql
 begin;
 set local role authenticated;
@@ -55,7 +72,7 @@ rollback;
 ```
 - [ ] Aには「検証現場X」だけが見えた（Yは見えない）
 
-**Bとして読む（現場Yだけ見えるはず）**
+**Bとして読む（協力会社なので、割り当てられた現場Yだけ見えるはず）**
 ```sql
 begin;
 set local role authenticated;
@@ -64,6 +81,16 @@ select id, name from public.gn_sites;
 rollback;
 ```
 - [ ] Bには「検証現場Y」だけが見えた（Xは見えない）
+
+**Cとして読む（社員なので、割り当てがなくても全現場が見えるはず）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<C_ID>","role":"authenticated"}', true);
+select id, name from public.gn_sites;
+rollback;
+```
+- [ ] Cには検証現場X・Yの両方が見えた（C は現場メンバーではない）
 
 **管理者として読む（全現場が見えるはず）**
 ```sql
@@ -129,7 +156,7 @@ select l.kind, l.sort_order, l.name, l.amount, l.man_days
 - [ ] 合計が `output_total=0, cost_total=10600, man_days_total=0.53` になっている（08:00〜12:00・休憩0 → 4H → 0.53人工 × 20000）
 - [ ] `gn_report_lines` が **1件だけ**（鈴木・`man_days=0.53`・`amount=10600`。送った 999999 ではない。1回目の明細は残っていない）
 
-**BがXの日報を読もうとする（見えないはず）**
+**BがXの日報を読もうとする（Bは協力会社で現場Xの担当ではないので、見えないはず）**
 ```sql
 begin;
 set local role authenticated;
@@ -139,6 +166,65 @@ select count(*) as lines from public.gn_report_lines;
 rollback;
 ```
 - [ ] 両方 `0`
+
+**3-2. 社員C（どの現場にも割り当てなし）が、現場Xの日報を読める**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<C_ID>","role":"authenticated"}', true);
+select report_date, weather from public.gn_daily_reports
+ where site_id = '00000000-0000-0000-0000-0000000000a1';
+select count(*) as lines from public.gn_report_lines;
+rollback;
+```
+- [ ] Cに現場Xの日報（2026-11-01・曇り）と、明細1件が見えた
+
+**3-3. 社員Cが、割り当てのない現場Yに日報を作れる（入力できる）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<C_ID>","role":"authenticated"}', true);
+select public.gn_save_report(
+  '{"site_id":"00000000-0000-0000-0000-0000000000b1","report_date":"2026-11-06","weather":"晴れ","supervisor":"検証C"}'::jsonb,
+  '[]'::jsonb
+);
+commit;
+```
+- [ ] エラーなく uuid が返った（現場Yの日報が作られた。手順7で消える）
+
+**3-4. 社員Cは、その日報を承認できない（割り当てがないので `not_reviewer`）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<C_ID>","role":"authenticated"}', true);
+update public.gn_daily_reports set status = 'approved'
+ where site_id = '00000000-0000-0000-0000-0000000000b1' and report_date = '2026-11-06';
+rollback;
+```
+- [ ] エラーメッセージが `not_reviewer` だった（社員でも、確認者・承認者に割り当てられていなければ承認・差戻しはできない）
+- [ ] （必要なら `rollback;` を単独実行した）
+
+**3-5. 協力会社Aは、割り当てのない現場Yの日報を読めず、作れない**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+select count(*) as reports_on_y from public.gn_daily_reports
+ where site_id = '00000000-0000-0000-0000-0000000000b1';
+rollback;
+
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+select public.gn_save_report(
+  '{"site_id":"00000000-0000-0000-0000-0000000000b1","report_date":"2026-11-07"}'::jsonb,
+  '[]'::jsonb
+);
+rollback;
+```
+- [ ] 1つ目は `0`（現場Yの日報が見えない）
+- [ ] 2つ目はエラー（権限なし）になった
+- [ ] （必要なら `rollback;` を単独実行した）
 
 ## 4. 承認済みのロック
 
@@ -305,7 +391,7 @@ rollback;
 
 **6-4. reviewer は承認できる（正のケース）**
 
-管理者権限でBを現場Xの `reviewer` にする（Bは現場Yの staff のまま）:
+管理者権限でBを現場Xの `reviewer` にする（Bは現場Yの staff のまま。画面からは協力会社に確認・承認を割り当てられないが、ここではDBのガードだけを確かめるので SQL で直接入れる）:
 ```sql
 insert into public.gn_site_members (site_id, user_id, role) values ('00000000-0000-0000-0000-0000000000a1', '<B_ID>', 'reviewer')
 on conflict (site_id, user_id) do nothing;
@@ -504,6 +590,12 @@ delete from public.gn_sites
  where id in ('00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000b1');
 ```
 - [ ] テストデータを削除した（現場メンバーは現場と一緒に消える）
+
+A・B・C の区分を、手順0で控えた元の値に戻す（例：全員 `employee` だった場合）。手順8の確認（A が `employee` であること）はこのあとに行う:
+```sql
+update public.profiles set account_type = 'employee' where id in ('<A_ID>', '<B_ID>', '<C_ID>');
+```
+- [ ] A・B・C の `account_type` を元に戻した
 
 ## 8. 既存 profiles の保護（`supabase/fix_profiles_guard.sql` を適用した後）
 
