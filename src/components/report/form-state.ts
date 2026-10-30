@@ -167,3 +167,39 @@ export function refreshFromMasters(lines: ReportLine[], masters: ReportMasters, 
     return l;
   });
 }
+
+/**
+ * 日報を開いたとき、未設定（null）の日当・リース単価・燃費だけを、この日付時点のマスターで補う。
+ * 値がある行は保存時のスナップショットなのでそのまま。マスターに有効な値が無ければ null のまま。
+ * filled は補った項目の数。
+ */
+export function fillMissingRates<L extends ReportLineInput>(
+  lines: L[],
+  masters: ReportMasters,
+  date: string,
+): { lines: L[]; filled: number } {
+  let filled = 0;
+  const out = lines.map((l): L => {
+    if (l.kind === 'labor' && l.dailyRate === null && l.workerId) {
+      const rate = rateAt(masters.workers.find((x) => x.id === l.workerId)?.rates ?? [], date);
+      if (rate !== null) {
+        filled += 1;
+        return { ...l, dailyRate: rate };
+      }
+    } else if (l.kind === 'lease' && l.unitPrice === null && l.itemId) {
+      const rate = rateAt(masters.leaseItems.find((x) => x.id === l.itemId)?.rates ?? [], date);
+      if (rate !== null) {
+        filled += 1;
+        return { ...l, unitPrice: rate };
+      }
+    } else if (l.kind === 'fuel' && l.kmPerL === null && l.vehicleId) {
+      const km = masters.vehicles.find((x) => x.id === l.vehicleId)?.kmPerL ?? null;
+      if (km !== null) {
+        filled += 1;
+        return { ...l, kmPerL: km };
+      }
+    }
+    return l;
+  });
+  return { lines: out, filled };
+}

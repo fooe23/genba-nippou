@@ -2,11 +2,21 @@ import { redirect } from 'next/navigation';
 import { cache } from 'react';
 import { createServerSupabase } from '@/lib/supabase/server';
 
+export type AccountType = 'employee' | 'partner';
+
+/** DB の値を区分に直す（null・未知の値は employee）。 */
+export function toAccountType(v: unknown): AccountType {
+  return v === 'partner' ? 'partner' : 'employee';
+}
+
 export interface Profile {
   id: string;
   name: string;
   email: string;
   isAdmin: boolean;
+  /** 区分: 社員（業務日報と共通）／協力会社（現場日報専用）。 */
+  accountType: AccountType;
+  companyName: string | null;
 }
 
 /**
@@ -21,19 +31,21 @@ export const getCurrentProfile = cache(async function getCurrentProfile(): Promi
 
   const { data, error } = await supabase
     .from('profiles')
-    .select('id, name, email, is_admin')
+    .select('id, name, email, is_admin, account_type, company_name')
     .eq('id', user.id)
     .maybeSingle();
 
   if (error) console.error('[profiles]', error.message);
   if (!data) {
-    return { id: user.id, name: '', email: user.email ?? '', isAdmin: false };
+    return { id: user.id, name: '', email: user.email ?? '', isAdmin: false, accountType: 'employee', companyName: null };
   }
   return {
     id: user.id,
     name: data.name ?? '',
     email: data.email ?? user.email ?? '',
     isAdmin: data.is_admin === true,
+    accountType: toAccountType(data.account_type),
+    companyName: data.company_name ?? null,
   };
 });
 

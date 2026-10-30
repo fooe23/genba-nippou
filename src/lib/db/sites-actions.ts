@@ -3,9 +3,9 @@
 import { revalidatePath } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { parseOrThrow } from '@/lib/db/masters-schemas';
-import { requireAdmin } from '@/lib/db/profile';
+import { requireAdmin, toAccountType } from '@/lib/db/profile';
 import type { Carryover, SiteInput, SiteMasters } from '@/lib/db/sites';
-import { carryoverSchema, memberSchema, siteInputSchema, siteMastersSchema } from '@/lib/db/sites-schemas';
+import { carryoverSchema, memberSchema, partnerRoleError, siteInputSchema, siteMastersSchema } from '@/lib/db/sites-schemas';
 import { createServerSupabase } from '@/lib/supabase/server';
 import type { SiteRole } from '@/lib/types';
 
@@ -39,21 +39,53 @@ export async function upsertSite(input: SiteInput): Promise<string> {
   return id;
 }
 
-/** 担当者の追加・役割変更。role を null にすると外す。 */
-export async function setSiteMember(siteId: string, userId: string, role: SiteRole | null): Promise<void> {
+export type SiteMemberResult = { ok: true } | { ok: false; error: string };
+
+const MEMBER_FAILED = '担当者の保存に失敗しました。もう一度お試しください。';
+
+/**
+ * 担当者の追加・役割変更。role を null にすると外す。
+ * 本番では throw した文言が画面に届かないため、{ ok, error } を返す。
+ * 協力会社（partner）は担当（staff）以外にできない。
+ */
+export async function setSiteMember(siteId: string, userId: string, role: SiteRole | null): Promise<SiteMemberResult> {
   await requireAdmin();
-  const v = parseOrThrow(memberSchema, { siteId, userId, role });
+  const parsed = memberSchema.safeParse({ siteId, userId, role });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  const v = parsed.data;
   const supabase = await createServerSupabase();
+
   if (v.role === null) {
     const { error } = await supabase.from('gn_site_members').delete().eq('site_id', v.siteId).eq('user_id', v.userId);
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error('[setSiteMember:delete]', error.message);
+      return { ok: false, error: MEMBER_FAILED };
+    }
   } else {
+    if (v.role !== 'staff') {
+      const { data: target, error: targetError } = await supabase
+        .from('profiles')
+        .select('account_type')
+        .eq('id', v.userId)
+        .maybeSingle();
+      if (targetError) {
+        console.error('[setSiteMember:profile]', targetError.message);
+        return { ok: false, error: MEMBER_FAILED };
+      }
+      if (!target) return { ok: false, error: '社員が見つかりません' };
+      const message = partnerRoleError(toAccountType((target as { account_type: unknown }).account_type), v.role);
+      if (message) return { ok: false, error: message };
+    }
     const { error } = await supabase
       .from('gn_site_members')
       .upsert({ site_id: v.siteId, user_id: v.userId, role: v.role }, { onConflict: 'site_id,user_id' });
-    if (error) throw new Error(error.message);
+    if (error) {
+      console.error('[setSiteMember:upsert]', error.message);
+      return { ok: false, error: MEMBER_FAILED };
+    }
   }
   revalidateSite(v.siteId);
+  return { ok: true };
 }
 
 // 差分だけを反映する: 現在の行を読み、増えた ID だけ insert、減った ID だけ delete。

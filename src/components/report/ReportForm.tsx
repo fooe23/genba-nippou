@@ -19,7 +19,7 @@ import type { Issue } from '@/lib/db/reports';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import type { TimeSpec } from '@/lib/types';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
-import { calcLines, decimal, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
+import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
 import { fieldClass, NumInput, Select, TimeInput } from './inputs';
 import { IssueBanner } from './IssueBanner';
 import { ReportSummary } from './ReportSummary';
@@ -223,14 +223,23 @@ export function ReportForm(p: ReportFormProps) {
   return <ReportFormBody key={generation} {...p} onOwnVersion={onOwnVersion} />;
 }
 
+function initialFormState(initial: SaveInput, masters: ReportMasters, readOnly: boolean): { state: FormState; filled: number } {
+  if (readOnly) return { state: fromInput(initial), filled: 0 };
+  const { lines, filled } = fillMissingRates(initial.lines, masters, initial.date);
+  return { state: fromInput({ ...initial, lines }), filled };
+}
+
 /** 上から 見出し → 基本情報 → 前回コピー → 共通時間 → 6表 → 集計 → 重要事項・連絡事項 → 警告 → 保存。 */
 function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion: (v: string) => void }) {
   const router = useRouter();
   // 楽観ロック：いまの入力のもとになったサーバーの版。自分が保存・提出するたびに新しい版に進める。
   const [expected, setExpected] = useState(p.updatedAt);
   const [stale, setStale] = useState(false);
-  const [state, setState] = useState<FormState>(() => fromInput(p.initial));
-  const [baseline, setBaseline] = useState(() => JSON.stringify(toInput(p.siteId, p.date, fromInput(p.initial))));
+  // 開いたとき、未設定の日当・リース単価・燃費を最新のマスターで補う（編集できる画面のみ）。補った値は初期状態に含める。
+  const [initialState] = useState(() => initialFormState(p.initial, p.masters, p.readOnly));
+  const [state, setState] = useState<FormState>(initialState.state);
+  const [baseline, setBaseline] = useState(() => JSON.stringify(toInput(p.siteId, p.date, initialState.state)));
+  const filledCount = initialState.filled;
   const [errors, setErrors] = useState<string[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -249,7 +258,7 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
     date: p.date,
     json,
     baseline,
-    normalize: (d) => JSON.stringify(toInput(p.siteId, p.date, fromInput(d))),
+    normalize: (d) => JSON.stringify(toInput(p.siteId, p.date, initialFormState(d, p.masters, p.readOnly).state)),
     enabled: !p.readOnly,
     serverUpdatedAt: expected,
   });
@@ -587,6 +596,11 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
           ) : undefined
         }
       />
+      {filledCount > 0 && !p.readOnly && (
+        <p role="status" className="mb-4 rounded-lg border border-blue-400 bg-blue-50 p-3 text-blue-950 dark:bg-blue-950 dark:text-blue-50">
+          日当を最新の履歴から補いました。保存すると反映されます。
+        </p>
+      )}
       {message && (
         <p role="status" className="mb-4 rounded-lg border border-blue-400 bg-blue-50 p-3 text-blue-950 dark:bg-blue-950 dark:text-blue-50">
           {message}

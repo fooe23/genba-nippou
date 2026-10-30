@@ -90,6 +90,8 @@ export function EmptyText({ children }: { children: ReactNode }) {
   return <p className="py-6 text-center text-sm text-gray-600 dark:text-gray-400">{children}</p>;
 }
 
+export type ActionResult = { ok: true } | { ok: false; error: string };
+
 /** Server Action 呼び出し用: 実行中フラグとエラー文言を管理する。 */
 export function useRunner() {
   const [pending, startTransition] = useTransition();
@@ -109,7 +111,24 @@ export function useRunner() {
     });
   }
 
-  return { pending, error, setError, run };
+  /** 結果オブジェクト（{ ok } | { ok:false, error }）を返す Server Action 用。error はそのまま画面に出す。 */
+  function runResult(task: () => Promise<ActionResult>, onDone?: () => void) {
+    setError(null);
+    startTransition(async () => {
+      try {
+        const res = await task();
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        onDone?.();
+      } catch {
+        setError('処理に失敗しました。通信状況を確認してもう一度お試しください。');
+      }
+    });
+  }
+
+  return { pending, error, setError, run, runResult };
 }
 
 /** FormData から文字列を取り出す（無ければ空文字）。 */

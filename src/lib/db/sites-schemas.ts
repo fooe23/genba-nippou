@@ -59,3 +59,10 @@ export const carryoverSchema = z.object({
   laborCost: z.number({ error: MSG_COST }).min(0, MSG_COST),
   beforeDate: dateSchema,
 });
+
+export const PARTNER_ROLE_ERROR = '協力会社は担当のみ割り当てできます';
+
+/** 協力会社（partner）は担当（staff）以外にできない。違反ならメッセージ、問題なければ null。 */
+export function partnerRoleError(accountType: 'employee' | 'partner', role: (typeof SITE_ROLES)[number] | null): string | null {
+  return accountType === 'partner' && role !== null && role !== 'staff' ? PARTNER_ROLE_ERROR : null;
+}

@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { yen } from '@/lib/calc/format';
 import { requireAdmin } from '@/lib/db/profile';
 import { listMySites } from '@/lib/db/sites';
+import { AdminNav } from '@/components/accounts/AdminNav';
 import { EmptyText } from '@/components/masters/common';
 import { STATUS_LABELS } from '@/components/sites/labels';
 import { NewSiteButton } from '@/components/sites/NewSiteButton';
@@ -21,14 +22,7 @@ export default async function SitesPage({ searchParams }: PageProps<'/admin/site
 
   return (
     <main className="mx-auto w-full max-w-3xl p-4">
-      <nav aria-label="管理メニュー" className="mb-4 flex gap-2">
-        <Link href="/admin/sites" aria-current="page" className={navOn}>
-          現場
-        </Link>
-        <Link href="/admin/masters" className={navOff}>
-          マスター
-        </Link>
-      </nav>
+      <AdminNav current="sites" />
 
       <div className="mb-3 flex items-center justify-between gap-2">
         <h1 className="text-xl font-bold">現場管理</h1>

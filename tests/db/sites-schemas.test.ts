@@ -64,3 +64,15 @@ describe('memberSchema', () => {
     expect(memberSchema.safeParse({ siteId: id, userId: id, role: 'admin' }).success).toBe(false);
   });
 });
+
+describe('partnerRoleError', () => {
+  it('協力会社は担当以外を拒否、社員・外す操作は通す', async () => {
+    const { partnerRoleError, PARTNER_ROLE_ERROR } = await import('@/lib/db/sites-schemas');
+    expect(PARTNER_ROLE_ERROR).toBe('協力会社は担当のみ割り当てできます');
+    expect(partnerRoleError('partner', 'reviewer')).toBe(PARTNER_ROLE_ERROR);
+    expect(partnerRoleError('partner', 'approver')).toBe(PARTNER_ROLE_ERROR);
+    expect(partnerRoleError('partner', 'staff')).toBeNull();
+    expect(partnerRoleError('partner', null)).toBeNull();
+    expect(partnerRoleError('employee', 'approver')).toBeNull();
+  });
+});
