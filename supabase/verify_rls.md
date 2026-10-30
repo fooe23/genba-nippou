@@ -88,6 +88,8 @@ rollback;
 ## 3. gn_save_report を同じ日付で2回呼ぶ（Aとして・現場X）
 
 1回目は明細2行、2回目は別内容の明細1行・天候も変更。最後に commit する。
+明細の金額・人工はわざとでたらめな値（`amount: 999999` など）を送る。DB のトリガー（`gn_report_lines_compute`）が
+入力値（時刻・日当・数量・単価）から計算し直すので、保存されるのは計算した値になる。
 
 ```sql
 begin;
@@ -95,14 +97,17 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
 
 select public.gn_save_report(
-  '{"site_id":"00000000-0000-0000-0000-0000000000a1","report_date":"2026-11-01","weather":"晴れ","supervisor":"検証太郎"}'::jsonb,
-  '[{"kind":"labor","sort_order":1,"name":"山田","man_days":1,"amount":20000},
-    {"kind":"work","sort_order":2,"name":"解体","amount":50000}]'::jsonb
+  '{"site_id":"00000000-0000-0000-0000-0000000000a1","report_date":"2026-11-01","weather":"晴れ","supervisor":"検証太郎",
+    "common_start":"08:00","common_end":"17:00","common_break_min":60,"common_gap_min":0}'::jsonb,
+  '[{"kind":"labor","sort_order":1,"name":"山田","unit_price":20000,"man_days":9,"amount":999999},
+    {"kind":"work","sort_order":2,"description":"解体","qty":1,"unit_price":50000,"amount":1}]'::jsonb
 );
 
 select public.gn_save_report(
-  '{"site_id":"00000000-0000-0000-0000-0000000000a1","report_date":"2026-11-01","weather":"曇り","supervisor":"検証太郎"}'::jsonb,
-  '[{"kind":"labor","sort_order":1,"name":"鈴木","man_days":0.5,"amount":10000}]'::jsonb
+  '{"site_id":"00000000-0000-0000-0000-0000000000a1","report_date":"2026-11-01","weather":"曇り","supervisor":"検証太郎",
+    "common_start":"08:00","common_end":"17:00","common_break_min":60,"common_gap_min":0}'::jsonb,
+  '[{"kind":"labor","sort_order":1,"name":"鈴木","start_time":"08:00","end_time":"12:00","break_min":0,
+     "unit_price":20000,"man_days":9,"amount":999999}]'::jsonb
 );
 commit;
 ```
@@ -121,8 +126,8 @@ select l.kind, l.sort_order, l.name, l.amount, l.man_days
  order by l.sort_order;
 ```
 - [ ] `gn_daily_reports` が **1件のまま**（weather=曇り、status=draft、created_by=A）
-- [ ] 合計が `output_total=0, cost_total=10000, man_days_total=0.5` になっている
-- [ ] `gn_report_lines` が **1件だけ**（鈴木・0.5人工。1回目の明細は残っていない）
+- [ ] 合計が `output_total=0, cost_total=10600, man_days_total=0.53` になっている（08:00〜12:00・休憩0 → 4H → 0.53人工 × 20000）
+- [ ] `gn_report_lines` が **1件だけ**（鈴木・`man_days=0.53`・`amount=10600`。送った 999999 ではない。1回目の明細は残っていない）
 
 **BがXの日報を読もうとする（見えないはず）**
 ```sql
@@ -384,6 +389,105 @@ rollback;
 **6-7. 通常の保存は引き続き通る**
 - [ ] 手順3の `gn_save_report`（draft の日報への2回保存）が、ガード追加後も同じ結果で成功する（`gn_save_report` は承認系の4列と status を変更しないため）
 
+**6-8. 合計3列は gn_save_report の外から変えられない（totals_locked で失敗するはず）**
+
+Aが自分の現場の日報（2026-11-02、6-5 の後は submitted）の出来高合計を直接書き換えようとする:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+update public.gn_daily_reports set output_total = 99999999
+ where site_id = '00000000-0000-0000-0000-0000000000a1' and report_date = '2026-11-02';
+rollback;
+```
+- [ ] エラーメッセージが `totals_locked` だった
+
+同じ update を `<ADMIN_ID>` で実行する:
+- [ ] 管理者でも `totals_locked` だった（合計は gn_save_report の計算だけが書く）
+
+Aが insert で合計を入れても 0 になる:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+insert into public.gn_daily_reports (site_id, report_date, output_total, cost_total, man_days_total)
+values ('00000000-0000-0000-0000-0000000000a1', '2026-11-06', 1, 2, 3)
+returning output_total, cost_total, man_days_total;
+rollback;
+```
+- [ ] `0, 0, 0` が返った
+
+**6-9. 楽観ロック（stale_report）**
+
+Aが、古い版（`expected_updated_at`）を付けて 2026-11-02 を保存しようとする（stale_report で失敗するはず）:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+select public.gn_save_report(
+  '{"site_id":"00000000-0000-0000-0000-0000000000a1","report_date":"2026-11-02","weather":"雪",
+    "expected_updated_at":"2000-01-01T00:00:00+00:00"}'::jsonb,
+  '[]'::jsonb
+);
+rollback;
+```
+- [ ] エラーメッセージが `stale_report` だった
+
+いまの版を付ければ通る:
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+select public.gn_save_report(
+  jsonb_build_object(
+    'site_id', '00000000-0000-0000-0000-0000000000a1', 'report_date', '2026-11-02', 'weather', '雪',
+    'expected_updated_at', (select updated_at from public.gn_daily_reports
+                             where site_id = '00000000-0000-0000-0000-0000000000a1' and report_date = '2026-11-02')),
+  '[]'::jsonb
+);
+rollback;
+```
+- [ ] エラーなく uuid が返った（`expected_updated_at` を付けない呼び出しは手順3のとおり比べずに通る）
+
+**6-10. 作成者は下書きの日報を削除できる（明細も消える）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+select public.gn_save_report(
+  '{"site_id":"00000000-0000-0000-0000-0000000000a1","report_date":"2026-11-05"}'::jsonb,
+  '[{"kind":"cash","sort_order":1,"name":"テープ","qty":1,"unit_price":300}]'::jsonb
+) as new_id;
+-- 消す日報の id を控える（このトランザクションの中だけ）
+select set_config('verify.rid', (select id::text from public.gn_daily_reports
+  where site_id = '00000000-0000-0000-0000-0000000000a1' and report_date = '2026-11-05'), true);
+delete from public.gn_daily_reports
+ where site_id = '00000000-0000-0000-0000-0000000000a1' and report_date = '2026-11-05'
+returning id, status;
+-- 明細が残っていないかは管理者権限（RLS 対象外）で数える
+reset role;
+select count(*) as lines_left from public.gn_report_lines
+ where report_id = current_setting('verify.rid')::uuid;
+rollback;
+```
+- [ ] `delete` が1行（`status = draft`）を返した
+- [ ] `lines_left` が `0`（明細も一緒に消えた）
+
+**6-11. 承認済み・提出済みの日報は作成者でも削除できない**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+delete from public.gn_daily_reports
+ where site_id = '00000000-0000-0000-0000-0000000000a1' and report_date in ('2026-11-01', '2026-11-02')
+returning id;
+rollback;
+```
+- [ ] 0行（2026-11-01 は承認済み、2026-11-02 は提出済み。RLS で対象にならないのでエラーは出ない）
+
+同じ delete を `<ADMIN_ID>` で実行する（rollback で戻す）:
+- [ ] 2行が返った（管理者はどの状態でも削除できる）
+
 ## 7. 後片付け
 
 管理者として日報を削除してから、現場を削除する（日報があると現場は消せない）。
@@ -400,3 +504,41 @@ delete from public.gn_sites
  where id in ('00000000-0000-0000-0000-0000000000a1','00000000-0000-0000-0000-0000000000b1');
 ```
 - [ ] テストデータを削除した（現場メンバーは現場と一緒に消える）
+
+## 8. 既存 profiles の保護（`supabase/fix_profiles_guard.sql` を適用した後）
+
+すべて rollback するので、profiles は変わらない。
+
+**8-1. 管理者でない利用者が自分を管理者にしようとする（is_admin_locked で失敗するはず）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+update public.profiles set is_admin = true where id = '<A_ID>';
+rollback;
+```
+- [ ] エラーメッセージが `is_admin_locked` だった
+
+**8-2. 管理者でない利用者も、is_admin 以外の列は今までどおり更新できる**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+update public.profiles set name = name where id = '<A_ID>' returning id, is_admin;
+rollback;
+```
+- [ ] エラーなく1行が返った（`is_admin` は false のまま）
+
+**8-3. 管理者は他人の is_admin を変えられる・SQL Editor からも変えられる**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<ADMIN_ID>","role":"authenticated"}', true);
+update public.profiles set is_admin = true where id = '<A_ID>' returning id, is_admin;
+rollback;
+
+begin;
+update public.profiles set is_admin = true where id = '<A_ID>' returning id, is_admin;
+rollback;
+```
+- [ ] どちらもエラーなく `is_admin = true` が返った（rollback で元に戻る）

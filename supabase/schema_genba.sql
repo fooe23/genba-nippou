@@ -297,6 +297,10 @@ $$;
 --   * reviewed_by / approved_by / approved_at / rejected_reason は reviewer 以上だけが変更可
 --     （担当者は insert で入れることも、update で値を変えることもできない）
 --   * insert 時、管理者以外は created_by を auth.uid() に強制（なりすまし防止）
+--   * 合計3列（output_total / cost_total / man_days_total）は gn_save_report だけが書ける。
+--     insert では常に 0（明細はまだ無い）。update で値を変えるには gn_save_report が立てる
+--     トランザクション内の印（gn.in_save = '1'）が要り、無ければ totals_locked。管理者も同じ。
+--     （PostgREST からは set_config を直接呼べないので、利用者がこの印を立てることはできない）
 -- gn_save_report はこの4列に触れず status も変えない（insert は draft、on conflict update は
 -- 本文の列のみ）ので、draft / submitted / rejected の日報では担当者でもこのガードを通る。
 -- メッセージ文字列はクライアントが判定に使うため変更しないこと
@@ -319,10 +323,21 @@ begin
     if not public.is_admin() then
       new.created_by := auth.uid();
     end if;
+    -- 合計は明細から計算する値。insert の時点では明細が無いので 0 にする（クライアントの値は使わない）
+    new.output_total   := 0;
+    new.cost_total     := 0;
+    new.man_days_total := 0;
     return new;
   end if;
 
   -- update
+  -- 合計3列は gn_save_report の中（gn.in_save = '1'）でだけ変更できる（管理者も同じ）
+  if (new.output_total   is distinct from old.output_total
+      or new.cost_total     is distinct from old.cost_total
+      or new.man_days_total is distinct from old.man_days_total)
+     and current_setting('gn.in_save', true) is distinct from '1' then
+    raise exception using message = 'totals_locked';
+  end if;
   if old.status = 'approved' and not public.is_admin() then
     raise exception using message = 'approved_report_locked';
   end if;
@@ -374,6 +389,87 @@ drop trigger if exists gn_report_lines_guard on public.gn_report_lines;
 create trigger gn_report_lines_guard before insert or update or delete on public.gn_report_lines
   for each row execute function public.gn_report_lines_guard();
 
+-- 明細の計算列を、保存された入力値から DB 側で計算し直す（クライアントの金額・人工は信用しない）。
+-- 計算は src/lib/calc/report.ts（§6.2）と同じ式。TS の単体テスト（tests/calc/report.test.ts）の期待値：
+--   * 共通 08:00〜17:00・休憩60・中抜0 → 実働 8H → 人工 round(8/7.5, 2) = 1.07
+--   * 個別 09:00〜15:30・休憩null（共通の60を使う）・中抜30 → 5H
+--   * 終了が開始より前 → 0H。共通の開始・終了が無ければ（個別も無ければ）0H
+--   * 7.5H → 1 人工。労務費 = 日当 × 人工：18000 × 1.07 = 19260、日当 null → 0
+--   * 燃料費 = 走行距離 ÷ 燃費 × 燃料単価：40 ÷ 10 × 170 = 680、燃費 0 / null → 0
+--   * リース・現金・買掛・作業内容の金額 = 数量 × 単価：5 × 280 = 1400、数量 null → 0
+--   * 歩掛 = 施工数量 ÷ 投入人工：35 ÷ 2 = 17.5、人工 0 / null → null
+--   * 日報合計の例：労務 19260 + 7950（15000 × 0.53）、燃料 680、リース 3500、現金 1400、
+--     買掛 12500 → 原価 45290、出来高 42000、人工 1.07 + 0.53 = 1.6
+-- 労務の時間：個別の開始・終了が両方あれば個別の時刻で、休憩・中抜は「個別 → 共通 → 0」の順。
+-- 個別の時刻が無ければ共通の時刻と共通の休憩・中抜で計算する（TS の commonHours と同じ）。
+-- 人工は小数2桁に丸める。金額は丸めない（numeric のまま）。時刻は 'HH:MM' の文字列。
+
+-- 'HH:MM' を 0時からの分に直す。形式が違う・空なら null。
+create or replace function public.gn_hhmm_minutes(p text)
+returns int language sql immutable set search_path = public as $$
+  select case
+           when p ~ '^\d{1,2}:\d{2}$'
+           then split_part(p, ':', 1)::int * 60 + split_part(p, ':', 2)::int
+         end;
+$$;
+
+create or replace function public.gn_report_lines_compute()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  r         public.gn_daily_reports%rowtype;
+  v_start   int;
+  v_end     int;
+  v_break   int;
+  v_gap     int;
+  v_minutes int;
+begin
+  if new.kind = 'labor' then
+    select * into r from public.gn_daily_reports where id = new.report_id;
+    if public.gn_hhmm_minutes(new.start_time) is not null
+       and public.gn_hhmm_minutes(new.end_time) is not null then
+      v_start := public.gn_hhmm_minutes(new.start_time);
+      v_end   := public.gn_hhmm_minutes(new.end_time);
+      v_break := coalesce(new.break_min, r.common_break_min, 0);
+      v_gap   := coalesce(new.gap_min, r.common_gap_min, 0);
+    else
+      v_start := public.gn_hhmm_minutes(r.common_start);
+      v_end   := public.gn_hhmm_minutes(r.common_end);
+      v_break := coalesce(r.common_break_min, 0);
+      v_gap   := coalesce(r.common_gap_min, 0);
+    end if;
+    if v_start is null or v_end is null then
+      v_minutes := 0;
+    else
+      v_minutes := greatest(v_end - v_start - v_break - v_gap, 0);
+    end if;
+    -- 実働 = 分 / 60、人工 = round(実働 / 7.5, 2) = round(分 / 450, 2)
+    new.hours        := round(v_minutes / 60.0, 6);
+    new.man_days     := round(v_minutes / 450.0, 2);
+    new.amount       := coalesce(new.unit_price, 0) * new.man_days;
+    new.productivity := null;
+  elsif new.kind = 'fuel' then
+    new.amount := case
+                    when coalesce(new.km_per_l, 0) = 0 then 0
+                    else coalesce(new.distance_km, 0) / new.km_per_l * coalesce(new.price_per_l, 0)
+                  end;
+    new.hours := null; new.man_days := null; new.productivity := null;
+  elsif new.kind in ('lease', 'cash', 'credit') then
+    new.amount := coalesce(new.qty, 0) * coalesce(new.unit_price, 0);
+    new.hours := null; new.man_days := null; new.productivity := null;
+  elsif new.kind = 'work' then
+    -- 作業内容の man_days は入力値（投入人工）
+    new.amount       := coalesce(new.qty, 0) * coalesce(new.unit_price, 0);
+    new.productivity := case when coalesce(new.man_days, 0) = 0 then null else new.qty / new.man_days end;
+    new.hours        := null;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists gn_report_lines_compute on public.gn_report_lines;
+create trigger gn_report_lines_compute before insert or update on public.gn_report_lines
+  for each row execute function public.gn_report_lines_compute();
+
 -- 指摘事項の site_id は親日報の site_id に強制する（他現場の日報への紐付けを防ぐ）。
 -- security invoker：親日報の検索は呼び出しユーザーの RLS（gn_daily_reports の select =
 -- 現場メンバーのみ）が効くので、他現場の日報は見つからず report_not_found になる。
@@ -402,11 +498,30 @@ create trigger gn_report_issues_guard before insert or update on public.gn_repor
 -- 承認済み日報を一般ユーザーが保存しようとすると upsert の update 段階で
 -- gn_report_guard が approved_report_locked を投げる（全体がロールバックされる）。
 -- 合計の更新は draft/submitted/rejected の日報に対してのみ行われ、ガードは status を変えない update を通す。
+-- 明細の計算列は gn_report_lines_compute が入力値から計算し直すので、p_lines の amount / hours /
+-- man_days（労務）/ productivity は使われない。合計はその計算結果から集計する。
+-- 楽観ロック：p_report->>'expected_updated_at'（画面を開いたときの updated_at）があれば、
+-- いまの日報の updated_at と比べ、違う（他の端末で更新された・削除された）なら stale_report。
+-- 無い（null / 空）なら比べない（新しい日報の作成など）。
 create or replace function public.gn_save_report(p_report jsonb, p_lines jsonb)
 returns uuid language plpgsql security invoker set search_path = public as $$
 declare
-  v_id uuid;
+  v_id       uuid;
+  v_expected timestamptz;
+  v_current  timestamptz;
 begin
+  v_expected := nullif(p_report->>'expected_updated_at', '')::timestamptz;
+  if v_expected is not null then
+    select r.updated_at into v_current
+      from public.gn_daily_reports r
+     where r.site_id = (p_report->>'site_id')::uuid
+       and r.report_date = (p_report->>'report_date')::date
+       for update;
+    if not found or v_current is distinct from v_expected then
+      raise exception using message = 'stale_report';
+    end if;
+  end if;
+
   insert into public.gn_daily_reports (
     site_id, report_date, weather, supervisor, common_start, common_end,
     common_break_min, common_gap_min, issues_text, notes_text, created_by
@@ -450,6 +565,9 @@ begin
        lateral jsonb_populate_record(null::public.gn_report_lines, e.elem) as t
   order by coalesce(t.sort_order, e.ord::int), e.ord;
 
+  -- 合計の書き込みはこの関数の中だけ（gn_report_guard が gn.in_save を確認する）。
+  -- is_local = true なのでトランザクションの終わりで消えるが、念のため直後に戻す。
+  perform set_config('gn.in_save', '1', true);
   update public.gn_daily_reports r set
     output_total   = coalesce((select sum(l.amount)   from public.gn_report_lines l
                                 where l.report_id = v_id and l.kind = 'work'), 0),
@@ -458,6 +576,7 @@ begin
     man_days_total = coalesce((select sum(l.man_days) from public.gn_report_lines l
                                 where l.report_id = v_id and l.kind = 'labor'), 0)
   where r.id = v_id;
+  perform set_config('gn.in_save', '', true);
 
   return v_id;
 end;
@@ -609,7 +728,9 @@ create policy gn_carryovers_admin_update on public.gn_carryovers for update to a
 drop policy if exists gn_carryovers_admin_delete on public.gn_carryovers;
 create policy gn_carryovers_admin_delete on public.gn_carryovers for delete to authenticated using (public.is_admin());
 
--- 日報・指摘事項：現場メンバーが閲覧・追加・更新、削除は管理者のみ
+-- 日報・指摘事項：現場メンバーが閲覧・追加・更新。
+-- 日報の削除は管理者、または作成者本人（現場メンバーのまま）で下書き・差戻しの日報だけ。
+-- 明細・指摘事項は on delete cascade で一緒に消える。指摘事項だけの削除は管理者のみ
 drop policy if exists gn_daily_reports_select on public.gn_daily_reports;
 create policy gn_daily_reports_select on public.gn_daily_reports for select to authenticated using (public.gn_is_site_member(site_id));
 drop policy if exists gn_daily_reports_insert on public.gn_daily_reports;
@@ -617,7 +738,7 @@ create policy gn_daily_reports_insert on public.gn_daily_reports for insert to a
 drop policy if exists gn_daily_reports_update on public.gn_daily_reports;
 create policy gn_daily_reports_update on public.gn_daily_reports for update to authenticated using (public.gn_is_site_member(site_id)) with check (public.gn_is_site_member(site_id));
 drop policy if exists gn_daily_reports_delete on public.gn_daily_reports;
-create policy gn_daily_reports_delete on public.gn_daily_reports for delete to authenticated using (public.is_admin());
+create policy gn_daily_reports_delete on public.gn_daily_reports for delete to authenticated using (public.is_admin() or (created_by = auth.uid() and status in ('draft','rejected') and public.gn_is_site_member(site_id)));
 drop policy if exists gn_report_issues_select on public.gn_report_issues;
 create policy gn_report_issues_select on public.gn_report_issues for select to authenticated using (public.gn_is_site_member(site_id));
 drop policy if exists gn_report_issues_insert on public.gn_report_issues;
