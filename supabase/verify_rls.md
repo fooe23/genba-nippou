@@ -542,3 +542,41 @@ update public.profiles set is_admin = true where id = '<A_ID>' returning id, is_
 rollback;
 ```
 - [ ] どちらもエラーなく `is_admin = true` が返った（rollback で元に戻る）
+
+**8-4. 管理者でない利用者が自分の区分・会社名を変えようとする（account_type_locked で失敗するはず）**
+（`supabase/add_profile_account_type.sql` を適用済みであること。A は現在 `employee` とする）
+```sql
+-- (a) 社員 → 協力会社 に自分で変える
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+update public.profiles set account_type = 'partner' where id = '<A_ID>';
+rollback;
+
+-- (b) 会社名を自分で付ける
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+update public.profiles set company_name = 'テスト工業' where id = '<A_ID>';
+rollback;
+
+-- (c) 協力会社の本人が employee に書き換える（同じトランザクション内で、先に管理者が partner にしておく）
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<ADMIN_ID>","role":"authenticated"}', true);
+update public.profiles set account_type = 'partner', company_name = 'テスト工業' where id = '<A_ID>';
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+update public.profiles set account_type = 'employee' where id = '<A_ID>';
+rollback;
+```
+- [ ] (a)(b)(c) のすべてで、エラーメッセージが `account_type_locked` だった
+
+**8-5. 管理者は他人の区分・会社名を変えられる**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<ADMIN_ID>","role":"authenticated"}', true);
+update public.profiles set account_type = 'partner', company_name = 'テスト工業' where id = '<A_ID>' returning id, account_type, company_name;
+rollback;
+```
+- [ ] エラーなく `account_type = partner`、`company_name = テスト工業` が返った（rollback で元に戻る）
