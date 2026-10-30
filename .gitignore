@@ -16,3 +16,4 @@ next-env.d.ts
 .vercel
 npm-debug.log*
 *.pem
+.claude/
