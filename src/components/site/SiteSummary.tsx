@@ -2,7 +2,7 @@ import { daysBetween } from '@/lib/calc/calendar';
 import { jpDate, yen } from '@/lib/calc/format';
 import { progressRate } from '@/lib/calc/report';
 import { visitLabel, visitNumbers } from '@/lib/calc/visit';
-import type { ReportHead } from '@/lib/db/reports';
+import type { Issue, ReportHead } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 
 function Item({ label, children }: { label: string; children: React.ReactNode }) {
@@ -15,7 +15,7 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
 }
 
 /** 現場詳細の上部サマリー。heads は日付昇順。 */
-export function SiteSummary({ site, heads, today }: { site: Site; heads: ReportHead[]; today: string }) {
+export function SiteSummary({ site, heads, today, issues }: { site: Site; heads: ReportHead[]; today: string; issues: Issue[] }) {
   const costTotal = heads.reduce((sum, h) => sum + h.costTotal, 0);
   const outputTotal = heads.reduce((sum, h) => sum + h.outputTotal, 0);
   const rate = site.contractAmount === null ? null : progressRate(outputTotal, site.contractAmount) * 100;
@@ -65,9 +65,19 @@ export function SiteSummary({ site, heads, today }: { site: Site; heads: ReportH
         )}
       </div>
 
-      <div className="mt-4 rounded-lg border border-dashed border-gray-400 p-3 dark:border-gray-600">
-        <h2 className="text-base font-bold">対応中の重要事項</h2>
-        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">（この後の作業で接続します）</p>
+      <div className="mt-4">
+        <h2 className="mb-2 text-base font-bold">対応中の重要事項</h2>
+        {issues.length === 0 ? (
+          <p className="text-sm text-gray-600 dark:text-gray-400">対応中の重要事項はありません</p>
+        ) : (
+          <ul className="divide-y divide-yellow-300 rounded-lg border border-yellow-400 bg-yellow-50 text-yellow-950 dark:divide-yellow-700 dark:border-yellow-600 dark:bg-yellow-950 dark:text-yellow-50">
+            {issues.map((i) => (
+              <li key={i.id} className="px-3 py-2 text-sm">
+                <span className="font-bold">{jpDate(i.reportDate)}</span>　<span className="whitespace-pre-wrap break-words">{i.body}</span>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );

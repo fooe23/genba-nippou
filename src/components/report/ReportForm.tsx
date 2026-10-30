@@ -5,12 +5,14 @@ import { useRouter } from 'next/navigation';
 import { useMemo, useState, useTransition, type ReactNode } from 'react';
 import { jpDate } from '@/lib/calc/format';
 import { commonHours, reportTotals } from '@/lib/calc/report';
-import { copyPreviousReport, saveReport, submitReport, type ReportStateResult, type SaveReportResult } from '@/lib/db/reports-actions';
+import { addIssue, copyPreviousReport, saveReport, setIssueDone, submitReport, type ReportStateResult, type SaveReportResult } from '@/lib/db/reports-actions';
+import type { Issue } from '@/lib/db/reports';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import type { TimeSpec } from '@/lib/types';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
 import { fieldClass, NumInput, Select, TimeInput } from './inputs';
+import { IssueBanner } from './IssueBanner';
 import { ReportSummary } from './ReportSummary';
 import { FuelTable } from './tables/FuelTable';
 import { LaborTable } from './tables/LaborTable';
@@ -41,6 +43,12 @@ export interface ReportFormProps {
   hasPrevious: boolean;
   initial: SaveInput;
   masters: ReportMasters;
+  /** 保存済みの日報のID。未保存なら null（件の追加は保存後）。 */
+  reportId: string | null;
+  /** この日報の重要事項の件（対応中・完了とも）。 */
+  issues: Issue[];
+  /** 現場の対応中の件（バナー用。この日報の件も含む）。 */
+  openIssues: Issue[];
 }
 
 const SUBMIT_FAILED = '提出に失敗しました。通信状況を確認してもう一度お試しください。';
@@ -71,6 +79,112 @@ function Band({ id, tone, title, items }: { id?: string; tone: 'warn' | 'error';
         ))}
       </ul>
     </div>
+  );
+}
+
+
+const ISSUE_FAILED = '処理に失敗しました。通信状況を確認してもう一度お試しください。';
+
+/** その日報の重要事項の件。状態の切替と追加は日報の保存とは別に即時反映する。 */
+function IssueList({ reportId, issues, onChanged }: { reportId: string | null; issues: Issue[]; onChanged: () => void }) {
+  const [body, setBody] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function add() {
+    setError(null);
+    const text = body.trim();
+    if (!reportId || !text) return;
+    startTransition(async () => {
+      let res: Awaited<ReturnType<typeof addIssue>>;
+      try {
+        res = await addIssue(reportId, text);
+      } catch {
+        res = { ok: false, error: ISSUE_FAILED };
+      }
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setBody('');
+      onChanged();
+    });
+  }
+
+  function toggle(issue: Issue) {
+    setError(null);
+    startTransition(async () => {
+      let res: ReportStateResult;
+      try {
+        res = await setIssueDone(issue.id, issue.status === 'open');
+      } catch {
+        res = { ok: false, error: ISSUE_FAILED };
+      }
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      onChanged();
+    });
+  }
+
+  return (
+    <section aria-label="重要事項（件）" className="mb-6">
+      <h2 className="mb-2 border-b border-gray-300 pb-1 text-lg font-bold dark:border-gray-700">重要事項（件）</h2>
+      {issues.length === 0 ? (
+        <p className="mb-3 text-sm text-gray-600 dark:text-gray-400">この日報の件はまだありません。</p>
+      ) : (
+        <ul className="mb-3 divide-y divide-gray-300 rounded-lg border border-gray-300 dark:divide-gray-700 dark:border-gray-700">
+          {issues.map((i) => (
+            <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
+              <div className="min-w-0 flex-1 basis-48">
+                <p className={`whitespace-pre-wrap break-words ${i.status === 'done' ? 'text-gray-600 line-through dark:text-gray-400' : ''}`}>{i.body}</p>
+                {i.status === 'done' && i.doneAt && <p className="text-sm text-gray-600 dark:text-gray-400">完了 {jpDate(i.doneAt)}</p>}
+              </div>
+              <button
+                type="button"
+                onClick={() => toggle(i)}
+                disabled={pending}
+                aria-label={`${i.body}：${i.status === 'open' ? '完了にする' : '対応中に戻す'}`}
+                className={`${buttonBase} shrink-0 border ${
+                  i.status === 'open'
+                    ? 'border-yellow-500 bg-yellow-50 text-yellow-950 dark:bg-yellow-950 dark:text-yellow-50'
+                    : 'border-green-600 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-50'
+                }`}
+              >
+                {i.status === 'open' ? '対応中' : '完了'}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <Labeled label="件の内容（500文字まで）" className="flex-1">
+          <textarea
+            value={body}
+            maxLength={500}
+            rows={2}
+            disabled={!reportId || pending}
+            onChange={(e) => setBody(e.target.value)}
+            className={`${fieldClass} py-2`}
+          />
+        </Labeled>
+        <button
+          type="button"
+          onClick={add}
+          disabled={!reportId || pending || body.trim() === ''}
+          className={`${buttonBase} border border-blue-700 text-blue-700 dark:border-blue-400 dark:text-blue-400`}
+        >
+          件を追加
+        </button>
+      </div>
+      {!reportId && <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">先に下書き保存してください。</p>}
+      {error && (
+        <p role="alert" className="mt-2 rounded-lg border border-red-500 bg-red-50 p-3 text-red-900 dark:bg-red-950 dark:text-red-50">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -237,6 +351,7 @@ export function ReportForm(p: ReportFormProps) {
 
   return (
     <div className="pb-28">
+      {!p.review && <IssueBanner issues={p.openIssues} currentReportId={p.reportId} />}
       <Link
         href={p.review ? '/approvals' : `/sites/${p.siteId}`}
         className="mb-1 inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400"
@@ -365,6 +480,8 @@ export function ReportForm(p: ReportFormProps) {
           </Labeled>
         </section>
       </fieldset>
+
+      <IssueList reportId={p.reportId} issues={p.issues} onChanged={() => router.refresh()} />
 
       {!p.readOnly && !p.review && <Band tone="warn" title="確認してください（保存はできます）" items={warnings} />}
       <Band id="report-errors" tone="error" title="保存・提出できません" items={errors} />

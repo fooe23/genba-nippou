@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { todayJst } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
-import { listReportHeads } from '@/lib/db/reports';
+import { listOpenIssues, listReportHeads } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
 import { ReportCalendar } from '@/components/site/ReportCalendar';
 import { SiteSummary } from '@/components/site/SiteSummary';
@@ -14,7 +14,7 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
   const { siteId } = await params;
   const site = await getSite(siteId);
   if (!site) notFound();
-  const heads = await listReportHeads(siteId);
+  const [heads, issues] = await Promise.all([listReportHeads(siteId), listOpenIssues(siteId)]);
   const today = todayJst();
 
   return (
@@ -26,7 +26,7 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
       {site.clientName && <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">{site.clientName}</p>}
 
       <div className="mt-4">
-        <SiteSummary site={site} heads={heads} today={today} />
+        <SiteSummary site={site} heads={heads} today={today} issues={issues} />
         <ReportCalendar siteId={siteId} heads={heads} today={today} />
       </div>
 

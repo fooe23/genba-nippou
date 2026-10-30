@@ -249,3 +249,66 @@ export async function getSubmittedCount(): Promise<number> {
     return 0;
   }
 }
+
+// ─── 重要事項の件（追加・変更・増減の指示や依頼）。書き込みは reports-actions.ts ───
+
+export interface Issue {
+  id: string;
+  siteId: string;
+  reportId: string;
+  reportDate: string;
+  body: string;
+  status: 'open' | 'done';
+  doneAt: string | null;
+}
+
+interface IssueRow {
+  id: string;
+  site_id: string;
+  report_id: string;
+  body: string;
+  status: string;
+  done_at: string | null;
+  gn_daily_reports: { report_date: string } | { report_date: string }[] | null;
+}
+
+const ISSUE_COLUMNS = 'id, site_id, report_id, body, status, done_at, gn_daily_reports(report_date)';
+
+function toIssue(r: IssueRow): Issue {
+  return {
+    id: r.id,
+    siteId: r.site_id,
+    reportId: r.report_id,
+    reportDate: one(r.gn_daily_reports)?.report_date ?? '',
+    body: r.body,
+    status: r.status === 'done' ? 'done' : 'open',
+    doneAt: r.done_at ?? null,
+  };
+}
+
+/** 現場の対応中（open）の件。日報の日付の昇順（同日は登録順）。 */
+export async function listOpenIssues(siteId: string): Promise<Issue[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_report_issues')
+    .select(ISSUE_COLUMNS)
+    .eq('site_id', siteId)
+    .eq('status', 'open')
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  const list = ((data ?? []) as unknown as IssueRow[]).map(toIssue);
+  // 埋め込み先の列では並べ替えない（件数は少ないのでここで日付順にする。安定ソートで同日は登録順）。
+  return list.sort((a, b) => a.reportDate.localeCompare(b.reportDate));
+}
+
+/** その日報の件（対応中・完了とも）。登録順。 */
+export async function listIssuesForReport(reportId: string): Promise<Issue[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_report_issues')
+    .select(ISSUE_COLUMNS)
+    .eq('report_id', reportId)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as IssueRow[]).map(toIssue);
+}

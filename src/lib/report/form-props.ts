@@ -3,7 +3,7 @@ import { jpDate, todayJst } from '@/lib/calc/format';
 import { visitLabel, visitNumbers } from '@/lib/calc/visit';
 import { listLeaseItems, listSuppliers, listUnits, listVehicles, listWeather, listWorkers } from '@/lib/db/masters';
 import type { Profile } from '@/lib/db/profile';
-import { listReportHeads, type ReportDetail } from '@/lib/db/reports';
+import { listIssuesForReport, listOpenIssues, listReportHeads, type ReportDetail } from '@/lib/db/reports';
 import { getSiteMasters, type Site } from '@/lib/db/sites';
 import type { SaveInput } from '@/lib/report/schema';
 import type { ReportFormProps } from '@/components/report/ReportForm';
@@ -53,7 +53,7 @@ export async function loadReportFormProps(
   report: ReportDetail,
 ): Promise<Omit<ReportFormProps, 'readOnly' | 'review'>> {
   const siteId = site.id;
-  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather] = await Promise.all([
+  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues] = await Promise.all([
     listReportHeads(siteId),
     getSiteMasters(siteId),
     listWorkers(),
@@ -62,6 +62,8 @@ export async function loadReportFormProps(
     listLeaseItems(),
     listUnits(),
     listWeather(),
+    listOpenIssues(siteId),
+    report.head ? listIssuesForReport(report.head.id) : Promise.resolve([]),
   ]);
   const used = { workers: new Set<string>(), suppliers: new Set<string>(), vehicles: new Set<string>(), leaseItems: new Set<string>() };
   for (const l of report.lines) {
@@ -119,5 +121,8 @@ export async function loadReportFormProps(
     hasPrevious: allDates.some((d) => d < date),
     initial,
     masters,
+    reportId: head ? head.id : null,
+    issues,
+    openIssues,
   };
 }
