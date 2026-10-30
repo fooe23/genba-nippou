@@ -72,3 +72,8 @@
 - 労務費 = 日当×人工 ＋ 残業時間×残業単価。残業単価の既定 = 日当÷8×1.25、作業員ごとに上書き可（マスターの 残業単価 列）。4つのパラメータは設定セル／設定テーブルに持つ。
 - 共通時間の既定は 8:00〜17:30・休憩90（現場ごとの設定）。
 - 雛形は V34（templates/現場管理台帳_V34_案.xlsm）として改訂中。アプリ側（calc/report.ts・DB トリガー・設定画面・作業員マスターの残業単価）は第2計画の前に反映する。
+
+## 追補2（権限：社員は全現場）2026-10-31 — レビュー済み
+- commits f2378fd, 10154bc。gn_is_site_member を「管理者 or 割当メンバー or 社員」に変更。承認は従来どおり割当者のみ。
+- 適用：supabase/update_2026-10-31_employee_access.sql（関数1つ）。新規環境では add_profile_account_type.sql → schema_genba.sql → fix_profiles_guard.sql の順。
+- 据え置き：spec §2 の役割表の「担当者」行の文言、profile.ts の null→employee 変換（列は not null なので到達しない）
