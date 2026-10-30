@@ -4,7 +4,18 @@ import { sumRows, type MonthlyRow } from '@/lib/calc/aggregate';
 import { NULL_TEXT, pct, tableClass, tableWrapClass, tdClass, tdStickyClass, thClass, thStickyClass, totalClass } from './table';
 
 /** 月次集計（雛形の列順）。日付は日報画面へのリンク。 */
-export function MonthlyTable({ siteId, rows, hasContract }: { siteId: string; rows: MonthlyRow[]; hasContract: boolean }) {
+export function MonthlyTable({
+  siteId,
+  rows,
+  hasContract,
+  cumulative,
+}: {
+  siteId: string;
+  rows: MonthlyRow[];
+  hasContract: boolean;
+  /** 工期累計（表示している最終日までの全日報の合計）と、その時点の累計進捗率 */
+  cumulative: { total: ReturnType<typeof sumRows>; progress: number };
+}) {
   if (rows.length === 0) {
     return <p className="py-6 text-center text-base text-gray-600 dark:text-gray-400">この期間の日報はありません。</p>;
   }
@@ -52,7 +63,10 @@ export function MonthlyTable({ siteId, rows, hasContract }: { siteId: string; ro
         </tbody>
         <tfoot>
           <tr className={totalClass}>
-            <th scope="row" className={`${tdStickyClass} ${totalClass}`}>合計</th>
+            <th scope="row" className={`${tdStickyClass} ${totalClass}`}>
+              合計
+              <span className="block text-xs font-normal">表示期間</span>
+            </th>
             <td className={`${tdClass} text-left`} />
             <td className={tdClass}>{sum.workerCount}</td>
             <td className={tdClass}>{yen(sum.labor)}</td>
@@ -63,6 +77,22 @@ export function MonthlyTable({ siteId, rows, hasContract }: { siteId: string; ro
             <td className={tdClass}>{yen(sum.cost)}</td>
             <td className={tdClass}>{yen(sum.output)}</td>
             <td className={tdClass}>{hasContract ? pct(last.progress) : NULL_TEXT}</td>
+          </tr>
+          <tr className={totalClass}>
+            <th scope="row" className={`${tdStickyClass} ${totalClass}`}>
+              工期累計
+              <span className="block text-xs font-normal">最終日まで</span>
+            </th>
+            <td className={`${tdClass} text-left`} />
+            <td className={tdClass}>{cumulative.total.workerCount}</td>
+            <td className={tdClass}>{yen(cumulative.total.labor)}</td>
+            <td className={tdClass}>{yen(cumulative.total.fuel)}</td>
+            <td className={tdClass}>{yen(cumulative.total.lease)}</td>
+            <td className={tdClass}>{yen(cumulative.total.cash)}</td>
+            <td className={tdClass}>{yen(cumulative.total.credit)}</td>
+            <td className={tdClass}>{yen(cumulative.total.cost)}</td>
+            <td className={tdClass}>{yen(cumulative.total.output)}</td>
+            <td className={tdClass}>{hasContract ? pct(cumulative.progress) : NULL_TEXT}</td>
           </tr>
         </tfoot>
       </table>

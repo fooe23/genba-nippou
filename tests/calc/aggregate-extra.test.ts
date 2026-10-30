@@ -43,3 +43,18 @@ describe('追加ケース', () => {
     expect(a[0].byDate['2026-11-02']).toEqual({ manDays: 0.6, cost: 1200 });
   });
 });
+
+describe('原価タブの累計基準（月次集計の進捗率と一致）', () => {
+  const mk = (d: string, output: number, labor: number): DayTotals => ({ ...zeroDay, id: d, reportDate: d, outputTotal: output, labor, costTotal: labor });
+  it('期間末までの累計で計算した進捗率が月次集計の最終行と一致する', async () => {
+    const { monthlyRows } = await import('@/lib/calc/aggregate');
+    const all = [mk('2026-10-30', 50000, 10000), mk('2026-11-02', 100000, 20000), mk('2026-11-05', 150000, 30000)];
+    const monthLast = monthlyRows(all, '2026-11', 1_000_000).at(-1)!;
+    const cumulative = costSummary(all.filter((d) => d.reportDate <= '2026-11-31'), 1_000_000);
+    const monthOnly = costSummary(all.filter((d) => d.reportDate.startsWith('2026-11')), 1_000_000);
+    expect(cumulative.progress).toBe(monthLast.progress);
+    expect(cumulative.progress).toBe(0.3);
+    expect(monthOnly.progress).toBe(0.25);
+    expect(cumulative.cost).toBe(60000);
+  });
+});

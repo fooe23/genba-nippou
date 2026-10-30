@@ -1,5 +1,6 @@
 import 'server-only';
 import type { DayTotals, LaborEntry } from '@/lib/calc/aggregate';
+import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { listReportHeads } from '@/lib/db/reports';
 import { createServerSupabase } from '@/lib/supabase/server';
 
@@ -14,24 +15,28 @@ interface LineRow {
   man_days: number | string | null;
 }
 
-// .in() の URL が長くなりすぎないよう、id を分けて問い合わせる。
-const CHUNK = 200;
+// .in() の URL が長くなりすぎないよう id を分けて問い合わせる。さらに PostgREST の max_rows（既定 1000）で
+// 黙って切り詰められないよう、各グループを .range() で 1000 件ずつ最後まで取る。
+const ID_CHUNK = 200;
+const PAGE_SIZE = 1000;
 
 async function fetchLines(reportIds: string[]): Promise<LineRow[]> {
   if (reportIds.length === 0) return [];
   const supabase = await createServerSupabase();
-  const chunks: string[][] = [];
-  for (let i = 0; i < reportIds.length; i += CHUNK) chunks.push(reportIds.slice(i, i + CHUNK));
   const results = await Promise.all(
-    chunks.map(async (ids) => {
-      const { data, error } = await supabase
-        .from('gn_report_lines')
-        .select('report_id, kind, amount, ref_id, name, man_days')
-        .in('report_id', ids)
-        .in('kind', ['labor', 'fuel', 'lease', 'cash', 'credit']);
-      if (error) throw new Error(error.message);
-      return (data ?? []) as LineRow[];
-    }),
+    chunk(reportIds, ID_CHUNK).map((ids) =>
+      fetchAllPages<LineRow>(async (from, to) => {
+        const { data, error } = await supabase
+          .from('gn_report_lines')
+          .select('report_id, kind, amount, ref_id, name, man_days')
+          .in('report_id', ids)
+          .in('kind', ['labor', 'fuel', 'lease', 'cash', 'credit'])
+          .order('id', { ascending: true }) // ページ境界で重複・欠落しないよう並びを固定する
+          .range(from, to);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as LineRow[];
+      }, PAGE_SIZE),
+    ),
   );
   return results.flat();
 }

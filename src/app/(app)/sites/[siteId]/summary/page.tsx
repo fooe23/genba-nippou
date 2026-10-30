@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { attendance, costSummary, monthlyRows, workerCumulative } from '@/lib/calc/aggregate';
+import { attendance, costSummary, monthlyRows, sumRows, workerCumulative } from '@/lib/calc/aggregate';
 import { monthKey, todayJst } from '@/lib/calc/format';
 import { listWorkers } from '@/lib/db/masters';
 import { requireProfile } from '@/lib/db/profile';
@@ -46,6 +46,16 @@ export default async function SummaryPage({ params, searchParams }: PageProps<'/
   const months = isAll ? [...new Set(days.map((d) => monthKey(d.reportDate)))].sort() : [period];
   const monthly = months.flatMap((m) => monthlyRows(days, m, contractTotal));
 
+  // 工期累計: 表示している最終日（工期全体なら全日）までの全日報の合計
+  const lastDate = monthly.length > 0 ? monthly[monthly.length - 1].date : null;
+  const allMonths = [...new Set(days.map((d) => monthKey(d.reportDate)))].sort();
+  const cumulativeRows = lastDate === null ? [] : allMonths.flatMap((m) => monthlyRows(days, m, contractTotal)).filter((r) => r.date <= lastDate);
+  const cumulativeTotal = sumRows(cumulativeRows);
+  const cumulativeProgress = cumulativeRows.length > 0 ? cumulativeRows[cumulativeRows.length - 1].progress : 0;
+
+  // 原価タブの契約額まわり（総原価・粗利・進捗率）は期間末時点の累計で計算する
+  const cumulativeDays = isAll ? days : days.filter((d) => d.reportDate <= `${period}-31`);
+
   const workerNames = Object.fromEntries(workers.map((w) => [w.id, w.name]));
 
   return (
@@ -58,8 +68,17 @@ export default async function SummaryPage({ params, searchParams }: PageProps<'/
       <PeriodBar period={period} currentMonth={currentMonth} />
       <SummaryTabs siteId={siteId} active={tab} period={period} />
 
-      {tab === 'monthly' && <MonthlyTable siteId={siteId} rows={monthly} hasContract={!!contractTotal} />}
-      {tab === 'cost' && <CostTable summary={costSummary(periodDays, contractTotal)} />}
+      {tab === 'monthly' && <MonthlyTable
+          siteId={siteId}
+          rows={monthly}
+          hasContract={!!contractTotal}
+          cumulative={{ total: cumulativeTotal, progress: cumulativeProgress }}
+        />}
+      {tab === 'cost' && <CostTable
+          periodSummary={costSummary(periodDays, contractTotal)}
+          cumulativeSummary={costSummary(cumulativeDays, contractTotal)}
+          periodLabel={isAll ? '工期全体' : `${Number(period.slice(0, 4))}年${Number(period.slice(5, 7))}月`}
+        />}
       {tab === 'attendance' && <AttendanceTable rows={attendance(periodEntries)} />}
       {tab === 'workers' && <WorkersTable rows={workerCumulative(periodEntries, carryovers, workerNames)} />}
     </main>
