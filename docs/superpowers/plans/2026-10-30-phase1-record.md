@@ -1,0 +1,58 @@
+# 第1計画 実装の記録（裁定・据え置き事項）
+
+作成日：2026-10-31。実装中の判断（Ruling）と、レビューで見つかったが第1計画では据え置いた小さな指摘の一覧。第2計画以降の着手時に参照する。
+
+## 裁定（Ruling）
+- Ruling: worktree を作らず同一チェックアウトの phase1 ブランチで実装 — 新規リポジトリで他の作業がなく、利用者が Projects フォルダ内で直接ファイルを見つけられる必要がある — 誤りなら main の汚染リスクはないが、並行作業時に衝突する可能性
+- Ruling: Next.js 16 で middleware の規約名が proxy.ts でない場合はフレームワークの規約名を正とする — 計画は名称を推定している — 誤りならファイル名の違いのみ
+- Ruling: next.config.ts の cacheComponents/partialPrefetching（create-next-app 16.4 既定）を外す — 認証付きの動的ページ中心で Suspense 境界を計画に積んでいないため — 誤りならキャッシュ最適化の機会損失のみ
+- Ruling: Task 4 に SQL 構文チェック（libpg-query を devDependency、scripts/check-sql.mjs、npm run check:sql）を追加 — ローカルに Postgres/Docker が無く、適用前に構文誤りを検出する手段が他にない — 誤りなら devDependency が1つ増えるだけ
+- Ruling: Storage ポリシーは認証済み全員ではなく、オブジェクトパス先頭の <site_id>/ を gn_is_site_member で検査して現場メンバーに限定する（update は owner=auth.uid() か管理者） — 自動セキュリティレビューの指摘。他現場の写真・積算書を読めるのは設計書 §2 の権限に反する — 誤りならアップロード時のパス規約が増えるのみ（第3・第4計画のアップロード実装はこの規約に従う）
+- Ruling: 計画の "before update" より設計書 §2「担当者は承認できない」を優先し、ガードを before insert or update に拡張、承認系4列（reviewed_by/approved_by/approved_at/rejected_reason）は reviewer/approver 以外の変更を拒否 — 誤りなら管理者の運用が少し厳格になるのみ
+- Ruling: Minor#3（gn_report_issues.site_id が親日報の site_id と不一致で他現場へ書き込める）は現場をまたぐ書込みなので Important として修正対象に含める — 誤りならトリガーが1本増えるのみ
+- Ruling: Task 5 fix round 1 に Minor#3（profiles 取得エラーの握りつぶし→ログ出力）と Minor#4（ログイン失敗時の loading 固着→try/finally）も含める — 同一ファイル内の小修正で利用者に見えるバグのため — 誤りなら1回の修正量が少し増えるのみ
+- Ruling: Task 9 の saveReport は計画の Promise<string> ではなく { ok, id } | { ok:false, error } を返す — Next.js 本番では Server Action の throw メッセージが隠れるため（Task 6 レビューの指摘） — 誤りなら呼び出し側の分岐が少し増えるのみ。Task 10/11 のアクションも同形式
+- Ruling: Task 9 fix round 1 に Minor#1（金額のみ入力で金額空のときの誤ったエラー文）と Minor#5（古い形式の下書き復元でクラッシュ→try/catch で破棄）も含める — 同一モジュール内の小修正で利用者に見えるため — 誤りなら修正量が少し増えるのみ
+- Ruling: 原価集計タブは「5項目の金額＝表示期間、進捗率・総原価・粗利益・粗利率＝期間末時点の累計」とし見出しに明記 — 設計書 §5/§7 の進捗率は累計定義のため — 誤りなら月単位の粗利が見たい場合に列が1組増えるのみ
+- Ruling: Task 13 fix round 1 に文言の Minor（表名のずれ、状態名「提出済」、下書きの編集権、「第2計画」の社内用語、工期累計行の説明）も含める — 同じ md ファイルの文言修正で利用者に直接見えるため — 誤りなら修正量が少し増えるのみ
+- Critical#1 既存 profiles_update に with check がなく自己昇格可能（既存アプリの表） → Ruling: 別ファイル supabase/fix_profiles_guard.sql を用意し README から参照。適用は共有テーブルのため利用者の承認後 — 誤りなら未適用のまま運用され権限モデルが崩れる（必ず利用者に伝える）
+- Important#1 金額・人工・合計列を DB が検証せず、単価スナップショットがクライアント由来 → Ruling: gn_report_lines の before トリガーで hours/man_days/amount/productivity を再計算、*_total は gn_save_report 内のみ更新可（GUC で判定）、saveReport は労務・リースの単価を日報日付でサーバー解決 — 誤りなら単価訂正時に再保存で値が変わるが仕様（日付時点の単価）に合致
+- Important#2 作業員別累計の月表示が「繰越初期値＋当月」で Excel の C/D・E/F・G/H と不一致 → Ruling: 前月繰越＝初期値＋期間開始前の日報、当期間、累計の3組にし、beforeDate より前の日報は繰越に含めない（二重計上防止）。ガイド文言を戻す
+- Important#3 最終書き込み勝ちで他端末の更新を黙って上書き → Ruling: updated_at による楽観ロック（stale_report）と下書き復元時の警告を追加
+- Important#4 誤った日付の日報を消せない → Ruling: 作成者は draft/rejected の自分の日報を、管理者は全てを削除できる（RLS とアクション、確認ダイアログ）
+
+## 据え置きの指摘（minor / deferred）
+- Task 1: minor (deferred): globals.css の Arial 指定と Geist(latin) は日本語UIでは無意味。Task 5 のレイアウト実装時に日本語フォントスタックへ置換し next/font/google 依存を外す
+- Task 1: minor (deferred): eslint globalIgnores に coverage/** を追加
+- Task 1: minor (deferred): package.json に engines.node >=22 を追加、README は Task 14 で書き直し
+- Task 2: minor (deferred): toMinutes は不正な "HH:MM" で NaN を返す → Task 9 の Zod schema で時刻形式を検証すること（Task 9 ディスパッチに引き継ぐ）
+- Task 2: minor (deferred): fuelCost の負の燃費・progressRate の負の総額は未ガード → schema で非負を検証
+- Task 2: minor (deferred): productivity(qty null) → null は後続タスクでテスト追加を検討
+- Task 3: minor (deferred): format.test.ts に yen(1234.5)/yen(-0.4)/jpDate("2026-01-09") のケース追加
+- Task 3: minor (deferred): rateAt の同一 effectiveFrom は配列順依存 → Task 4 の unique(worker_id, effective_from) で担保
+- Task 4: minor (deferred): 合計3列を会員が直接更新できる（アプリは rpc 経由なので実害小）、created_by の直接 insert による詐称
+- Task 4: minor (deferred→Task 9 へ引継ぎ): jsonb_populate_record は数値/uuid列に "" を渡すと生エラー → saveReport は空値を必ず null で送る
+- Task 4: minor (deferred→Task 10 へ引継ぎ): 差戻し後の再提出で staff が rejected_reason を消すとガードに弾かれる → submitReport は rejected_reason に触れない。gn_report_issues には承認ロックなし（仕様外、据え置き）
+- Task 4: minor (deferred): auth.uid() のない呼び出し（SQL Editor/service role）は非管理者扱い。将来の取り込み処理は管理者として実行する必要あり
+- Task 5: minor (deferred): リダイレクト時に Cache-Control ヘッダ未複製、タブの前方一致が緩い、getCurrentProfile を React cache() で重複排除、Database 型なし、manifest/robots が /login へ飛ぶ、LayoutProps<'/'> の流用
+- Task 5: minor (deferred): HTTP 400 を一律に資格情報エラー扱い（メール未確認も同じ文言）。signInError.code での判別が精密
+- Task 6: minor (deferred): Server Action の throw は本番で message が隠れる → 日報系アクション（Task 9/10）は { ok, error } 形式を採用すること（Task 9 へ引継ぎ）
+- Task 6: minor (deferred): 同日付の単価上書き確認プロンプト、タブの ARIA、RateHistoryEditor が form 外、todayJst の固定日付テスト、トグルが stale な name を送る
+- Task 6: minor (deferred): createWithRate の補償削除で元エラーを捨てている（{cause} かログ）、ロールバック失敗時の警告が本番で見えない、SQL RPC 化すれば完全に原子化できる
+- Task 7: minor (deferred): setSiteMasters は4表を順次更新（非トランザクション）、sort_order の重複、upsertCarryover が選択作業員かを未検証、diffIds の純関数化とテスト、着工≤竣工の検証なし、保存済みメッセージの残留
+- Task 8: minor (deferred): 経過日数が着工日に0日表示（包含カウントは製品判断）、listReportHeads に limit なし（PostgREST 既定1000）、カレンダーの visitNumbers を事前計算、提出済でも「今日の日報を書く」の文言
+- Task 9: minor (deferred): 復元の楽観ロックなし（savedAt をバナーに表示）、下書きキーに利用者IDなし、個別時間の片方入力の警告、承認済みの古い下書きを消さない、金額のみ行が 1×金額 で再表示
+- Task 10: minor (deferred): getSubmittedCount が requireProfile を再実行（React cache() で重複排除）、レイアウトのバッジが他者の操作で古くなる（revalidatePath('/','layout')）、span の aria-label、エラー帯の見出し文言、review モードでも下書きフックが動く
+- Task 11: minor (deferred): setIssueDone の冗長な親日報再取得、/approvals の revalidate 漏れ、done 再設定で done_at 上書き、トグルの表示が現在状態のみ、review モードでも openIssues を読む
+- Task 12: minor (deferred): 月次集計の備考列（重要事項要約）は Task 11 のデータ連携が要るため第1計画では見送り、costTotal と5項目合計の不一致リスク、総額0の表示の不統一、text-left/text-right の重複クラス、全状態の日報を集計に含める（承認済みのみにするかは利用者判断）
+- Task 13: minor (deferred): ガイドのテストが見出しのみの章を検証しない、md 内の表に横スクロールラッパなし、「今日の日報を書く」への言及
+- Task 13: minor (deferred): summary.md の工期累計の説明は工期全体表示では「表示期間の最終日」が正確、index.md:17 の空の「 」
+- Task 14: minor (deferred): 最初の管理者設定は本人が1度ログインして profiles 行ができてから（README に一言追加）
+
+## 最終レビューで据え置いた項目
+- Minor（据え置き）: その他の最終レビュー Minor は第2計画以降で対応。iCloud 同期フォルダ内の重複ファイル問題は利用者へ伝える
+- 最終修正波: 3 commits aa71cec..7ff709e, 再レビュー clean（Minor 2件は据え置き：マスターに有効単価がない場合のプレビューと保存値の不一致、保存後の updated_at 再取得失敗時にロックが一時的に外れる）
+
+## 利用者の操作待ち
+- supabase/schema_genba.sql と supabase/fix_profiles_guard.sql の適用（SQL Editor）、verify_rls.md の実行
+- GitHub リポジトリ作成と push、Vercel 連携、Supabase の URL Configuration、本番スモーク（README 参照）
