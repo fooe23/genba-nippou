@@ -92,16 +92,16 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 ## GitHub と Vercel
 
 1. GitHub でプライベートリポジトリ（例：`genba-nippou`）を作る。README・.gitignore は追加しない（空で作る）。
-2. ローカルで接続して push する。マージ前は `phase1` ブランチ、`main` へマージ後は `main`。
+2. ローカルで接続して push する（`main` ブランチ。リポジトリは `https://github.com/fooe23/genba-nippou`）。
    ```bash
-   git remote add origin <リポジトリURL>
-   git branch --show-current   # phase1 と表示されることを確認
-   git push -u origin phase1
+   git remote add origin https://github.com/fooe23/genba-nippou.git
+   git branch --show-current   # main と表示されることを確認
+   git push -u origin main
    ```
 3. Vercel → Add New → Project → GitHub のリポジトリを Import。Framework は Next.js のまま。Environment Variables に次の2つを設定して Deploy する。
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`（`sb_publishable_…`）
-   - `main` へのマージ前に公開する場合は、Settings → Git の Production Branch を `phase1` にしておく。
+   - Settings → Git の Production Branch は `main`（既定のまま）。以後は `main` への push で自動デプロイされる。
 4. Supabase の Authentication → URL Configuration で、Site URL に本番URL（`https://<project>.vercel.app`）を設定し、Redirect URLs に `https://<project>.vercel.app/**` を追加する。プレビュー環境も使うなら `https://*-<team>.vercel.app/**` も追加する。
 
 ## 本番確認チェックリスト
