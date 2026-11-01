@@ -51,7 +51,14 @@ export function DeleteSiteButton({ siteId, siteName }: { siteId: string; siteNam
 
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={`${dangerButtonClass} w-full sm:w-auto`}>
+      <button
+        type="button"
+        onClick={() => {
+          setError(null);
+          setOpen(true);
+        }}
+        className={`${dangerButtonClass} w-full sm:w-auto`}
+      >
         この現場を削除
       </button>
       <EditDialog open={open} title="現場を削除" onClose={close}>

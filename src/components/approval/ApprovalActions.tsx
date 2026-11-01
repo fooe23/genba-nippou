@@ -14,11 +14,14 @@ export function ApprovalActions({
   status,
   canReview,
   isAdmin,
+  siteClosed = false,
 }: {
   reportId: string;
   status: ReportStatus;
   canReview: boolean;
   isAdmin: boolean;
+  /** 完了・削除済みの現場では承認解除（下書きに戻す）は DB が拒否するのでボタンを出さない。 */
+  siteClosed?: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -65,7 +68,7 @@ export function ApprovalActions({
   };
 
   const showReview = canReview && status === 'submitted';
-  const showReopen = isAdmin && status === 'approved';
+  const showReopen = isAdmin && status === 'approved' && !siteClosed;
 
   return (
     <section aria-label="承認の操作" className="mt-6">

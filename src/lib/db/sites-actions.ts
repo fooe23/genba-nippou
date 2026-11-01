@@ -192,18 +192,18 @@ function revalidateArchive(siteId: string): void {
  * パスワードの照合だけを行う。Cookie のセッションには触れないよう、保存しない使い捨てのクライアントで
  * サインインし、すぐにサインアウトする（サインアウトの失敗は無視）。
  */
-async function verifyPassword(email: string, password: string): Promise<boolean> {
+async function verifyPassword(email: string, password: string): Promise<string | null> {
   const verifier = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   });
   const { data, error } = await verifier.auth.signInWithPassword({ email, password });
-  if (error || !data.session) return false;
+  if (error || !data.session || !data.user) return null;
   try {
     await verifier.auth.signOut({ scope: 'local' });
   } catch {
     // 照合用のセッションは保存していないので、失敗しても実害はない。
   }
-  return true;
+  return data.user.id;
 }
 
 /**
@@ -227,7 +227,9 @@ export async function archiveSite(input: {
 
   try {
     // 照合に失敗した理由（パスワード違い・回数制限など）は区別しない。
-    if (!(await verifyPassword(v.email, v.password))) return { ok: false, error: 'パスワードが違います' };
+    // 照合で得たユーザーがログイン中の管理者本人（auth のユーザー id）でなければ、別アカウントの資格情報なので拒否する。
+    const verifiedUserId = await verifyPassword(v.email, v.password);
+    if (verifiedUserId === null || verifiedUserId !== profile.id) return { ok: false, error: 'パスワードが違います' };
   } catch (e) {
     console.error('[archiveSite:verify]', e);
     return { ok: false, error: 'パスワードが違います' };

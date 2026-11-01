@@ -28,7 +28,7 @@ export default async function ApprovalDetailPage({ params }: PageProps<'/approva
   return (
     <main className="mx-auto w-full max-w-6xl p-4">
       <ReportForm key={reportId} {...props} readOnly review siteClosed={site.status === 'done'} />
-      <ApprovalActions reportId={reportId} status={found.detail.head.status} canReview={canReview} isAdmin={profile.isAdmin} />
+      <ApprovalActions reportId={reportId} status={found.detail.head.status} canReview={canReview} isAdmin={profile.isAdmin} siteClosed={site.status === 'done'} />
     </main>
   );
 }
