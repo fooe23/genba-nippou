@@ -36,6 +36,7 @@ src/lib/            calc=計算, db=Supabase 読み書き, report=日報フォ�
 src/content/        アプリ内ガイドの本文
 src/proxy.ts        ログイン状態の確認（未ログインは /login へ）
 supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、update_2026-11-02_site_archive.sql（現場の削除・削除ログ・完了現場の書き込み禁止）、verify_rls.md（権限の確認手順）
+- `supabase/update_2026-11-02b_lines_guard_fix.sql`（上記の適用後に 1 回。明細のある日報の削除が拒否される不具合の修正）
 tests/              Vitest
 scripts/            check-sql.mjs（SQL の構文検査）
 templates/          Excel 雛形（第2計画で使用）

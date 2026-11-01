@@ -428,10 +428,12 @@ declare
   v_status text;
   v_site   uuid;
 begin
-  -- 完了・削除済みの現場の明細は誰も変更できない（管理者も同じ）
+  -- 完了・削除済みの現場の明細は誰も変更できない（管理者も同じ）。
+  -- 日報ごと削除されるとき（on delete cascade）は親行がもう無く v_site が null になる。
+  -- その場合は日報側の gn_report_delete_guard が既に判定しているので、ここでは止めない。
   select site_id into v_site from public.gn_daily_reports
    where id = case when tg_op = 'DELETE' then old.report_id else new.report_id end;
-  if v_site is null or public.gn_site_closed(v_site) then
+  if v_site is not null and public.gn_site_closed(v_site) then
     raise exception using message = 'site_closed';
   end if;
   if public.is_admin() then
