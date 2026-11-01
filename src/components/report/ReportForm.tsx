@@ -43,6 +43,10 @@ export interface ReportFormProps {
   /** 差戻し理由（status が rejected のときに赤帯で表示）。 */
   rejectedReason: string | null;
   readOnly: boolean;
+  /** 閲覧のみの理由（完了現場など）。readOnly のときに青い帯で表示する。 */
+  readOnlyNotice?: string;
+  /** 現場が完了している（DB が日報・明細・重要事項の変更を拒否する）。件の追加・切替と日報の削除も出さない。 */
+  siteClosed?: boolean;
   /** 承認画面での閲覧用。保存バーと前日・翌日の移動を隠し、戻り先を承認一覧にする。 */
   review?: boolean;
   siteStartDate: string | null;
@@ -103,7 +107,18 @@ function Band({ id, tone, title, items, action }: { id?: string; tone: 'warn' | 
 const ISSUE_FAILED = '処理に失敗しました。通信状況を確認してもう一度お試しください。';
 
 /** その日報の重要事項の件。状態の切替と追加は日報の保存とは別に即時反映する。 */
-function IssueList({ reportId, issues, onChanged }: { reportId: string | null; issues: Issue[]; onChanged: () => void }) {
+function IssueList({
+  reportId,
+  issues,
+  onChanged,
+  locked = false,
+}: {
+  reportId: string | null;
+  issues: Issue[];
+  onChanged: () => void;
+  /** 完了現場など、件を変更できないとき。一覧だけ表示する。 */
+  locked?: boolean;
+}) {
   const [body, setBody] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -161,7 +176,7 @@ function IssueList({ reportId, issues, onChanged }: { reportId: string | null; i
               <button
                 type="button"
                 onClick={() => toggle(i)}
-                disabled={pending}
+                disabled={pending || locked}
                 aria-label={`${i.body}：${i.status === 'open' ? '完了にする' : '対応中に戻す'}`}
                 className={`${buttonBase} shrink-0 border ${
                   i.status === 'open'
@@ -175,27 +190,29 @@ function IssueList({ reportId, issues, onChanged }: { reportId: string | null; i
           ))}
         </ul>
       )}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-        <Labeled label="件の内容（500文字まで）" className="flex-1">
-          <textarea
-            value={body}
-            maxLength={500}
-            rows={2}
-            disabled={!reportId || pending}
-            onChange={(e) => setBody(e.target.value)}
-            className={`${fieldClass} py-2`}
-          />
-        </Labeled>
-        <button
-          type="button"
-          onClick={add}
-          disabled={!reportId || pending || body.trim() === ''}
-          className={`${buttonBase} border border-blue-700 text-blue-700 dark:border-blue-400 dark:text-blue-400`}
-        >
-          件を追加
-        </button>
-      </div>
-      {!reportId && <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">先に下書き保存してください。</p>}
+      {!locked && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <Labeled label="件の内容（500文字まで）" className="flex-1">
+            <textarea
+              value={body}
+              maxLength={500}
+              rows={2}
+              disabled={!reportId || pending}
+              onChange={(e) => setBody(e.target.value)}
+              className={`${fieldClass} py-2`}
+            />
+          </Labeled>
+          <button
+            type="button"
+            onClick={add}
+            disabled={!reportId || pending || body.trim() === ''}
+            className={`${buttonBase} border border-blue-700 text-blue-700 dark:border-blue-400 dark:text-blue-400`}
+          >
+            件を追加
+          </button>
+        </div>
+      )}
+      {!reportId && !locked && <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">先に下書き保存してください。</p>}
       {error && (
         <p role="alert" className="mt-2 rounded-lg border border-red-500 bg-red-50 p-3 text-red-900 dark:bg-red-950 dark:text-red-50">
           {error}
@@ -405,6 +422,7 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
   const canDelete =
     reportId !== null &&
     !p.review &&
+    !p.siteClosed &&
     (p.isAdmin || (p.createdBy !== null && p.createdBy === p.currentUserId && (p.status === 'draft' || p.status === 'rejected')));
 
   function remove() {
@@ -446,7 +464,7 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
 
   return (
     <div className="pb-28">
-      {!p.review && <IssueBanner issues={p.openIssues} currentReportId={p.reportId} />}
+      {!p.review && <IssueBanner issues={p.openIssues} currentReportId={p.reportId} readOnly={p.siteClosed} />}
       <Link
         href={p.review ? '/approvals' : `/sites/${p.siteId}`}
         className="mb-1 inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400"
@@ -474,6 +492,11 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
       {p.readOnly && p.status === 'approved' && (
         <p role="status" className="mb-4 rounded-lg border border-green-500 bg-green-50 p-3 font-bold text-green-900 dark:bg-green-950 dark:text-green-50">
           承認済みのため編集できません
+        </p>
+      )}
+      {p.readOnly && p.readOnlyNotice && (
+        <p role="status" className="mb-4 rounded-lg border border-blue-500 bg-blue-50 p-3 font-bold text-blue-900 dark:bg-blue-950 dark:text-blue-50">
+          {p.readOnlyNotice}
         </p>
       )}
 
@@ -580,7 +603,7 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
         </section>
       </fieldset>
 
-      <IssueList reportId={p.reportId} issues={p.issues} onChanged={() => router.refresh()} />
+      <IssueList reportId={p.reportId} issues={p.issues} onChanged={() => router.refresh()} locked={p.siteClosed} />
 
       {!p.readOnly && !p.review && <Band tone="warn" title="確認してください（保存はできます）" items={warnings} />}
       <Band

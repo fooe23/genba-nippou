@@ -23,7 +23,7 @@ export default async function SummaryPage({ params, searchParams }: PageProps<'/
   const { siteId } = await params;
   if (!isUuid(siteId)) notFound();
   const site = await getSite(siteId);
-  if (!site) notFound();
+  if (!site || site.deletedAt !== null) notFound();
 
   const sp = await searchParams;
   const rawTab = typeof sp.tab === 'string' ? sp.tab : undefined;

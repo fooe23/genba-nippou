@@ -16,7 +16,8 @@ export default async function ApprovalDetailPage({ params }: PageProps<'/approva
   const found = await getReportById(reportId);
   if (!found || !found.detail.head) notFound();
   const site = await getSite(found.siteId);
-  if (!site) notFound();
+  // 削除済みの現場の日報は承認画面にも出さない。
+  if (!site || site.deletedAt !== null) notFound();
 
   const [props, role] = await Promise.all([
     loadReportFormProps(profile, site, found.date, found.detail),
@@ -26,7 +27,7 @@ export default async function ApprovalDetailPage({ params }: PageProps<'/approva
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4">
-      <ReportForm key={reportId} {...props} readOnly review />
+      <ReportForm key={reportId} {...props} readOnly review siteClosed={site.status === 'done'} />
       <ApprovalActions reportId={reportId} status={found.detail.head.status} canReview={canReview} isAdmin={profile.isAdmin} />
     </main>
   );

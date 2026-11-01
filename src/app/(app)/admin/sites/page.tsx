@@ -1,49 +1,90 @@
 import Link from 'next/link';
-import { yen } from '@/lib/calc/format';
+import { jpDateTime, yen } from '@/lib/calc/format';
 import { requireAdmin } from '@/lib/db/profile';
-import { listMySites } from '@/lib/db/sites';
+import { listDeletedSites, listMySites } from '@/lib/db/sites';
 import { AdminNav } from '@/components/accounts/AdminNav';
 import { EmptyText } from '@/components/masters/common';
-import { STATUS_LABELS } from '@/components/sites/labels';
+import { LIST_FILTER_LABELS, type ListFilter } from '@/components/sites/labels';
 import { NewSiteButton } from '@/components/sites/NewSiteButton';
+import { RestoreSiteButton } from '@/components/sites/RestoreSiteButton';
 
 export const metadata = { title: '現場管理' };
 
 const navBase = 'flex min-h-11 items-center rounded-lg px-4 text-base';
 const navOff = `${navBase} border border-gray-400 font-medium dark:border-gray-600`;
 const navOn = `${navBase} bg-blue-700 font-bold text-white`;
+// secondaryButtonClass と同じ見た目（'use client' のモジュールの定数はサーバー部品から値として読めないため複写）。
+const secondaryLinkClass =
+  'flex min-h-11 items-center rounded-lg border border-gray-400 px-4 text-base font-medium dark:border-gray-600';
+
+const FILTERS: ListFilter[] = ['active', 'done', 'deleted'];
+
+function filterHref(f: ListFilter): string {
+  return f === 'active' ? '/admin/sites' : `/admin/sites?status=${f}`;
+}
 
 export default async function SitesPage({ searchParams }: PageProps<'/admin/sites'>) {
   await requireAdmin();
   const { status: rawStatus } = await searchParams;
-  const status = rawStatus === 'done' ? 'done' : 'active';
+  const status: ListFilter = rawStatus === 'done' || rawStatus === 'deleted' ? rawStatus : 'active';
 
-  const sites = (await listMySites()).filter((s) => s.status === status);
+  // 削除済みは listDeletedSites だけで扱う（listMySites は削除済みを返さない）。
+  const sites = status === 'deleted' ? await listDeletedSites() : (await listMySites()).filter((s) => s.status === status);
 
   return (
     <main className="mx-auto w-full max-w-3xl p-4">
       <AdminNav current="sites" />
 
-      <div className="mb-3 flex items-center justify-between gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-xl font-bold">現場管理</h1>
-        <NewSiteButton />
+        <div className="flex gap-2">
+          <Link href="/admin/sites/log" className={secondaryLinkClass}>
+            削除ログ
+          </Link>
+          <NewSiteButton />
+        </div>
       </div>
 
-      <div role="group" aria-label="状態で絞り込み" className="mb-3 flex gap-2">
-        {(['active', 'done'] as const).map((s) => (
+      <div role="group" aria-label="状態で絞り込み" className="mb-3 flex flex-wrap gap-2">
+        {FILTERS.map((s) => (
           <Link
             key={s}
-            href={s === 'active' ? '/admin/sites' : '/admin/sites?status=done'}
+            href={filterHref(s)}
             aria-current={s === status ? 'page' : undefined}
             className={s === status ? navOn : navOff}
           >
-            {STATUS_LABELS[s]}
+            {LIST_FILTER_LABELS[s]}
           </Link>
         ))}
       </div>
 
       {sites.length === 0 ? (
-        <EmptyText>{STATUS_LABELS[status]}の現場はありません。</EmptyText>
+        <EmptyText>{LIST_FILTER_LABELS[status]}の現場はありません。</EmptyText>
+      ) : status === 'deleted' ? (
+        <>
+          <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">
+            削除済みの現場は、管理者を含む全員の画面から消えています。「復元」を押すと元に戻ります。
+          </p>
+          <ul>
+            {sites.map((s) => (
+              <li
+                key={s.id}
+                className="flex min-h-14 items-center justify-between gap-3 border-b border-gray-300 px-1 py-2 dark:border-gray-700"
+              >
+                <span className="min-w-0">
+                  <span className="block truncate font-bold">{s.name}</span>
+                  <span className="block truncate text-sm text-gray-600 dark:text-gray-400">
+                    {s.clientName ?? '客先未設定'}
+                  </span>
+                  <span className="block text-sm text-gray-600 dark:text-gray-400">
+                    削除 {s.deletedAt ? jpDateTime(s.deletedAt) : ''}
+                  </span>
+                </span>
+                <RestoreSiteButton siteId={s.id} siteName={s.name} />
+              </li>
+            ))}
+          </ul>
+        </>
       ) : (
         <ul>
           {sites.map((s) => (

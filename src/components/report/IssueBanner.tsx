@@ -7,7 +7,16 @@ import type { Issue } from '@/lib/db/reports';
 import { setIssueDone } from '@/lib/db/reports-actions';
 
 /** 現場の対応中の重要事項（この日報の件は除く）。日報入力画面の最上部に出す。なければ何も出さない。 */
-export function IssueBanner({ issues, currentReportId }: { issues: Issue[]; currentReportId: string | null }) {
+export function IssueBanner({
+  issues,
+  currentReportId,
+  readOnly = false,
+}: {
+  issues: Issue[];
+  currentReportId: string | null;
+  /** 完了現場など、件を変更できないとき。「完了にする」ボタンを出さない。 */
+  readOnly?: boolean;
+}) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -43,15 +52,17 @@ export function IssueBanner({ issues, currentReportId }: { issues: Issue[]; curr
             <p className="min-w-0 flex-1 basis-48 whitespace-pre-wrap break-words text-sm">
               <span className="font-bold">{jpDate(i.reportDate)}</span>　{i.body}
             </p>
-            <button
-              type="button"
-              onClick={() => done(i.id)}
-              disabled={pending}
-              aria-label={`${i.body}：完了にする`}
-              className="min-h-11 shrink-0 rounded-lg border border-yellow-700 bg-white px-4 text-base font-bold text-yellow-950 disabled:opacity-50 dark:bg-yellow-900 dark:text-yellow-50"
-            >
-              完了にする
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => done(i.id)}
+                disabled={pending}
+                aria-label={`${i.body}：完了にする`}
+                className="min-h-11 shrink-0 rounded-lg border border-yellow-700 bg-white px-4 text-base font-bold text-yellow-950 disabled:opacity-50 dark:bg-yellow-900 dark:text-yellow-50"
+              >
+                完了にする
+              </button>
+            )}
           </li>
         ))}
       </ul>

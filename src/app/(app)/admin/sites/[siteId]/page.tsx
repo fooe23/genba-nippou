@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
-import { yen } from '@/lib/calc/format';
+import { jpDateTime, yen } from '@/lib/calc/format';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
 import { requireAdmin } from '@/lib/db/profile';
 import { getSite, getSiteMasters, listCarryovers, listProfiles, listSiteMembers } from '@/lib/db/sites';
 import { CarryoverSection } from '@/components/sites/CarryoverSection';
+import { DeleteSiteButton } from '@/components/sites/DeleteSiteButton';
 import { MembersSection } from '@/components/sites/MembersSection';
 import { SiteForm } from '@/components/sites/SiteForm';
 import { SiteMastersSection, type CheckItem } from '@/components/sites/SiteMastersSection';
@@ -78,6 +79,11 @@ export default async function SiteEditPage({ params }: PageProps<'/admin/sites/[
       <Link href="/admin/sites" className="mb-2 inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400">
         ← 現場一覧
       </Link>
+      {site.deletedAt !== null && (
+        <p role="status" className="mb-3 rounded-lg border border-red-500 bg-red-50 p-3 font-bold text-red-900 dark:bg-red-950 dark:text-red-50">
+          この現場は削除済みです（{jpDateTime(site.deletedAt).slice(0, 10)}）。復元は現場一覧の『削除済み』から行えます。
+        </p>
+      )}
       <h1 className="text-xl font-bold">{site.name}</h1>
       {site.contractAmount !== null && (
         <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">工事総請負金額 {yen(site.contractAmount)}</p>
@@ -103,6 +109,14 @@ export default async function SiteEditPage({ params }: PageProps<'/admin/sites/[
         <Section title="④ 繰越初期値">
           <CarryoverSection siteId={siteId} workers={carryoverWorkers} carryovers={carryovers} />
         </Section>
+        {site.deletedAt === null && (
+          <Section title="⑤ 現場の削除">
+            <p className="mb-3 text-sm">
+              削除すると、この現場と日報は全員の画面から消えます（データは残り、管理者が復元できます）。削除した人・日時・理由は削除ログに記録されます。
+            </p>
+            <DeleteSiteButton siteId={siteId} siteName={site.name} />
+          </Section>
+        )}
       </div>
     </main>
   );

@@ -12,6 +12,7 @@ export default async function AppLayout({ children }: LayoutProps<'/'>) {
   const tabs: TabItem[] = [
     { href: '/', label: 'ホーム' },
     { href: '/approvals', label: '承認' },
+    { href: '/done', label: '完了現場' },
     { href: '/guide', label: 'ガイド' },
     ...(profile.isAdmin ? [{ href: '/admin/sites', label: '管理' }] : []),
   ];
