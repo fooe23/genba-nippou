@@ -102,7 +102,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
    - `NEXT_PUBLIC_SUPABASE_URL`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`（`sb_publishable_…`）
    - Settings → Git の Production Branch は `main`（既定のまま）。以後は `main` への push で自動デプロイされる。
-4. Supabase の Authentication → URL Configuration で、Site URL に本番URL（`https://<project>.vercel.app`）を設定し、Redirect URLs に `https://<project>.vercel.app/**` を追加する。プレビュー環境も使うなら `https://*-<team>.vercel.app/**` も追加する。
+   - 本番URL：`https://genba-nippou-ten.vercel.app`（2026-11-01 公開）。
+4. Supabase の Authentication → URL Configuration で、Site URL に本番URL（`https://genba-nippou-ten.vercel.app`）を設定し、Redirect URLs に `https://genba-nippou-ten.vercel.app/**` を追加する。プレビュー環境も使うなら `https://*-<team>.vercel.app/**` も追加する。
 
 ## 本番確認チェックリスト
 
