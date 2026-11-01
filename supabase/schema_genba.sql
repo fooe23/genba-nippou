@@ -19,9 +19,15 @@ create table if not exists public.gn_sites (
   end_date        date,
   contract_type   text check (contract_type in ('元請け','下請','常用')),
   status          text not null default 'active' check (status in ('active','done')),
+  deleted_at      timestamptz,
+  deleted_by      uuid,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
+-- 既存環境向け（2026-11-02 追加列）
+alter table public.gn_sites add column if not exists deleted_at timestamptz;
+alter table public.gn_sites add column if not exists deleted_by uuid;
+
 
 create table if not exists public.gn_site_members (
   id         uuid primary key default gen_random_uuid(),
@@ -279,17 +285,31 @@ returns boolean language sql stable security definer set search_path = public as
   select p_site is not null
          and (
            public.is_admin()
-           or exists (
-             select 1 from public.gn_site_members
-              where site_id = p_site and user_id = auth.uid()
-           )
-           or exists (
-             select 1 from public.profiles p
-              where p.id = auth.uid()
-                and p.account_type = 'employee'
-                and exists (select 1 from public.gn_sites s where s.id = p_site)
+           or (
+             exists (select 1 from public.gn_sites s where s.id = p_site and s.deleted_at is null)
+             and (
+               exists (
+                 select 1 from public.gn_site_members
+                  where site_id = p_site and user_id = auth.uid()
+               )
+               or exists (
+                 select 1 from public.profiles p
+                  where p.id = auth.uid()
+                    and p.account_type = 'employee'
+               )
+             )
            )
          );
+$$;
+
+-- 完了・削除済みの判定
+-- 完了（done）または削除済みなら true。存在しない現場も true（書けない）。
+create or replace function public.gn_site_closed(p_site uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select not exists (
+    select 1 from public.gn_sites s
+     where s.id = p_site and s.status = 'active' and s.deleted_at is null
+  );
 $$;
 
 -- 自分の現場内の役割。管理者は 'approver'、メンバーでなければ null
@@ -321,10 +341,15 @@ create or replace function public.gn_report_guard()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
   v_reviewer boolean;
+  v_closed   boolean;
 begin
   v_reviewer := coalesce(public.gn_site_role(new.site_id), '') in ('reviewer','approver');
+  v_closed   := public.gn_site_closed(new.site_id);
 
   if tg_op = 'INSERT' then
+    if v_closed then
+      raise exception using message = 'site_closed';
+    end if;
     if new.status not in ('draft','submitted') and not v_reviewer then
       raise exception using message = 'not_reviewer';
     end if;
@@ -344,6 +369,15 @@ begin
   end if;
 
   -- update
+  -- 完了・削除済みの現場：承認／差戻し（状態と確認列だけの変更）以外は不可
+  if v_closed then
+    if new.status not in ('approved','rejected')
+       or (to_jsonb(new) - 'status' - 'reviewed_by' - 'approved_by' - 'approved_at' - 'rejected_reason' - 'updated_at')
+          is distinct from
+          (to_jsonb(old) - 'status' - 'reviewed_by' - 'approved_by' - 'approved_at' - 'rejected_reason' - 'updated_at') then
+      raise exception using message = 'site_closed';
+    end if;
+  end if;
   -- 合計3列は gn_save_report の中（gn.in_save = '1'）でだけ変更できる（管理者も同じ）
   if (new.output_total   is distinct from old.output_total
       or new.cost_total     is distinct from old.cost_total
@@ -373,12 +407,33 @@ drop trigger if exists gn_report_guard on public.gn_daily_reports;
 create trigger gn_report_guard before insert or update on public.gn_daily_reports
   for each row execute function public.gn_report_guard();
 
+-- 日報の削除も完了・削除済みの現場では不可
+create or replace function public.gn_report_delete_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if public.gn_site_closed(old.site_id) then
+    raise exception using message = 'site_closed';
+  end if;
+  return old;
+end;
+$$;
+drop trigger if exists gn_report_delete_guard on public.gn_daily_reports;
+create trigger gn_report_delete_guard before delete on public.gn_daily_reports
+  for each row execute function public.gn_report_delete_guard();
+
 -- 親日報が承認済みなら明細の追加・変更・削除を禁止（管理者は除く）
 create or replace function public.gn_report_lines_guard()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
   v_status text;
+  v_site   uuid;
 begin
+  -- 完了・削除済みの現場の明細は誰も変更できない（管理者も同じ）
+  select site_id into v_site from public.gn_daily_reports
+   where id = case when tg_op = 'DELETE' then old.report_id else new.report_id end;
+  if v_site is null or public.gn_site_closed(v_site) then
+    raise exception using message = 'site_closed';
+  end if;
   if public.is_admin() then
     return case when tg_op = 'DELETE' then old else new end;
   end if;
@@ -496,6 +551,9 @@ begin
   select r.site_id into v_site from public.gn_daily_reports r where r.id = new.report_id;
   if v_site is null or not public.gn_is_site_member(v_site) then
     raise exception using message = 'report_not_found';
+  end if;
+  if public.gn_site_closed(v_site) then
+    raise exception using message = 'site_closed';
   end if;
   new.site_id := v_site;
   return new;
@@ -817,3 +875,77 @@ drop policy if exists gn_exports_update on storage.objects;
 create policy gn_exports_update on storage.objects for update to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin())) with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
 drop policy if exists gn_exports_delete on storage.objects;
 create policy gn_exports_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
+
+-- =====================================================================
+-- 現場の削除（戻せる非表示）と削除ログ（2026-11-02）
+-- =====================================================================
+-- 2. 削除ログ ------------------------------------------------------------
+create table if not exists public.gn_site_audit_log (
+  id          bigint generated always as identity primary key,
+  site_id     uuid references public.gn_sites(id) on delete set null,
+  site_name   text not null,
+  action      text not null check (action in ('archive','restore')),
+  actor_id    uuid,
+  actor_name  text,
+  actor_email text,
+  reason      text,
+  created_at  timestamptz not null default now()
+);
+create index if not exists gn_site_audit_log_created_idx on public.gn_site_audit_log (created_at desc);
+
+alter table public.gn_site_audit_log enable row level security;
+drop policy if exists gn_site_audit_log_admin_select on public.gn_site_audit_log;
+create policy gn_site_audit_log_admin_select on public.gn_site_audit_log
+  for select to authenticated using (public.is_admin());
+-- insert / update / delete のポリシーは作らない（関数経由のみ）
+revoke insert, update, delete on public.gn_site_audit_log from authenticated, anon;
+
+-- 5. 削除・復元（管理者のみ、ログ付き） ------------------------------------
+create or replace function public.gn_archive_site(p_site uuid, p_reason text default null)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_name  text;
+  v_pname text;
+  v_email text;
+begin
+  if not public.is_admin() then
+    raise exception using message = 'not_admin';
+  end if;
+  select name into v_name from public.gn_sites where id = p_site and deleted_at is null for update;
+  if not found then
+    raise exception using message = 'site_not_found';
+  end if;
+  select name, email into v_pname, v_email from public.profiles where id = auth.uid();
+
+  update public.gn_sites set deleted_at = now(), deleted_by = auth.uid() where id = p_site;
+  insert into public.gn_site_audit_log (site_id, site_name, action, actor_id, actor_name, actor_email, reason)
+  values (p_site, v_name, 'archive', auth.uid(), v_pname, v_email, nullif(btrim(p_reason), ''));
+end;
+$$;
+
+create or replace function public.gn_restore_site(p_site uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  v_name  text;
+  v_pname text;
+  v_email text;
+begin
+  if not public.is_admin() then
+    raise exception using message = 'not_admin';
+  end if;
+  select name into v_name from public.gn_sites where id = p_site and deleted_at is not null for update;
+  if not found then
+    raise exception using message = 'site_not_found';
+  end if;
+  select name, email into v_pname, v_email from public.profiles where id = auth.uid();
+
+  update public.gn_sites set deleted_at = null, deleted_by = null where id = p_site;
+  insert into public.gn_site_audit_log (site_id, site_name, action, actor_id, actor_name, actor_email, reason)
+  values (p_site, v_name, 'restore', auth.uid(), v_pname, v_email, null);
+end;
+$$;
+
+revoke all on function public.gn_archive_site(uuid, text) from public, anon;
+revoke all on function public.gn_restore_site(uuid) from public, anon;
+grant execute on function public.gn_archive_site(uuid, text) to authenticated;
+grant execute on function public.gn_restore_site(uuid) to authenticated;
