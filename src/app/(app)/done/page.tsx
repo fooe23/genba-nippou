@@ -3,6 +3,7 @@ import { jpDate } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
 import { countReportsBySite } from '@/lib/db/reports';
 import { listMySites } from '@/lib/db/sites';
+import { Chevron, linkTitleClass, rowLinkClass } from '@/components/ui/tappable';
 
 export const metadata = { title: '完了現場' };
 
@@ -28,8 +29,9 @@ export default async function DoneSitesPage() {
         <ul className="space-y-3">
           {sites.map((site) => (
             <li key={site.id} className="rounded-lg border border-gray-300 dark:border-gray-700">
-              <Link href={`/sites/${site.id}`} className="block min-h-14 p-3">
-                <p className="truncate text-lg font-bold">{site.name}</p>
+              <Link href={`/sites/${site.id}`} className={`flex min-h-14 items-center justify-between gap-2 rounded-lg p-3 ${rowLinkClass}`}>
+                <span className="min-w-0 flex-1">
+                <p className={`truncate text-lg font-bold ${linkTitleClass}`}>{site.name}</p>
                 {site.clientName && (
                   <p className="truncate text-sm text-gray-600 dark:text-gray-400">{site.clientName}</p>
                 )}
@@ -37,6 +39,8 @@ export default async function DoneSitesPage() {
                   <span>工期 {period(site.startDate, site.endDate)}</span>
                   <span className="font-medium">日報 {counts[site.id] ?? 0} 件</span>
                 </p>
+                </span>
+                <Chevron />
               </Link>
             </li>
           ))}

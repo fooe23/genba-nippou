@@ -4,6 +4,7 @@ import { requireProfile } from '@/lib/db/profile';
 import { listTodayStatus } from '@/lib/db/reports';
 import { listMyMemberSiteIds, listMySites, type Site } from '@/lib/db/sites';
 import { STATUS_COLOR, STATUS_LABEL, STATUS_ORDER, type DayStatus } from '@/components/site/status';
+import { Chevron, linkTitleClass, rowLinkClass } from '@/components/ui/tappable';
 
 export const metadata = { title: 'ホーム' };
 
@@ -17,17 +18,21 @@ function SiteCards({ cards, today }: { cards: SiteCard[]; today: string }) {
     <ul className="space-y-3">
       {cards.map(({ site, status }) => (
         <li key={site.id} className="rounded-lg border border-gray-300 dark:border-gray-700">
-          <Link href={`/sites/${site.id}`} className="block min-h-14 p-3">
+          <Link href={`/sites/${site.id}`} className={`block min-h-14 rounded-t-lg p-3 ${rowLinkClass}`}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className="truncate text-lg font-bold">{site.name}</p>
+                <p className={`truncate text-lg font-bold ${linkTitleClass}`}>{site.name}</p>
                 {site.clientName && (
                   <p className="truncate text-sm text-gray-600 dark:text-gray-400">{site.clientName}</p>
                 )}
+                <p className="mt-1 text-sm text-blue-700 dark:text-blue-400">現場の詳細・カレンダーを開く</p>
               </div>
-              <span className={`shrink-0 rounded border px-2 py-0.5 text-xs font-bold ${STATUS_COLOR[status]}`}>
-                今日: {STATUS_LABEL[status]}
-              </span>
+              <div className="flex shrink-0 items-center gap-1">
+                <span className={`rounded border px-2 py-0.5 text-xs font-bold ${STATUS_COLOR[status]}`}>
+                  今日: {STATUS_LABEL[status]}
+                </span>
+                <Chevron />
+              </div>
             </div>
           </Link>
           <div className="px-3 pb-3">

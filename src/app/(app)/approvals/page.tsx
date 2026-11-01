@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { jpDate, yen } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
 import { listSubmittedReports, type SubmittedReport } from '@/lib/db/reports';
+import { Chevron, linkTitleClass, rowLinkClass } from '@/components/ui/tappable';
 
 export const metadata = { title: '承認' };
 
@@ -39,10 +40,10 @@ export default async function ApprovalsPage() {
                 <li key={r.id}>
                   <Link
                     href={`/approvals/${r.id}`}
-                    className="flex min-h-14 items-center justify-between gap-3 rounded-lg border border-gray-300 p-3 dark:border-gray-700"
+                    className={`flex min-h-14 items-center justify-between gap-3 rounded-lg border border-gray-300 p-3 dark:border-gray-700 ${rowLinkClass}`}
                   >
                     <span className="min-w-0">
-                      <span className="block font-bold">{jpDate(r.reportDate)}</span>
+                      <span className={`block font-bold ${linkTitleClass}`}>{jpDate(r.reportDate)}</span>
                       <span className="block truncate text-sm text-gray-600 dark:text-gray-400">
                         作成者／責任者：{r.createdByName || '—'}
                       </span>
@@ -51,6 +52,7 @@ export default async function ApprovalsPage() {
                       <span className="block">出来高 {yen(r.outputTotal)}</span>
                       <span className="block text-gray-600 dark:text-gray-400">本日原価 {yen(r.costTotal)}</span>
                     </span>
+                    <Chevron />
                   </Link>
                 </li>
               ))}

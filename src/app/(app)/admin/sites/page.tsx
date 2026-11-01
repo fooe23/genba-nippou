@@ -6,6 +6,7 @@ import { AdminNav } from '@/components/accounts/AdminNav';
 import { EmptyText } from '@/components/masters/common';
 import { LIST_FILTER_LABELS, type ListFilter } from '@/components/sites/labels';
 import { NewSiteButton } from '@/components/sites/NewSiteButton';
+import { Chevron, linkTitleClass, rowLinkClass } from '@/components/ui/tappable';
 import { RestoreSiteButton } from '@/components/sites/RestoreSiteButton';
 
 export const metadata = { title: '現場管理' };
@@ -69,10 +70,10 @@ export default async function SitesPage({ searchParams }: PageProps<'/admin/site
             {sites.map((s) => (
               <li
                 key={s.id}
-                className="flex min-h-14 items-center justify-between gap-3 border-b border-gray-300 px-1 py-2 dark:border-gray-700"
+                className={`flex min-h-14 items-center justify-between gap-3 border-b border-gray-300 px-1 py-2 dark:border-gray-700 ${rowLinkClass}`}
               >
                 <span className="min-w-0">
-                  <span className="block truncate font-bold">{s.name}</span>
+                  <span className={`block truncate font-bold ${linkTitleClass}`}>{s.name}</span>
                   <span className="block truncate text-sm text-gray-600 dark:text-gray-400">
                     {s.clientName ?? '客先未設定'}
                   </span>
@@ -91,16 +92,17 @@ export default async function SitesPage({ searchParams }: PageProps<'/admin/site
             <li key={s.id}>
               <Link
                 href={`/admin/sites/${s.id}`}
-                className="flex min-h-14 items-center justify-between gap-3 border-b border-gray-300 px-1 py-2 dark:border-gray-700"
+                className={`flex min-h-14 items-center justify-between gap-3 border-b border-gray-300 px-1 py-2 dark:border-gray-700 ${rowLinkClass}`}
               >
                 <span className="min-w-0">
-                  <span className="block truncate font-bold">{s.name}</span>
+                  <span className={`block truncate font-bold ${linkTitleClass}`}>{s.name}</span>
                   <span className="block truncate text-sm text-gray-600 dark:text-gray-400">
                     {s.clientName ?? '客先未設定'}
                   </span>
                 </span>
-                <span className="shrink-0 text-sm font-medium">
+                <span className="flex shrink-0 items-center gap-1 text-sm font-medium">
                   {s.contractAmount === null ? '' : yen(s.contractAmount)}
+                  <Chevron />
                 </span>
               </Link>
             </li>
