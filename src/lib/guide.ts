@@ -9,6 +9,7 @@ export const GUIDE_CHAPTERS: { slug: string; title: string }[] = [
   { slug: 'index', title: 'ガイドの使い方' },
   { slug: 'input', title: '日報の入力手順' },
   { slug: 'approval', title: '提出と承認' },
+  { slug: 'sites', title: '完了現場と削除' },
   { slug: 'summary', title: '集計の見方' },
   { slug: 'carryover', title: '前月繰越の考え方' },
   { slug: 'migration', title: '移行時の繰越初期値の登録' },

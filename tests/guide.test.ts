@@ -13,6 +13,7 @@ describe('ガイド', () => {
       'index',
       'input',
       'approval',
+      'sites',
       'summary',
       'carryover',
       'migration',
@@ -22,8 +23,9 @@ describe('ガイド', () => {
       'photos',
     ]);
     expect(GUIDE_CHAPTERS[0].title).toBe('ガイドの使い方');
-    expect(GUIDE_CHAPTERS[4].title).toBe('前月繰越の考え方');
-    expect(GUIDE_CHAPTERS[5].title).toBe('移行時の繰越初期値の登録');
+    expect(GUIDE_CHAPTERS[3].title).toBe('完了現場と削除');
+    expect(GUIDE_CHAPTERS[5].title).toBe('前月繰越の考え方');
+    expect(GUIDE_CHAPTERS[6].title).toBe('移行時の繰越初期値の登録');
   });
 
   it('すべての章のファイルがあり、HTMLに変換できる', async () => {
@@ -47,6 +49,15 @@ describe('ガイド', () => {
     expect(html).toContain('累計人工');
     expect(html).toContain('累計労務費');
     expect(html).toContain('基準日');
+  });
+
+  it('完了現場と削除の章が閲覧のみ・再認証・復元・削除ログに触れている', async () => {
+    const html = await loadChapter('sites');
+    expect(html).toContain('閲覧のみ');
+    expect(html).toContain('進行中に戻す');
+    expect(html).toContain('パスワード');
+    expect(html).toContain('復元');
+    expect(html).toContain('削除ログ');
   });
 
   it('未掲載の slug は GuideNotFound', async () => {

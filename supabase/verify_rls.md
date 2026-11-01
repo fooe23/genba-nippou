@@ -672,3 +672,103 @@ update public.profiles set account_type = 'partner', company_name = 'テスト�
 rollback;
 ```
 - [ ] エラーなく `account_type = partner`、`company_name = テスト工業` が返った（rollback で元に戻る）
+
+## 9. 現場の削除と完了現場（`supabase/update_2026-11-02_site_archive.sql` を適用した後）
+
+新規環境では `schema_genba.sql` に同じ内容が含まれている。手順0の A（**協力会社**にする）・C（**社員**）と管理者を使う。
+手順7で区分を戻した後に行う場合は、もう一度 A を協力会社にしてから始め、最後の 9-5 で戻す。
+
+**9-0. 準備（検証現場Z＝進行中、検証現場W＝完了。A を両方の担当にする）**
+```sql
+update public.profiles set account_type = 'partner' where id = '<A_ID>';
+update public.profiles set account_type = 'employee' where id = '<C_ID>';
+
+insert into public.gn_sites (id, name, status) values
+  ('00000000-0000-0000-0000-0000000000c1', '検証現場Z', 'active'),
+  ('00000000-0000-0000-0000-0000000000c2', '検証現場W', 'done')
+on conflict (id) do nothing;
+
+insert into public.gn_site_members (site_id, user_id, role) values
+  ('00000000-0000-0000-0000-0000000000c1', '<A_ID>', 'staff'),
+  ('00000000-0000-0000-0000-0000000000c2', '<A_ID>', 'staff')
+on conflict (site_id, user_id) do nothing;
+```
+- [ ] 実行できた（エラーなし）
+
+**9-1. 一般ユーザーは現場を削除できない（not_admin で失敗するはず）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<C_ID>","role":"authenticated"}', true);
+select public.gn_archive_site('00000000-0000-0000-0000-0000000000c1', '検証');
+rollback;
+```
+- [ ] エラーメッセージが `not_admin` だった（`<A_ID>` に替えても同じ）
+- [ ] 同じ利用者で `insert into public.gn_site_audit_log (site_name, action) values ('x', 'archive');` を実行すると権限エラーになった（ログは関数経由でしか書けない）
+
+**9-2. 管理者が削除する（ログが残る）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<ADMIN_ID>","role":"authenticated"}', true);
+select public.gn_archive_site('00000000-0000-0000-0000-0000000000c1', '検証のため');
+commit;
+
+select id, deleted_at is not null as deleted, deleted_by from public.gn_sites
+ where id = '00000000-0000-0000-0000-0000000000c1';
+select site_name, action, actor_id, actor_email, reason from public.gn_site_audit_log
+ where site_id = '00000000-0000-0000-0000-0000000000c1' order by id desc;
+```
+- [ ] `deleted = true`、`deleted_by` が管理者の id
+- [ ] ログに `検証現場Z / archive / <ADMIN_ID> / 管理者のメール / 検証のため` の1行がある
+
+**9-3. 削除済みの現場は協力会社・社員の select から消える（管理者には見える）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+select id, name from public.gn_sites where id = '00000000-0000-0000-0000-0000000000c1';
+rollback;
+```
+- [ ] A（協力会社・担当者）で 0行
+- [ ] `<C_ID>`（社員）に替えても 0行
+- [ ] `<ADMIN_ID>` に替えると 1行（アプリ側で `deleted_at` を見て一覧から除く）
+- [ ] `<C_ID>` で `select count(*) from public.gn_site_audit_log;` が `0`（ログは管理者だけが読める）
+
+**9-4. 完了現場では日報を保存できない（site_closed で失敗するはず）**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<A_ID>","role":"authenticated"}', true);
+select public.gn_save_report(
+  '{"site_id":"00000000-0000-0000-0000-0000000000c2","report_date":"2026-11-02","weather":"晴れ","supervisor":"検証太郎",
+    "common_start":"08:00","common_end":"17:00","common_break_min":60,"common_gap_min":0}'::jsonb,
+  '[]'::jsonb
+);
+rollback;
+```
+- [ ] エラーメッセージに `site_closed` が含まれた（`<ADMIN_ID>` でも同じ。管理者も完了現場には書けない）
+- [ ] 現場Z（削除済み、`...c1`）に替えて `<ADMIN_ID>` で実行しても `site_closed` だった
+
+**9-5. 復元と後片付け**
+```sql
+begin;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"<ADMIN_ID>","role":"authenticated"}', true);
+select public.gn_restore_site('00000000-0000-0000-0000-0000000000c1');
+commit;
+
+select action, reason from public.gn_site_audit_log
+ where site_id = '00000000-0000-0000-0000-0000000000c1' order by id;
+```
+- [ ] `archive` → `restore` の2行になった（9-3 の A の select をもう一度実行すると 1行に戻る）
+
+検証用の行を消し、A・C の区分を元に戻す（SQL Editor から実行。ログは authenticated からは消せないが、SQL Editor からは消せる）:
+```sql
+delete from public.gn_site_audit_log
+ where site_id in ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000c2');
+delete from public.gn_sites
+ where id in ('00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-0000000000c2');
+update public.profiles set account_type = 'employee' where id in ('<A_ID>', '<C_ID>');
+```
+- [ ] テストデータを削除し、A・C の `account_type` を手順0で控えた元の値に戻した
