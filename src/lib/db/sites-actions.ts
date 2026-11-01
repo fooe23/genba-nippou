@@ -1,11 +1,19 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { parseOrThrow } from '@/lib/db/masters-schemas';
 import { requireAdmin, toAccountType } from '@/lib/db/profile';
 import type { Carryover, SiteInput, SiteMasters } from '@/lib/db/sites';
-import { carryoverSchema, memberSchema, partnerRoleError, siteInputSchema, siteMastersSchema } from '@/lib/db/sites-schemas';
+import {
+  archiveSiteSchema,
+  carryoverSchema,
+  memberSchema,
+  partnerRoleError,
+  siteInputSchema,
+  siteMastersSchema,
+  siteStatusSchema,
+} from '@/lib/db/sites-schemas';
 import { createServerSupabase } from '@/lib/supabase/server';
 import type { SiteRole } from '@/lib/types';
 
@@ -13,6 +21,8 @@ function revalidateSite(siteId: string): void {
   revalidatePath('/admin/sites');
   revalidatePath(`/admin/sites/${siteId}`);
 }
+
+export type ActionResult = { ok: true } | { ok: false; error: string };
 
 export async function upsertSite(input: SiteInput): Promise<string> {
   await requireAdmin();
@@ -29,13 +39,22 @@ export async function upsertSite(input: SiteInput): Promise<string> {
     end_date: v.endDate,
     contract_type: v.contractType,
   };
+  // 削除済みの現場は編集しない（復元してから編集する）。
   const query = v.id
-    ? supabase.from('gn_sites').update(v.status ? { ...row, status: v.status } : row).eq('id', v.id)
+    ? supabase
+        .from('gn_sites')
+        .update(v.status ? { ...row, status: v.status } : row)
+        .eq('id', v.id)
+        .is('deleted_at', null)
     : supabase.from('gn_sites').insert({ ...row, status: v.status ?? 'active' });
   const { data, error } = await query.select('id').single();
   if (error) throw new Error(error.message);
   const id = (data as { id: string }).id;
   revalidateSite(id);
+  // 状態（進行中／完了）が変わるとホームと完了現場タブの一覧も変わる。
+  revalidatePath('/');
+  revalidatePath('/done');
+  revalidatePath(`/sites/${id}`);
   return id;
 }
 
@@ -143,4 +162,144 @@ export async function upsertCarryover(siteId: string, c: Carryover): Promise<voi
   );
   if (error) throw new Error(error.message);
   revalidateSite(site);
+}
+
+// ─── 現場の削除（アーカイブ）・復元・状態の切り替え ───
+// いずれも { ok, error } を返す（throw しない）。削除・復元は DB の関数（gn_archive_site / gn_restore_site）が
+// 管理者かどうかを最終判定し、実行者と日時・理由を gn_site_audit_log に記録する。
+
+const ARCHIVE_FAILED = '削除に失敗しました。もう一度お試しください。';
+const RESTORE_FAILED = '復元に失敗しました。もう一度お試しください。';
+const SITE_NOT_FOUND = '対象の現場が見つかりません';
+
+function siteRpcErrorMessage(dbMessage: string | null | undefined, notFound: string, fallback: string): string {
+  const m = dbMessage ?? '';
+  if (m.includes('not_admin')) return '管理者権限が必要です';
+  if (m.includes('site_not_found')) return notFound;
+  return fallback;
+}
+
+function revalidateArchive(siteId: string): void {
+  revalidatePath('/');
+  revalidatePath('/done');
+  revalidatePath('/approvals');
+  revalidatePath('/admin/sites');
+  revalidatePath(`/admin/sites/${siteId}`);
+  revalidatePath('/admin/sites/log');
+}
+
+/**
+ * パスワードの照合だけを行う。Cookie のセッションには触れないよう、保存しない使い捨てのクライアントで
+ * サインインし、すぐにサインアウトする（サインアウトの失敗は無視）。
+ */
+async function verifyPassword(email: string, password: string): Promise<boolean> {
+  const verifier = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
+  const { data, error } = await verifier.auth.signInWithPassword({ email, password });
+  if (error || !data.session) return false;
+  try {
+    await verifier.auth.signOut({ scope: 'local' });
+  } catch {
+    // 照合用のセッションは保存していないので、失敗しても実害はない。
+  }
+  return true;
+}
+
+/**
+ * 現場を削除する（deleted_at をセットするだけで、データは残り、復元できる）。
+ * 実行前に、ログイン中の管理者本人のメールアドレスとパスワードを再入力させて照合する。
+ */
+export async function archiveSite(input: {
+  siteId: string;
+  email: string;
+  password: string;
+  reason: string | null;
+}): Promise<ActionResult> {
+  const profile = await requireAdmin();
+  const parsed = archiveSiteSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  const v = parsed.data;
+
+  if (v.email.toLowerCase() !== profile.email.trim().toLowerCase()) {
+    return { ok: false, error: 'ログイン中のアカウントのメールアドレスを入力してください' };
+  }
+
+  try {
+    // 照合に失敗した理由（パスワード違い・回数制限など）は区別しない。
+    if (!(await verifyPassword(v.email, v.password))) return { ok: false, error: 'パスワードが違います' };
+  } catch (e) {
+    console.error('[archiveSite:verify]', e);
+    return { ok: false, error: 'パスワードが違います' };
+  }
+
+  try {
+    const supabase = await createServerSupabase();
+    const { error } = await supabase.rpc('gn_archive_site', { p_site: v.siteId, p_reason: v.reason });
+    if (error) {
+      console.error('[archiveSite]', error.message);
+      return {
+        ok: false,
+        error: siteRpcErrorMessage(error.message, '対象の現場が見つかりません（すでに削除済みの可能性があります）', ARCHIVE_FAILED),
+      };
+    }
+  } catch (e) {
+    console.error('[archiveSite]', e);
+    return { ok: false, error: ARCHIVE_FAILED };
+  }
+  revalidateArchive(v.siteId);
+  return { ok: true };
+}
+
+/** 削除済みの現場を元に戻す（管理者のみ。再認証は不要）。 */
+export async function restoreSite(siteId: string): Promise<ActionResult> {
+  await requireAdmin();
+  const parsed = memberSchema.shape.siteId.safeParse(siteId);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
+
+  try {
+    const supabase = await createServerSupabase();
+    const { error } = await supabase.rpc('gn_restore_site', { p_site: parsed.data });
+    if (error) {
+      console.error('[restoreSite]', error.message);
+      return { ok: false, error: siteRpcErrorMessage(error.message, '対象の現場が見つかりません（すでに復元済みの可能性があります）', RESTORE_FAILED) };
+    }
+  } catch (e) {
+    console.error('[restoreSite]', e);
+    return { ok: false, error: RESTORE_FAILED };
+  }
+  revalidateArchive(parsed.data);
+  return { ok: true };
+}
+
+/** 現場を完了にする／進行中に戻す（現場詳細の管理者向けボタン）。削除済みの現場は対象外。 */
+export async function setSiteStatus(siteId: string, status: 'active' | 'done'): Promise<ActionResult> {
+  await requireAdmin();
+  const parsed = siteStatusSchema.safeParse({ siteId, status });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  const v = parsed.data;
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data, error } = await supabase
+      .from('gn_sites')
+      .update({ status: v.status })
+      .eq('id', v.siteId)
+      .is('deleted_at', null)
+      .select('id');
+    if (error) {
+      console.error('[setSiteStatus]', error.message);
+      return { ok: false, error: '状態の変更に失敗しました。もう一度お試しください。' };
+    }
+    if (!data || data.length === 0) return { ok: false, error: SITE_NOT_FOUND };
+  } catch (e) {
+    console.error('[setSiteStatus]', e);
+    return { ok: false, error: '状態の変更に失敗しました。もう一度お試しください。' };
+  }
+  revalidatePath('/');
+  revalidatePath('/done');
+  revalidatePath(`/sites/${v.siteId}`);
+  revalidatePath('/admin/sites');
+  revalidatePath(`/admin/sites/${v.siteId}`);
+  return { ok: true };
 }

@@ -7,7 +7,7 @@ import { todayJst } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
 import { listLeaseItems, listVehicles, listWorkers } from '@/lib/db/masters';
 import { getPreviousReport } from '@/lib/db/reports';
-import { copyableLines, saveErrorMessage, STALE_REPORT_MESSAGE, toLineRows, toReportRow } from '@/lib/report/rows';
+import { copyableLines, saveErrorMessage, SITE_CLOSED_MESSAGE, STALE_REPORT_MESSAGE, toLineRows, toReportRow } from '@/lib/report/rows';
 import { applyMasterSnapshots, needsMasterSnapshots } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -113,6 +113,7 @@ const reasonSchema = z.string().trim().min(1, '差戻しの理由を入力して
 
 function stateErrorMessage(dbMessage: string | null | undefined): string {
   const m = dbMessage ?? '';
+  if (m.includes('site_closed')) return SITE_CLOSED_MESSAGE;
   if (m.includes('not_reviewer')) return 'この現場の確認者・承認者ではありません';
   if (m.includes('approved_report_locked')) return '承認済みのため編集できません';
   return GENERIC_ERROR;
@@ -248,7 +249,7 @@ export async function deleteReport(reportId: string): Promise<ReportStateResult>
     const { data, error } = await q.select('id');
     if (error) {
       console.error('[deleteReport]', error.message);
-      return { ok: false, error: GENERIC_ERROR };
+      return { ok: false, error: error.message.includes('site_closed') ? SITE_CLOSED_MESSAGE : GENERIC_ERROR };
     }
     if (!data || data.length === 0) return { ok: false, error: CANNOT };
 
@@ -275,7 +276,9 @@ const issueBodySchema = z.string().trim().min(1, '件の内容を入力してく
 const NOT_FOUND = '日報が見つからないか、権限がありません';
 
 function issueErrorMessage(dbMessage: string | null | undefined): string {
-  return (dbMessage ?? '').includes('report_not_found') ? NOT_FOUND : GENERIC_ERROR;
+  const m = dbMessage ?? '';
+  if (m.includes('site_closed')) return SITE_CLOSED_MESSAGE;
+  return m.includes('report_not_found') ? NOT_FOUND : GENERIC_ERROR;
 }
 
 function revalidateIssuePages(siteId: string, reportDate: string) {

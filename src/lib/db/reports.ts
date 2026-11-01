@@ -1,5 +1,5 @@
 import 'server-only';
-import { fetchAllPages } from '@/lib/calc/paging';
+import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
@@ -97,6 +97,34 @@ export async function listTodayStatus(
   for (const r of (data ?? []) as { site_id: string; status: string }[]) {
     result[r.site_id] = toStatus(r.status);
   }
+  return result;
+}
+
+// .in() の URL が長くなりすぎないよう現場 id を分けて問い合わせる（summary.ts と同じ考え方）。
+const SITE_ID_CHUNK = 100;
+
+/** 現場ごとの日報の件数（完了現場一覧の「日報 N 件」用）。日報がない現場は 0。 */
+export async function countReportsBySite(siteIds: string[]): Promise<Record<string, number>> {
+  const result: Record<string, number> = {};
+  for (const id of siteIds) result[id] = 0;
+  if (siteIds.length === 0) return result;
+
+  const supabase = await createServerSupabase();
+  const pages = await Promise.all(
+    chunk(siteIds, SITE_ID_CHUNK).map((ids) =>
+      fetchAllPages<{ site_id: string }>(async (from, to) => {
+        const { data, error } = await supabase
+          .from('gn_daily_reports')
+          .select('site_id')
+          .in('site_id', ids)
+          .order('id', { ascending: true }) // ページ境界で重複・欠落しないよう並びを固定する
+          .range(from, to);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as { site_id: string }[];
+      }),
+    ),
+  );
+  for (const r of pages.flat()) result[r.site_id] = (result[r.site_id] ?? 0) + 1;
   return result;
 }
 
@@ -227,15 +255,19 @@ async function reviewableSiteIds(profile: Profile): Promise<string[] | null> {
   return ((data ?? []) as { site_id: string }[]).map((r) => r.site_id);
 }
 
-/** 自分が reviewer/approver の現場（管理者は全現場）の提出済み日報。日付の古い順。 */
+/**
+ * 自分が reviewer/approver の現場（管理者は全現場）の提出済み日報。日付の古い順。
+ * 削除済みの現場の日報は除く（管理者には RLS で見えてしまうため、gn_sites との内部結合で絞る）。
+ */
 export async function listSubmittedReports(): Promise<SubmittedReport[]> {
   const ids = await reviewableSiteIds(await requireProfile());
   if (ids !== null && ids.length === 0) return [];
   const supabase = await createServerSupabase();
   let q = supabase
     .from('gn_daily_reports')
-    .select(`${HEAD_COLUMNS}, gn_sites(name), profiles!gn_daily_reports_created_by_fkey(name)`)
-    .eq('status', 'submitted');
+    .select(`${HEAD_COLUMNS}, gn_sites!inner(name, deleted_at), profiles!gn_daily_reports_created_by_fkey(name)`)
+    .eq('status', 'submitted')
+    .is('gn_sites.deleted_at', null);
   if (ids !== null) q = q.in('site_id', ids);
   const { data, error } = await q.order('report_date', { ascending: true });
   if (error) throw new Error(error.message);
@@ -246,14 +278,18 @@ export async function listSubmittedReports(): Promise<SubmittedReport[]> {
   }));
 }
 
-/** 承認待ちの件数（タブのバッジ用）。取得に失敗したら 0。 */
+/** 承認待ちの件数（タブのバッジ用）。削除済みの現場の日報は数えない（listSubmittedReports と同じ絞り方）。取得に失敗したら 0。 */
 export async function getSubmittedCount(): Promise<number> {
   const profile = await requireProfile();
   try {
     const ids = await reviewableSiteIds(profile);
     if (ids !== null && ids.length === 0) return 0;
     const supabase = await createServerSupabase();
-    let q = supabase.from('gn_daily_reports').select('id', { count: 'exact', head: true }).eq('status', 'submitted');
+    let q = supabase
+      .from('gn_daily_reports')
+      .select('id, gn_sites!inner(deleted_at)', { count: 'exact', head: true })
+      .eq('status', 'submitted')
+      .is('gn_sites.deleted_at', null);
     if (ids !== null) q = q.in('site_id', ids);
     const { count, error } = await q;
     if (error) throw new Error(error.message);

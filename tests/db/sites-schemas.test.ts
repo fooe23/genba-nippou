@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { carryoverSchema, memberSchema, siteInputSchema } from '@/lib/db/sites-schemas';
+import { archiveSiteSchema, carryoverSchema, memberSchema, siteInputSchema, siteStatusSchema } from '@/lib/db/sites-schemas';
 
 const base = {
   name: '村山一彦様邸 母屋修繕工事',
@@ -74,5 +74,58 @@ describe('partnerRoleError', () => {
     expect(partnerRoleError('partner', 'staff')).toBeNull();
     expect(partnerRoleError('partner', null)).toBeNull();
     expect(partnerRoleError('employee', 'approver')).toBeNull();
+  });
+});
+
+describe('archiveSiteSchema', () => {
+  const ok = {
+    siteId: '11111111-1111-4111-8111-111111111111',
+    email: ' admin@example.com ',
+    password: 'secret-pass',
+    reason: '  誤って登録した現場  ',
+  };
+  it('正しい入力は通り、メールと理由の前後の空白は除く', () => {
+    const r = archiveSiteSchema.parse(ok);
+    expect(r.email).toBe('admin@example.com');
+    expect(r.reason).toBe('誤って登録した現場');
+    expect(r.password).toBe('secret-pass');
+  });
+  it('空の理由（空白だけを含む）は null になる', () => {
+    expect(archiveSiteSchema.parse({ ...ok, reason: '' }).reason).toBeNull();
+    expect(archiveSiteSchema.parse({ ...ok, reason: '   ' }).reason).toBeNull();
+    expect(archiveSiteSchema.parse({ ...ok, reason: null }).reason).toBeNull();
+  });
+  it('空のパスワードは不可', () => {
+    const r = archiveSiteSchema.safeParse({ ...ok, password: '' });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0].message).toBe('パスワードを入力してください');
+  });
+  it('空のメールアドレス（空白だけを含む）は不可', () => {
+    const r = archiveSiteSchema.safeParse({ ...ok, email: '  ' });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0].message).toBe('メールアドレスを入力してください');
+  });
+  it('理由は200文字まで（201文字は不可）', () => {
+    expect(archiveSiteSchema.safeParse({ ...ok, reason: 'あ'.repeat(200) }).success).toBe(true);
+    const r = archiveSiteSchema.safeParse({ ...ok, reason: 'あ'.repeat(201) });
+    expect(r.success).toBe(false);
+    if (!r.success) expect(r.error.issues[0].message).toBe('理由は200文字以内で入力してください');
+  });
+  it('パスワードは72文字まで、現場IDは UUID のみ', () => {
+    expect(archiveSiteSchema.safeParse({ ...ok, password: 'a'.repeat(72) }).success).toBe(true);
+    expect(archiveSiteSchema.safeParse({ ...ok, password: 'a'.repeat(73) }).success).toBe(false);
+    expect(archiveSiteSchema.safeParse({ ...ok, siteId: 'log' }).success).toBe(false);
+  });
+});
+
+describe('siteStatusSchema', () => {
+  const siteId = '11111111-1111-4111-8111-111111111111';
+  it('進行中と完了だけを受け付ける', () => {
+    expect(siteStatusSchema.safeParse({ siteId, status: 'active' }).success).toBe(true);
+    expect(siteStatusSchema.safeParse({ siteId, status: 'done' }).success).toBe(true);
+    expect(siteStatusSchema.safeParse({ siteId, status: 'deleted' }).success).toBe(false);
+  });
+  it('現場IDは UUID のみ', () => {
+    expect(siteStatusSchema.safeParse({ siteId: 'x', status: 'done' }).success).toBe(false);
   });
 });

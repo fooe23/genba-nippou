@@ -17,6 +17,8 @@ export interface Site {
   endDate: string | null;
   contractType: '元請け' | '下請' | '常用' | null;
   status: 'active' | 'done';
+  /** 削除（アーカイブ）した日時。null なら削除されていない。管理者には削除済みも返るので、呼び出し側で判断する。 */
+  deletedAt: string | null;
 }
 export interface SiteMember {
   userId: string;
@@ -37,7 +39,19 @@ export interface SiteMasters { workerIds: string[]; supplierIds: string[]; vehic
 export interface Carryover { workerId: string; manDays: number; laborCost: number; beforeDate: string; }
 
 /** upsertSite に渡す入力（sites-actions.ts）。 */
-export type SiteInput = Omit<Site, 'id' | 'status'> & { id?: string; status?: Site['status'] };
+export type SiteInput = Omit<Site, 'id' | 'status' | 'deletedAt'> & { id?: string; status?: Site['status'] };
+
+/** 現場の削除・復元の記録（gn_site_audit_log。管理者だけ読める）。 */
+export interface SiteAuditEntry {
+  id: number;
+  siteId: string | null;
+  siteName: string;
+  action: 'archive' | 'restore';
+  actorName: string;
+  actorEmail: string;
+  reason: string | null;
+  createdAt: string;
+}
 
 interface SiteRow {
   id: string;
@@ -51,13 +65,14 @@ interface SiteRow {
   end_date: string | null;
   contract_type: string | null;
   status: string;
+  deleted_at: string | null;
 }
 interface ProfileRef { name: string | null; email: string | null; account_type: string | null; company_name: string | null; }
 interface MemberRow { user_id: string; role: SiteRole; profiles: ProfileRef | ProfileRef[] | null; }
 interface CarryoverRow { worker_id: string; man_days: number | string; labor_cost: number | string; before_date: string; }
 
 const SITE_COLUMNS =
-  'id, name, client_name, project_name, project_no, overview, contract_amount, start_date, end_date, contract_type, status';
+  'id, name, client_name, project_name, project_no, overview, contract_amount, start_date, end_date, contract_type, status, deleted_at';
 
 function toSite(r: SiteRow): Site {
   return {
@@ -72,18 +87,67 @@ function toSite(r: SiteRow): Site {
     endDate: r.end_date,
     contractType: r.contract_type === '元請け' || r.contract_type === '下請' || r.contract_type === '常用' ? r.contract_type : null,
     status: r.status === 'done' ? 'done' : 'active',
+    deletedAt: r.deleted_at ?? null,
   };
 }
 
-/** 自分が見られる現場（RLS により、社員・管理者は全件、協力会社は割り当て現場だけ）。進行中を先に、その中は名前順。 */
+/**
+ * 自分が見られる現場（RLS により、社員・管理者は全件、協力会社は割り当て現場だけ）。進行中を先に、その中は名前順。
+ * 削除済みの現場は含めない（管理者には RLS で返ってくるため、ここで除く）。
+ */
 export async function listMySites(): Promise<Site[]> {
   const supabase = await createServerSupabase();
-  const { data, error } = await supabase.from('gn_sites').select(SITE_COLUMNS);
+  const { data, error } = await supabase.from('gn_sites').select(SITE_COLUMNS).is('deleted_at', null);
   if (error) throw new Error(error.message);
   return ((data ?? []) as SiteRow[]).map(toSite).sort((a, b) => {
     if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
     return a.name.localeCompare(b.name, 'ja');
   });
+}
+
+/** 削除済みの現場（管理画面の「削除済み」一覧用）。削除日時の新しい順。管理者以外には RLS で何も返らない。 */
+export async function listDeletedSites(): Promise<Site[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_sites')
+    .select(SITE_COLUMNS)
+    .not('deleted_at', 'is', null)
+    .order('deleted_at', { ascending: false });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as SiteRow[]).map(toSite);
+}
+
+interface AuditRow {
+  id: number | string;
+  site_id: string | null;
+  site_name: string | null;
+  action: string;
+  actor_name: string | null;
+  actor_email: string | null;
+  reason: string | null;
+  created_at: string;
+}
+
+/** 現場の削除・復元の記録。新しい順に limit 件まで。gn_site_audit_log は管理者だけ読める。 */
+export async function listSiteAuditLog(limit = 200): Promise<SiteAuditEntry[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_site_audit_log')
+    .select('id, site_id, site_name, action, actor_name, actor_email, reason, created_at')
+    .order('created_at', { ascending: false })
+    .order('id', { ascending: false })
+    .limit(limit);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as AuditRow[]).map((r) => ({
+    id: Number(r.id),
+    siteId: r.site_id,
+    siteName: r.site_name ?? '',
+    action: r.action === 'restore' ? 'restore' : 'archive',
+    actorName: r.actor_name ?? '',
+    actorEmail: r.actor_email ?? '',
+    reason: r.reason ?? null,
+    createdAt: r.created_at,
+  }));
 }
 
 /** 自分が担当者として割り当てられている現場の id（gn_site_members）。社員・管理者は割り当てのない現場も見られるので、担当かどうかの判定に使う。 */

@@ -60,6 +60,26 @@ export const carryoverSchema = z.object({
   beforeDate: dateSchema,
 });
 
+/** 現場の削除（アーカイブ）。実行する管理者本人のメールアドレスとパスワードで再認証する。理由は任意（空なら null）。 */
+export const archiveSiteSchema = z.object({
+  siteId: idSchema,
+  email: z.string().trim().min(1, 'メールアドレスを入力してください').max(200),
+  password: z.string().min(1, 'パスワードを入力してください').max(72),
+  reason: z
+    .string()
+    .trim()
+    .max(200, '理由は200文字以内で入力してください')
+    .transform((v) => (v === '' ? null : v))
+    .nullable(),
+});
+export type ArchiveSiteInput = z.input<typeof archiveSiteSchema>;
+
+/** 現場の状態の切り替え（現場詳細の「完了にする」「進行中に戻す」）。 */
+export const siteStatusSchema = z.object({
+  siteId: idSchema,
+  status: z.enum(SITE_STATUSES, { error: '状態が正しくありません' }),
+});
+
 export const PARTNER_ROLE_ERROR = '協力会社は担当のみ割り当てできます';
 
 /** 協力会社（partner）は担当（staff）以外にできない。違反ならメッセージ、問題なければ null。 */
