@@ -7,6 +7,7 @@ import { marked } from 'marked';
 
 export const GUIDE_CHAPTERS: { slug: string; title: string }[] = [
   { slug: 'index', title: 'ガイドの使い方' },
+  { slug: 'setup', title: '使い始める前の準備（管理者）' },
   { slug: 'input', title: '日報の入力手順' },
   { slug: 'approval', title: '提出と承認' },
   { slug: 'sites', title: '完了現場と削除' },
