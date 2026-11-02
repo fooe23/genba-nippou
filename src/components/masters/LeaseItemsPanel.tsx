@@ -7,13 +7,13 @@ import { addLeaseItemRate, createLeaseItemWithRate, upsertLeaseItem } from '@/li
 import type { LeaseItem } from '@/lib/db/masters';
 import { amountSchema, dateSchema, firstError, leaseItemInputSchema } from '@/lib/db/masters-schemas';
 import {
-  ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row,
-  inputClass, primaryButtonClass, str, useRunner,
+  ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row, UpdatedText,
+  inputClass, primaryButtonClass, str, updatedLabel, useRunner, type Updaters,
 } from './common';
 import { EditDialog } from './EditDialog';
 import { RateHistoryEditor } from './RateHistoryEditor';
 
-export function LeaseItemsPanel({ items, today }: { items: LeaseItem[]; today: string }) {
+export function LeaseItemsPanel({ items, today, updaters }: { items: LeaseItem[]; today: string; updaters: Updaters }) {
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
   const editing = editingId && editingId !== 'new' ? (items.find((i) => i.id === editingId) ?? null) : null;
   const close = () => setEditingId(null);
@@ -32,6 +32,7 @@ export function LeaseItemsPanel({ items, today }: { items: LeaseItem[]; today: s
                 key={i.id}
                 title={i.name}
                 sub={i.spec ?? '規格未設定'}
+                meta={updatedLabel(i.updatedAt, i.updatedBy, updaters)}
                 dim={!i.active}
                 onClick={() => setEditingId(i.id)}
                 right={
@@ -46,13 +47,13 @@ export function LeaseItemsPanel({ items, today }: { items: LeaseItem[]; today: s
         </ul>
       )}
       <EditDialog open={editingId !== null} title={editing ? 'リース品を編集' : 'リース品を追加'} onClose={close}>
-        <LeaseItemForm key={editingId ?? 'none'} item={editing} onDone={close} />
+        <LeaseItemForm key={editingId ?? 'none'} item={editing} updaters={updaters} onDone={close} />
       </EditDialog>
     </div>
   );
 }
 
-function LeaseItemForm({ item, onDone }: { item: LeaseItem | null; onDone: () => void }) {
+function LeaseItemForm({ item, updaters, onDone }: { item: LeaseItem | null; updaters: Updaters; onDone: () => void }) {
   const { pending, error, setError, run } = useRunner();
 
   function submit(e: FormEvent<HTMLFormElement>) {
@@ -111,6 +112,7 @@ function LeaseItemForm({ item, onDone }: { item: LeaseItem | null; onDone: () =>
           <RateHistoryEditor
             rates={item.rates}
             amountLabel="単価"
+            updaters={updaters}
             onAdd={(amount, from) => addLeaseItemRate(item.id, amount, from)}
           />
           <ActiveToggle
@@ -122,6 +124,7 @@ function LeaseItemForm({ item, onDone }: { item: LeaseItem | null; onDone: () =>
               }, onDone)
             }
           />
+          <UpdatedText updatedAt={item.updatedAt} updatedBy={item.updatedBy} updaters={updaters} />
         </>
       )}
     </>

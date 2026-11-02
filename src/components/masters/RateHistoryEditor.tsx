@@ -4,22 +4,27 @@ import { useState } from 'react';
 import { yen, jpDate, todayJst } from '@/lib/calc/format';
 import type { RateHistory } from '@/lib/calc/rates';
 import { amountSchema, dateSchema, firstError } from '@/lib/db/masters-schemas';
-import { ErrorText, Field, inputClass, secondaryButtonClass, useRunner } from './common';
+import { ErrorText, Field, inputClass, secondaryButtonClass, useRunner, type Updaters } from './common';
 
 /** 単価の改定履歴（適用開始日・金額）と「改定を追加」フォーム。作業員・リース品で共用。 */
 export function RateHistoryEditor({
   rates,
   amountLabel,
+  updaters,
   onAdd,
 }: {
   rates: RateHistory[];
   amountLabel: string;
+  /** 更新者の表示名。渡されて名前が引ける行があれば「更新者」の列を出す。 */
+  updaters?: Updaters;
   onAdd: (amount: number, effectiveFrom: string) => Promise<void>;
 }) {
   const { pending, error, setError, run } = useRunner();
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(todayJst());
   const sorted = [...rates].sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? 1 : -1));
+  const updaterOf = (r: RateHistory) => (r.updatedBy && updaters ? (updaters[r.updatedBy] ?? null) : null);
+  const showUpdater = sorted.some((r) => updaterOf(r) !== null);
 
   function submit() {
     const value = amount.trim() === '' ? NaN : Number(amount);
@@ -46,6 +51,7 @@ export function RateHistoryEditor({
               <tr className="border-b border-gray-300 text-left dark:border-gray-700">
                 <th className="py-2 pr-3 font-medium">適用開始日</th>
                 <th className="py-2 text-right font-medium">{amountLabel}</th>
+                {showUpdater && <th className="py-2 pl-3 font-medium">更新者</th>}
               </tr>
             </thead>
             <tbody>
@@ -53,6 +59,7 @@ export function RateHistoryEditor({
                 <tr key={r.effectiveFrom} className="border-b border-gray-200 dark:border-gray-800">
                   <td className="py-2 pr-3">{jpDate(r.effectiveFrom)}</td>
                   <td className="py-2 text-right">{yen(r.amount)}</td>
+                  {showUpdater && <td className="py-2 pl-3 text-xs text-gray-500 dark:text-gray-400">{updaterOf(r) ?? ''}</td>}
                 </tr>
               ))}
             </tbody>

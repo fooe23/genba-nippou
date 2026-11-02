@@ -2,7 +2,10 @@
 
 import { useSearchParams } from 'next/navigation';
 import type { LeaseItem, MasterOption, Supplier, Vehicle, Worker } from '@/lib/db/masters';
+import type { ImportLogEntry } from '@/lib/db/import';
 import type { Settings } from '@/lib/db/settings';
+import type { Updaters } from './common';
+import { ImportPanel } from './ImportPanel';
 import { LeaseItemsPanel } from './LeaseItemsPanel';
 import { OptionsPanel } from './OptionsPanel';
 import { SettingsPanel } from './SettingsPanel';
@@ -18,6 +21,7 @@ const TABS = [
   { key: 'lease', label: 'リース品' },
   { key: 'units', label: '単位' },
   { key: 'weather', label: '天候' },
+  { key: 'import', label: '取り込み' },
   { key: 'settings', label: '労務の設定' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
@@ -35,6 +39,10 @@ export interface MastersData {
   units: MasterOption[];
   weather: MasterOption[];
   settings: Settings;
+  /** 取り込み履歴（新しい順、最大 50 件）。 */
+  importLog: ImportLogEntry[];
+  /** 更新者の表示名（profiles.id → 氏名、無ければメール）。 */
+  updaters: Updaters;
 }
 
 export function MastersTabs({ data }: { data: MastersData }) {
@@ -72,13 +80,20 @@ export function MastersTabs({ data }: { data: MastersData }) {
         ))}
       </div>
       <div role="tabpanel" id={`panel-${active}`} aria-labelledby={`tab-${active}`}>
-        {active === 'workers' && <WorkersPanel workers={data.workers} today={data.today} rule={data.settings.rule} />}
-        {active === 'suppliers' && <SuppliersPanel suppliers={data.suppliers} />}
-        {active === 'vehicles' && <VehiclesPanel vehicles={data.vehicles} />}
-        {active === 'lease' && <LeaseItemsPanel items={data.leaseItems} today={data.today} />}
+        {active === 'workers' && <WorkersPanel workers={data.workers} today={data.today} rule={data.settings.rule} updaters={data.updaters} />}
+        {active === 'suppliers' && <SuppliersPanel suppliers={data.suppliers} updaters={data.updaters} />}
+        {active === 'vehicles' && <VehiclesPanel vehicles={data.vehicles} updaters={data.updaters} />}
+        {active === 'lease' && <LeaseItemsPanel items={data.leaseItems} today={data.today} updaters={data.updaters} />}
         {active === 'units' && <OptionsPanel title="単位" options={data.units} onSave={upsertUnit} />}
         {active === 'weather' && <OptionsPanel title="天候" options={data.weather} onSave={upsertWeather} />}
-        {active === 'settings' && <SettingsPanel settings={data.settings} />}
+        {active === 'import' && (
+          <ImportPanel
+            today={data.today}
+            current={{ workers: data.workers, suppliers: data.suppliers, vehicles: data.vehicles, leaseItems: data.leaseItems }}
+            importLog={data.importLog}
+          />
+        )}
+        {active === 'settings' && <SettingsPanel settings={data.settings} updaters={data.updaters} />}
       </div>
     </div>
   );

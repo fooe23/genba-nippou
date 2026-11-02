@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition, type ReactNode } from 'react';
+import { jpDateTime } from '@/lib/calc/format';
 
 export const inputClass =
   'min-h-11 w-full rounded-lg border border-gray-400 bg-background px-3 text-base text-foreground dark:border-gray-600';
@@ -57,12 +58,15 @@ export function ListHeader({ title, onAdd }: { title: string; onAdd: () => void 
 export function Row({
   title,
   sub,
+  meta,
   right,
   dim,
   onClick,
 }: {
   title: string;
   sub?: string | null;
+  /** sub の下に小さく出す 1 行（例: 更新日時と更新者）。 */
+  meta?: string | null;
   right?: ReactNode;
   dim?: boolean;
   onClick: () => void;
@@ -79,11 +83,44 @@ export function Row({
         <span className="min-w-0">
           <span className="block truncate font-bold">{title}</span>
           {sub ? <span className="block truncate text-sm text-gray-600 dark:text-gray-400">{sub}</span> : null}
+          {meta ? <span className="block truncate text-xs text-gray-500 dark:text-gray-400">{meta}</span> : null}
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1 text-sm">{right}</span>
       </button>
     </li>
   );
+}
+
+/** 更新者の表示名（id → 氏名、無ければメール）。管理画面のページで profiles から作る。 */
+export type Updaters = Record<string, string>;
+
+/** 「更新 2026/11/03 09:15 山田 太郎」。日時が無ければ null、更新者の名前が引けなければ名前を省く。 */
+export function updatedLabel(
+  updatedAt: string | null | undefined,
+  updatedBy: string | null | undefined,
+  updaters: Updaters,
+  prefix = '更新',
+): string | null {
+  if (!updatedAt) return null;
+  const who = updatedBy ? updaters[updatedBy] : undefined;
+  return `${prefix} ${jpDateTime(updatedAt)}${who ? ` ${who}` : ''}`;
+}
+
+/** 編集ダイアログの末尾などに出す更新日時と更新者の 1 行。 */
+export function UpdatedText({
+  updatedAt,
+  updatedBy,
+  updaters,
+  prefix,
+}: {
+  updatedAt: string | null | undefined;
+  updatedBy: string | null | undefined;
+  updaters: Updaters;
+  prefix?: string;
+}) {
+  const label = updatedLabel(updatedAt, updatedBy, updaters, prefix);
+  if (!label) return null;
+  return <p className="text-xs text-gray-500 dark:text-gray-400">{label}</p>;
 }
 
 export function EmptyText({ children }: { children: ReactNode }) {

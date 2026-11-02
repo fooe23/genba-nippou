@@ -5,12 +5,12 @@ import { upsertSupplier } from '@/lib/db/masters-actions';
 import type { Supplier } from '@/lib/db/masters';
 import { firstError, supplierInputSchema } from '@/lib/db/masters-schemas';
 import {
-  ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row,
-  inputClass, primaryButtonClass, str, useRunner,
+  ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row, UpdatedText,
+  inputClass, primaryButtonClass, str, updatedLabel, useRunner, type Updaters,
 } from './common';
 import { EditDialog } from './EditDialog';
 
-export function SuppliersPanel({ suppliers }: { suppliers: Supplier[] }) {
+export function SuppliersPanel({ suppliers, updaters }: { suppliers: Supplier[]; updaters: Updaters }) {
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
   const editing = editingId && editingId !== 'new' ? (suppliers.find((s) => s.id === editingId) ?? null) : null;
   const close = () => setEditingId(null);
@@ -27,6 +27,7 @@ export function SuppliersPanel({ suppliers }: { suppliers: Supplier[] }) {
               key={s.id}
               title={s.name}
               sub={s.category ?? '区分未設定'}
+              meta={updatedLabel(s.updatedAt, s.updatedBy, updaters)}
               dim={!s.active}
               onClick={() => setEditingId(s.id)}
               right={<ActiveBadge active={s.active} />}
@@ -35,13 +36,13 @@ export function SuppliersPanel({ suppliers }: { suppliers: Supplier[] }) {
         </ul>
       )}
       <EditDialog open={editingId !== null} title={editing ? '取引先を編集' : '取引先を追加'} onClose={close}>
-        <SupplierForm key={editingId ?? 'none'} supplier={editing} onDone={close} />
+        <SupplierForm key={editingId ?? 'none'} supplier={editing} updaters={updaters} onDone={close} />
       </EditDialog>
     </div>
   );
 }
 
-function SupplierForm({ supplier, onDone }: { supplier: Supplier | null; onDone: () => void }) {
+function SupplierForm({ supplier, updaters, onDone }: { supplier: Supplier | null; updaters: Updaters; onDone: () => void }) {
   const { pending, error, setError, run } = useRunner();
 
   function submit(e: FormEvent<HTMLFormElement>) {
@@ -85,15 +86,18 @@ function SupplierForm({ supplier, onDone }: { supplier: Supplier | null; onDone:
         </button>
       </form>
       {supplier && (
-        <ActiveToggle
-          active={supplier.active}
-          pending={pending}
-          onToggle={() =>
-            run(async () => {
-              await upsertSupplier({ id: supplier.id, name: supplier.name, active: !supplier.active });
-            }, onDone)
-          }
-        />
+        <>
+          <ActiveToggle
+            active={supplier.active}
+            pending={pending}
+            onToggle={() =>
+              run(async () => {
+                await upsertSupplier({ id: supplier.id, name: supplier.name, active: !supplier.active });
+              }, onDone)
+            }
+          />
+          <UpdatedText updatedAt={supplier.updatedAt} updatedBy={supplier.updatedBy} updaters={updaters} />
+        </>
       )}
     </>
   );

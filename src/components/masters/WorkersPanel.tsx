@@ -8,13 +8,23 @@ import type { Worker } from '@/lib/db/masters';
 import type { LaborRule } from '@/lib/types';
 import { amountSchema, dateSchema, firstError, workerInputSchema } from '@/lib/db/masters-schemas';
 import {
-  ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row,
-  inputClass, numOrNull, primaryButtonClass, str, useRunner,
+  ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row, UpdatedText,
+  inputClass, numOrNull, primaryButtonClass, str, updatedLabel, useRunner, type Updaters,
 } from './common';
 import { EditDialog } from './EditDialog';
 import { RateHistoryEditor } from './RateHistoryEditor';
 
-export function WorkersPanel({ workers, today, rule }: { workers: Worker[]; today: string; rule: LaborRule }) {
+export function WorkersPanel({
+  workers,
+  today,
+  rule,
+  updaters,
+}: {
+  workers: Worker[];
+  today: string;
+  rule: LaborRule;
+  updaters: Updaters;
+}) {
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
   // 保存後に最新の props から引き直すため、オブジェクトではなく id を保持する
   const editing = editingId && editingId !== 'new' ? (workers.find((w) => w.id === editingId) ?? null) : null;
@@ -34,6 +44,7 @@ export function WorkersPanel({ workers, today, rule }: { workers: Worker[]; toda
                 key={w.id}
                 title={w.name}
                 sub={w.trade ?? '職種未設定'}
+                meta={updatedLabel(w.updatedAt, w.updatedBy, updaters)}
                 dim={!w.active}
                 onClick={() => setEditingId(w.id)}
                 right={
@@ -51,13 +62,23 @@ export function WorkersPanel({ workers, today, rule }: { workers: Worker[]; toda
         </ul>
       )}
       <EditDialog open={editingId !== null} title={editing ? '作業員を編集' : '作業員を追加'} onClose={close}>
-        <WorkerForm key={editingId ?? 'none'} worker={editing} rule={rule} onDone={close} />
+        <WorkerForm key={editingId ?? 'none'} worker={editing} rule={rule} updaters={updaters} onDone={close} />
       </EditDialog>
     </div>
   );
 }
 
-function WorkerForm({ worker, rule, onDone }: { worker: Worker | null; rule: LaborRule; onDone: () => void }) {
+function WorkerForm({
+  worker,
+  rule,
+  updaters,
+  onDone,
+}: {
+  worker: Worker | null;
+  rule: LaborRule;
+  updaters: Updaters;
+  onDone: () => void;
+}) {
   const { pending, error, setError, run } = useRunner();
 
   function submit(e: FormEvent<HTMLFormElement>) {
@@ -138,6 +159,7 @@ function WorkerForm({ worker, rule, onDone }: { worker: Worker | null; rule: Lab
           <RateHistoryEditor
             rates={worker.rates}
             amountLabel="日当"
+            updaters={updaters}
             onAdd={(amount, from) => addWorkerRate(worker.id, amount, from)}
           />
           <ActiveToggle
@@ -149,6 +171,7 @@ function WorkerForm({ worker, rule, onDone }: { worker: Worker | null; rule: Lab
               }, onDone)
             }
           />
+          <UpdatedText updatedAt={worker.updatedAt} updatedBy={worker.updatedBy} updaters={updaters} />
         </>
       )}
     </>

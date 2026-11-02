@@ -5,12 +5,12 @@ import { upsertVehicle } from '@/lib/db/masters-actions';
 import type { Vehicle } from '@/lib/db/masters';
 import { firstError, vehicleInputSchema } from '@/lib/db/masters-schemas';
 import {
-  ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row,
-  inputClass, numOrNull, primaryButtonClass, str, useRunner,
+  ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row, UpdatedText,
+  inputClass, numOrNull, primaryButtonClass, str, updatedLabel, useRunner, type Updaters,
 } from './common';
 import { EditDialog } from './EditDialog';
 
-export function VehiclesPanel({ vehicles }: { vehicles: Vehicle[] }) {
+export function VehiclesPanel({ vehicles, updaters }: { vehicles: Vehicle[]; updaters: Updaters }) {
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
   const editing = editingId && editingId !== 'new' ? (vehicles.find((v) => v.id === editingId) ?? null) : null;
   const close = () => setEditingId(null);
@@ -27,6 +27,7 @@ export function VehiclesPanel({ vehicles }: { vehicles: Vehicle[] }) {
               key={v.id}
               title={v.name}
               sub={v.kind ?? '区分未設定'}
+              meta={updatedLabel(v.updatedAt, v.updatedBy, updaters)}
               dim={!v.active}
               onClick={() => setEditingId(v.id)}
               right={
@@ -40,13 +41,13 @@ export function VehiclesPanel({ vehicles }: { vehicles: Vehicle[] }) {
         </ul>
       )}
       <EditDialog open={editingId !== null} title={editing ? '車両を編集' : '車両を追加'} onClose={close}>
-        <VehicleForm key={editingId ?? 'none'} vehicle={editing} onDone={close} />
+        <VehicleForm key={editingId ?? 'none'} vehicle={editing} updaters={updaters} onDone={close} />
       </EditDialog>
     </div>
   );
 }
 
-function VehicleForm({ vehicle, onDone }: { vehicle: Vehicle | null; onDone: () => void }) {
+function VehicleForm({ vehicle, updaters, onDone }: { vehicle: Vehicle | null; updaters: Updaters; onDone: () => void }) {
   const { pending, error, setError, run } = useRunner();
 
   function submit(e: FormEvent<HTMLFormElement>) {
@@ -98,15 +99,18 @@ function VehicleForm({ vehicle, onDone }: { vehicle: Vehicle | null; onDone: () 
         </button>
       </form>
       {vehicle && (
-        <ActiveToggle
-          active={vehicle.active}
-          pending={pending}
-          onToggle={() =>
-            run(async () => {
-              await upsertVehicle({ id: vehicle.id, name: vehicle.name, active: !vehicle.active });
-            }, onDone)
-          }
-        />
+        <>
+          <ActiveToggle
+            active={vehicle.active}
+            pending={pending}
+            onToggle={() =>
+              run(async () => {
+                await upsertVehicle({ id: vehicle.id, name: vehicle.name, active: !vehicle.active });
+              }, onDone)
+            }
+          />
+          <UpdatedText updatedAt={vehicle.updatedAt} updatedBy={vehicle.updatedBy} updaters={updaters} />
+        </>
       )}
     </>
   );
