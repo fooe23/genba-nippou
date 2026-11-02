@@ -1,5 +1,6 @@
 import { rateAt, type RateHistory } from '@/lib/calc/rates';
 import { yen } from '@/lib/calc/format';
+import { withoutSaved } from '@/lib/report/rows';
 import type { CashLineInput, CreditLineInput, ReportLineInput, SaveInput } from '@/lib/report/schema';
 import type { FuelLine, LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 
@@ -106,7 +107,7 @@ function purchaseLine<L extends CashLineInput | CreditLineInput>(r: Row<L>): L {
   return rest as L;
 }
 
-/** フォームの状態 → 保存の入力（表の順に並べる。sort_order はこの順）。 */
+/** フォームの状態 → 保存の入力（表の順に並べる。sort_order はこの順）。労務行の DB の計算値（saved）は含めない（保存・下書きに持ち込まない）。 */
 export function toInput(siteId: string, date: string, s: FormState): SaveInput {
   const r = s.rows;
   return {
@@ -118,7 +119,7 @@ export function toInput(siteId: string, date: string, s: FormState): SaveInput {
     issuesText: s.issuesText,
     notesText: s.notesText,
     lines: [
-      ...r.labor.map((x) => x.line),
+      ...r.labor.map((x) => withoutSaved(x.line)),
       ...r.fuel.map((x) => x.line),
       ...r.lease.map((x) => x.line),
       ...r.cash.map(purchaseLine),

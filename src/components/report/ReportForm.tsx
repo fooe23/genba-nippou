@@ -265,7 +265,17 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
 
   const input = useMemo(() => toInput(p.siteId, p.date, state), [p.siteId, p.date, state]);
   const json = useMemo(() => JSON.stringify(input), [input]);
-  const totals = useMemo(() => reportTotals(calcLines(input.lines), input.common, p.rule), [input, p.rule]);
+  // 読み取り専用の画面は、保存済みの労務行を DB の計算値（保存時の設定）で表示する（集計と一致させる）。
+  // 編集できる画面は今の設定で計算し直す（保存すると DB も同じ値になる）。
+  const totals = useMemo(
+    () =>
+      p.readOnly
+        ? reportTotals([...state.rows.labor.map((r) => r.line), ...calcLines(input.lines.filter((l) => l.kind !== 'labor'))], input.common, p.rule, {
+            preferSaved: true,
+          })
+        : reportTotals(calcLines(input.lines), input.common, p.rule),
+    [input, state.rows.labor, p.readOnly, p.rule],
+  );
   const warnings = useMemo(
     () => reportWarnings(input, { siteStartDate: p.siteStartDate, today: p.today }),
     [input, p.siteStartDate, p.today],
@@ -586,7 +596,15 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
           </div>
         </section>
 
-        <LaborTable rows={state.rows.labor} onChange={setRows('labor')} common={state.common} rule={p.rule} date={p.date} workers={p.masters.workers} />
+        <LaborTable
+          rows={state.rows.labor}
+          onChange={setRows('labor')}
+          common={state.common}
+          rule={p.rule}
+          preferSaved={p.readOnly}
+          date={p.date}
+          workers={p.masters.workers}
+        />
         <FuelTable rows={state.rows.fuel} onChange={setRows('fuel')} vehicles={p.masters.vehicles} />
         <LeaseTable rows={state.rows.lease} onChange={setRows('lease')} date={p.date} items={p.masters.leaseItems} units={p.masters.units} />
         <CashTable rows={state.rows.cash} onChange={setRows('cash')} units={p.masters.units} />

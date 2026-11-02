@@ -2,7 +2,9 @@ export type ReportStatus = 'draft' | 'submitted' | 'approved' | 'rejected';
 export type SiteRole = 'staff' | 'reviewer' | 'approver';
 export type LineKind = 'labor' | 'fuel' | 'lease' | 'cash' | 'credit' | 'work';
 export interface TimeSpec { start: string | null; end: string | null; breakMin: number | null; gapMin: number | null; }
-export interface LaborLine  { kind: 'labor';  workerId: string | null; workerName: string; time: TimeSpec; dailyRate: number | null; note: string; overtimeRate: number | null; }
+/** 保存済みの労務行の DB の計算値（トリガー gn_report_lines_compute が保存時の設定で計算したもの）。読み取り専用の表示に使い、保存には送らない。 */
+export interface LaborSaved { hours: number; manDays: number; overtimeHours: number; cost: number; }
+export interface LaborLine  { kind: 'labor';  workerId: string | null; workerName: string; time: TimeSpec; dailyRate: number | null; note: string; overtimeRate: number | null; saved?: LaborSaved; }
 export interface FuelLine   { kind: 'fuel';   vehicleId: string | null; vehicleName: string; kmPerL: number | null; distanceKm: number | null; pricePerL: number | null; note: string; }
 export interface LeaseLine  { kind: 'lease';  itemId: string | null; itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; note: string; }
 export interface CashLine   { kind: 'cash';   itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; vendor: string; }

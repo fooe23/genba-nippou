@@ -1,5 +1,5 @@
 import { amount, fuelCost, laborLineValues, productivity } from '@/lib/calc/report';
-import type { LaborRule, ReportLine, TimeSpec } from '@/lib/types';
+import type { LaborLine, LaborRule, LaborSaved, ReportLine, TimeSpec } from '@/lib/types';
 import type { SaveInput } from '@/lib/report/schema';
 
 // 日報の明細と gn_report_lines の列の相互変換（純関数。サーバーの読み書きから使う）。
@@ -195,6 +195,16 @@ function rTime(v: unknown): string | null {
   return typeof v === 'string' && v !== '' ? v : null;
 }
 
+/** 労務行の DB の計算値（保存時の設定で計算済み）。どれかが null なら付けない（画面で計算する）。 */
+function savedValues(r: LineRowRead): { saved?: LaborSaved } {
+  const hours = rNum(r.hours);
+  const manDays = rNum(r.man_days);
+  const overtimeHours = rNum(r.overtime_hours);
+  const cost = rNum(r.amount);
+  if (hours === null || manDays === null || overtimeHours === null || cost === null) return {};
+  return { saved: { hours, manDays, overtimeHours, cost } };
+}
+
 /** 種類が不明な行は null（読み飛ばす）。 */
 export function fromLineRow(r: LineRowRead): ReportLine | null {
   switch (r.kind) {
@@ -207,6 +217,7 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         dailyRate: rNum(r.unit_price),
         note: rStr(r.note),
         overtimeRate: rNum(r.overtime_rate),
+        ...savedValues(r),
       };
     case 'fuel':
       return {
@@ -267,11 +278,19 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
   }
 }
 
+/** 労務行から DB の計算値（saved）を除く（保存・下書き・前回コピーには持ち込まない）。 */
+export function withoutSaved(l: LaborLine): LaborLine {
+  if (l.saved === undefined) return l;
+  const { saved: _saved, ...rest } = l;
+  void _saved;
+  return rest;
+}
+
 /** 前回コピー: 作業員・車両・リースだけを複写。作業員の個別時間と車両の走行距離は空にする（リースの数量・残業単価はそのまま）。 */
 export function copyableLines(lines: ReportLine[]): ReportLine[] {
   const out: ReportLine[] = [];
   for (const l of lines) {
-    if (l.kind === 'labor') out.push({ ...l, time: { start: null, end: null, breakMin: null, gapMin: null } });
+    if (l.kind === 'labor') out.push({ ...withoutSaved(l), time: { start: null, end: null, breakMin: null, gapMin: null } });
     else if (l.kind === 'fuel') out.push({ ...l, distanceKm: null });
     else if (l.kind === 'lease') out.push({ ...l });
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_LABOR_RULE } from '@/lib/calc/report';
-import { copyableLines, fromLineRow, saveErrorMessage, toLineRow, toLineRows, toReportRow } from '@/lib/report/rows';
+import { copyableLines, fromLineRow, saveErrorMessage, toLineRow, toLineRows, toReportRow, withoutSaved } from '@/lib/report/rows';
 import type { LaborLine, ReportLine, TimeSpec } from '@/lib/types';
 
 const common: TimeSpec = { start: '08:00', end: '17:00', breakMin: 60, gapMin: 0 };
@@ -50,11 +50,22 @@ describe('toLineRows', () => {
       amount: 42000, productivity: 21.875, source: 'extra', name: null,
     });
   });
-  it('読み戻すと元の明細になる（空文字は "" に戻る）', () => {
-    expect(rows.map((r) => fromLineRow(r))).toEqual(lines);
+  it('読み戻すと元の明細になる（空文字は "" に戻る。労務行は DB の計算値 saved も付く）', () => {
+    const back = rows.map((r) => fromLineRow(r));
+    expect(back.map((l) => (l?.kind === 'labor' ? withoutSaved(l) : l))).toEqual(lines);
+    expect(back[0]).toMatchObject({ saved: { hours: 8, manDays: 1, overtimeHours: 0, cost: 19000 } });
     expect(fromLineRow({ kind: 'lease', qty: '2', unit_price: '3500.00' })).toMatchObject({ qty: 2, unitPrice: 3500 });
     expect(fromLineRow({ kind: 'labor', overtime_rate: '3000' })).toMatchObject({ overtimeRate: 3000 });
     expect(fromLineRow({ kind: 'labor', overtime_rate: null })).toMatchObject({ overtimeRate: null });
+  });
+  it('労務の saved は DB の文字列の数値から作り、どれかが null なら付けない。保存の列には送らない', () => {
+    const r = { kind: 'labor' as const, hours: '8.5', man_days: '1', overtime_hours: '0.5', amount: '19406.5' };
+    expect(fromLineRow(r)).toMatchObject({ saved: { hours: 8.5, manDays: 1, overtimeHours: 0.5, cost: 19406.5 } });
+    expect(fromLineRow({ ...r, overtime_hours: null })).not.toHaveProperty('saved'); // 移行前に保存された行
+    expect(fromLineRow({ ...r, amount: null })).not.toHaveProperty('saved');
+    const withSaved = fromLineRow(r) as LaborLine;
+    expect(Object.keys(toLineRow(withSaved, common, 0, DEFAULT_LABOR_RULE))).not.toContain('saved');
+    expect(copyableLines([withSaved])[0]).not.toHaveProperty('saved');
   });
 });
 

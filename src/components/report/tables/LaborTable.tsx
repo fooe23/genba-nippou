@@ -16,6 +16,7 @@ export function LaborTable({
   onChange,
   common,
   rule,
+  preferSaved = false,
   date,
   workers,
 }: {
@@ -23,11 +24,15 @@ export function LaborTable({
   onChange: (update: (rows: Row<LaborLine>[]) => Row<LaborLine>[]) => void;
   common: TimeSpec;
   rule: LaborRule;
+  /** 読み取り専用の画面：保存済みの行は DB の計算値（保存時の設定）で表示する。 */
+  preferSaved?: boolean;
   date: string;
   workers: WorkerOption[];
 }) {
   const set = (i: number, patch: Partial<LaborLine>) => onChange((rs) => patchRow(rs, i, patch));
   const setTime = (i: number, line: LaborLine, patch: Partial<TimeSpec>) => set(i, { time: { ...line.time, ...patch } });
+  // 行ごとに 1 回だけ計算する（表示列と小計で共用）。
+  const values = rows.map((r) => laborLineValues(r.line, common, rule, { preferSaved }));
   const options = workers.map((w) => ({ value: w.id, label: w.active ? w.name : `${w.name}（無効）` }));
   const commonBreak = common.breakMin === null ? '' : `共通${common.breakMin}`;
   const commonGap = common.gapMin === null ? '' : `共通${common.gapMin}`;
@@ -60,14 +65,14 @@ export function LaborTable({
       cell: (l, i) => <NumInput integer value={l.time.gapMin} placeholder={commonGap} onChange={(v) => setTime(i, l, { gapMin: v })} />,
     },
     { label: '備考', wide: true, cell: (l, i) => <TextInput value={l.note} maxLength={200} onChange={(v) => set(i, { note: v })} /> },
-    { label: '実働H', input: false, cell: (l) => <Computed>{decimal(laborLineValues(l, common, rule).hours)}</Computed> },
-    { label: '人工', input: false, cell: (l) => <Computed>{decimal(laborLineValues(l, common, rule).manDays)}</Computed> },
-    { label: '残業H', input: false, cell: (l) => <Computed>{decimal(laborLineValues(l, common, rule).overtimeHours)}</Computed> },
+    { label: '実働H', input: false, cell: (_l, i) => <Computed>{decimal(values[i].hours)}</Computed> },
+    { label: '人工', input: false, cell: (_l, i) => <Computed>{decimal(values[i].manDays)}</Computed> },
+    { label: '残業H', input: false, cell: (_l, i) => <Computed>{decimal(values[i].overtimeHours)}</Computed> },
     { label: '日当', input: false, cell: (l) => <Computed>{l.dailyRate === null ? '未設定' : money(l.dailyRate)}</Computed> },
-    { label: '労務費', input: false, cell: (l) => <Computed>{money(laborLineValues(l, common, rule).cost)}</Computed> },
+    { label: '労務費', input: false, cell: (_l, i) => <Computed>{money(values[i].cost)}</Computed> },
   ];
 
-  const subtotal = rows.reduce((s, r) => s + laborLineValues(r.line, common, rule).cost, 0);
+  const subtotal = values.reduce((s, v) => s + v.cost, 0);
   return (
     <LineTable
       title="作業員"

@@ -40,8 +40,9 @@ export function effectiveHours(line: TimeSpec, common: TimeSpec): number {
 /** gn_settings が読めないとき（SQL 未適用など）の既定値。DB の列の既定と同じ。 */
 export const DEFAULT_LABOR_RULE: LaborRule = { shoteiHours: 7.5, fixedOvertimeLimit: 8, overtimeMultiplier: 1.25, overtimeBaseHours: 8 };
 
+// 浮動小数の誤差（4.6 ÷ 8 = 0.57499999… など）を落としてから小数 2 桁に四捨五入する（DB の numeric の round と同じ結果）。
 function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+  return Math.round(Math.round(n * 1e8) / 1e6) / 100;
 }
 
 // 浮動小数の誤差（2812.4999999 など）を落としてから円未満を四捨五入する。
@@ -63,7 +64,8 @@ export function overtimeHours(hours: number, rule: LaborRule): number {
 export function overtimeRate(dailyRate: number | null, override: number | null, rule: LaborRule): number {
   if (override !== null && override !== undefined && Number.isFinite(override) && override > 0) return override;
   if (!(rule.overtimeBaseHours > 0)) return 0;
-  return roundYen(((dailyRate ?? 0) / rule.overtimeBaseHours) * rule.overtimeMultiplier);
+  // DB と同じく先に掛けてから割る。
+  return roundYen(((dailyRate ?? 0) * rule.overtimeMultiplier) / rule.overtimeBaseHours);
 }
 
 export function laborCost(dailyRate: number | null, manDays: number, overtimeHours: number, overtimeRate: number): number {
@@ -87,7 +89,14 @@ export function productivity(qty: number | null, manDays: number | null): number
 
 export interface LaborValues { hours: number; manDays: number; overtimeHours: number; overtimeRate: number; cost: number; }
 
-export function laborLineValues(line: LaborLine, common: TimeSpec, rule: LaborRule): LaborValues {
+/** preferSaved：保存済みの行（line.saved あり）は DB の計算値を返す。読み取り専用の画面（承認済み・完了現場・承認画面）で使う。 */
+export interface LaborCalcOptions { preferSaved?: boolean; }
+
+export function laborLineValues(line: LaborLine, common: TimeSpec, rule: LaborRule, opts?: LaborCalcOptions): LaborValues {
+  if (opts?.preferSaved && line.saved) {
+    const s = line.saved;
+    return { ...s, overtimeRate: overtimeRate(line.dailyRate, line.overtimeRate, rule) };
+  }
   const hours = effectiveHours(line.time, common);
   const days = manDays(hours, rule);
   const otHours = overtimeHours(hours, rule);
@@ -95,10 +104,10 @@ export function laborLineValues(line: LaborLine, common: TimeSpec, rule: LaborRu
   return { hours, manDays: days, overtimeHours: otHours, overtimeRate: otRate, cost: laborCost(line.dailyRate, days, otHours, otRate) };
 }
 
-export function lineAmount(line: ReportLine, common: TimeSpec, rule: LaborRule): number {
+export function lineAmount(line: ReportLine, common: TimeSpec, rule: LaborRule, opts?: LaborCalcOptions): number {
   switch (line.kind) {
     case 'labor':
-      return laborLineValues(line, common, rule).cost;
+      return laborLineValues(line, common, rule, opts).cost;
     case 'fuel':
       return fuelCost(line.distanceKm, line.kmPerL, line.pricePerL);
     case 'lease':
@@ -109,7 +118,7 @@ export function lineAmount(line: ReportLine, common: TimeSpec, rule: LaborRule):
   }
 }
 
-export function reportTotals(lines: ReportLine[], common: TimeSpec, rule: LaborRule): ReportTotals {
+export function reportTotals(lines: ReportLine[], common: TimeSpec, rule: LaborRule, opts?: LaborCalcOptions): ReportTotals {
   const t: ReportTotals = {
     laborHours: 0, manDays: 0, overtimeHours: 0, workerCount: 0,
     labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, cost: 0, output: 0,
@@ -117,7 +126,7 @@ export function reportTotals(lines: ReportLine[], common: TimeSpec, rule: LaborR
   for (const line of lines) {
     switch (line.kind) {
       case 'labor': {
-        const v = laborLineValues(line, common, rule);
+        const v = laborLineValues(line, common, rule, opts);
         t.laborHours += v.hours;
         t.manDays += v.manDays;
         t.overtimeHours += v.overtimeHours;

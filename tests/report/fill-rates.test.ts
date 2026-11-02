@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fillMissingRates, newReportCommon, refreshFromMasters, type ReportMasters } from '@/components/report/form-state';
+import { fillMissingRates, fromInput, newReportCommon, refreshFromMasters, toInput, type ReportMasters } from '@/components/report/form-state';
 import type { ReportLine } from '@/lib/types';
 
 const W1 = '11111111-1111-4111-8111-111111111111';
@@ -92,5 +92,15 @@ describe('newReportCommon（新しい日報の共通時間の初期値）', () =
   it('現場が空・片方だけなら全社の設定の4項目', () => {
     expect(newReportCommon({ start: null, end: null, breakMin: null, gapMin: null }, company)).toEqual(company);
     expect(newReportCommon({ start: '07:30', end: null, breakMin: 60, gapMin: 0 }, company)).toEqual(company);
+  });
+});
+
+describe('toInput（保存・下書きの入力）', () => {
+  it('労務行の DB の計算値（saved）は含めない', () => {
+    const line = { ...labor(W1, 18000), saved: { hours: 8, manDays: 1.07, overtimeHours: 0, cost: 19260 } };
+    const input = { siteId: W1, date: '2026-11-03', weather: null, supervisor: null, common: t, issuesText: '', notesText: '', lines: [line] };
+    const out = toInput(W1, '2026-11-03', fromInput(input));
+    expect(out.lines[0]).not.toHaveProperty('saved');
+    expect(out.lines[0]).toMatchObject({ dailyRate: 18000, overtimeRate: null });
   });
 });
