@@ -24,6 +24,17 @@ describe('siteInputSchema', () => {
     expect(r.clientName).toBeNull();
     expect(r.projectNo).toBe('A-1');
   });
+  it('共通時間の既定：省略は undefined（変更しない）、空文字は null、不正な時刻・分は不可', () => {
+    const r = siteInputSchema.parse(base);
+    expect(r.commonStart).toBeUndefined();
+    const filled = siteInputSchema.parse({ ...base, commonStart: '07:30', commonEnd: '17:00', commonBreakMin: 60, commonGapMin: 0 });
+    expect(filled).toMatchObject({ commonStart: '07:30', commonEnd: '17:00', commonBreakMin: 60, commonGapMin: 0 });
+    const cleared = siteInputSchema.parse({ ...base, commonStart: '', commonEnd: null, commonBreakMin: '', commonGapMin: null });
+    expect(cleared).toMatchObject({ commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null });
+    expect(siteInputSchema.safeParse({ ...base, commonStart: '25:00' }).success).toBe(false);
+    expect(siteInputSchema.safeParse({ ...base, commonBreakMin: 601 }).success).toBe(false);
+    expect(siteInputSchema.safeParse({ ...base, commonGapMin: 1.5 }).success).toBe(false);
+  });
   it('現場名が空・101文字は不可', () => {
     expect(siteInputSchema.safeParse({ ...base, name: '  ' }).success).toBe(false);
     expect(siteInputSchema.safeParse({ ...base, name: 'あ'.repeat(101) }).success).toBe(false);

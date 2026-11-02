@@ -38,6 +38,11 @@ export async function upsertSite(input: SiteInput): Promise<string> {
     start_date: v.startDate,
     end_date: v.endDate,
     contract_type: v.contractType,
+    // 共通時間の既定。省略（undefined）された項目は変更しない。
+    ...(v.commonStart !== undefined ? { common_start: v.commonStart } : {}),
+    ...(v.commonEnd !== undefined ? { common_end: v.commonEnd } : {}),
+    ...(v.commonBreakMin !== undefined ? { common_break_min: v.commonBreakMin } : {}),
+    ...(v.commonGapMin !== undefined ? { common_gap_min: v.commonGapMin } : {}),
   };
   // 削除済みの現場は編集しない（復元してから編集する）。
   const query = v.id

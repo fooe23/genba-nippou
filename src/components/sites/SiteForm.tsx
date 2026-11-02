@@ -48,6 +48,10 @@ export function SiteForm({
       endDate: endDate === '' ? null : endDate,
       contractType: isContractType(contractType) ? contractType : null,
       status: status === 'done' ? 'done' : status === 'active' ? 'active' : undefined,
+      commonStart: textOrNull(fd, 'commonStart'),
+      commonEnd: textOrNull(fd, 'commonEnd'),
+      commonBreakMin: numOrNull(str(fd, 'commonBreakMin')),
+      commonGapMin: numOrNull(str(fd, 'commonGapMin')),
     };
     const message = firstError(siteInputSchema, input);
     if (message) {
@@ -124,6 +128,44 @@ export function SiteForm({
           ))}
         </select>
       </Field>
+      <div role="group" aria-label="共通時間の既定（任意）" className="space-y-3 rounded-lg bg-gray-100 p-3 dark:bg-gray-900">
+        <p className="text-sm font-bold">共通時間の既定（任意）</p>
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          空欄なら全社の設定（管理 → マスター → 労務の設定）を使います。新しい日報を開いたときの初期値になります。
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="開始">
+            <input name="commonStart" type="time" defaultValue={site?.commonStart ?? ''} className={inputClass} />
+          </Field>
+          <Field label="終了">
+            <input name="commonEnd" type="time" defaultValue={site?.commonEnd ?? ''} className={inputClass} />
+          </Field>
+          <Field label="休憩（分）">
+            <input
+              name="commonBreakMin"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={600}
+              step={1}
+              defaultValue={site?.commonBreakMin ?? ''}
+              className={inputClass}
+            />
+          </Field>
+          <Field label="中抜（分）">
+            <input
+              name="commonGapMin"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={600}
+              step={1}
+              defaultValue={site?.commonGapMin ?? ''}
+              className={inputClass}
+            />
+          </Field>
+        </div>
+      </div>
       <ErrorText message={error} />
       {saved && !error && (
         <p role="status" className="text-sm font-medium text-green-700 dark:text-green-400">

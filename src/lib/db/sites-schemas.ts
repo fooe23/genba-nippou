@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { dateSchema } from '@/lib/db/masters-schemas';
+import { optionalMinutesSchema, optionalTimeSchema } from '@/lib/db/settings-schemas';
 
 // 現場管理の入力検証スキーマ。サーバー（Server Actions）とクライアント（フォーム）の両方で使う。
 
@@ -36,6 +37,11 @@ export const siteInputSchema = z.object({
   contractType: z.enum(CONTRACT_TYPES, { error: '請負の種類が正しくありません' }).nullable(),
   // 省略時: 新規は 'active'、更新は変更しない（アクション側で処理）。
   status: z.enum(SITE_STATUSES, { error: '状態が正しくありません' }).optional(),
+  // 新しい日報の共通時間の既定（任意。空欄なら全社の設定）。省略時は変更しない。
+  commonStart: optionalTimeSchema.optional(),
+  commonEnd: optionalTimeSchema.optional(),
+  commonBreakMin: optionalMinutesSchema.optional(),
+  commonGapMin: optionalMinutesSchema.optional(),
 });
 export type SiteInputParsed = z.output<typeof siteInputSchema>;
 
