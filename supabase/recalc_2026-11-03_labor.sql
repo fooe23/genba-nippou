@@ -8,13 +8,13 @@ begin;
   update public.gn_report_lines set unit_price = unit_price where kind = 'labor';
   alter table public.gn_report_lines enable trigger gn_report_lines_guard;
 
-  -- 合計（gn_report_guard は gn.in_save = '1' のときだけ合計の更新を許す）
-  select set_config('gn.in_save', '1', true);
+  -- 合計。gn_report_guard は承認済み・完了現場の更新を拒むので、ここでも一時的に外す
+  alter table public.gn_daily_reports disable trigger gn_report_guard;
   update public.gn_daily_reports r set
     cost_total     = coalesce((select sum(l.amount)   from public.gn_report_lines l where l.report_id = r.id and l.kind <> 'work'), 0),
     man_days_total = coalesce((select sum(l.man_days) from public.gn_report_lines l where l.report_id = r.id and l.kind = 'labor'), 0)
   where exists (select 1 from public.gn_report_lines l where l.report_id = r.id and l.kind = 'labor');
-  select set_config('gn.in_save', '', true);
+  alter table public.gn_daily_reports enable trigger gn_report_guard;
 commit;
 
 -- 確認：労務行の件数と、人工が 1.0 を超える行（旧ルールの名残）が 0 件であること
