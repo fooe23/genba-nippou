@@ -70,6 +70,15 @@ describe('ガイド', () => {
     expect(html).toContain('担当');
   });
 
+  it('準備の章が Excel のマスターの取り込みと、その決まりに触れている', async () => {
+    const html = await loadChapter('setup');
+    expect(html).toContain('Excel のマスターをまとめて取り込む');
+    expect(html).toContain('名前で突き合わせます');
+    expect(html).toContain('空の欄は「変更しない」');
+    expect(html).toContain('Excel に無い行は消しません');
+    expect(html).toContain('車両名／ナンバー');
+  });
+
   it('未掲載の slug は GuideNotFound', async () => {
     await expect(loadChapter('nothing')).rejects.toBeInstanceOf(GuideNotFound);
     await expect(loadChapter('../../package')).rejects.toBeInstanceOf(GuideNotFound);
