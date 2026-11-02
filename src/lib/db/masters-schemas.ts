@@ -10,6 +10,7 @@ const MSG_AMOUNT = '金額は0以上の数値で入力してください';
 const MSG_DATE = '日付は YYYY-MM-DD 形式で入力してください';
 const MSG_KM = '燃費は0以上の数値で入力してください';
 const MSG_SORT = '並び順は0以上の整数で入力してください';
+const MSG_OVERTIME = '残業単価は0以上の数値で入力してください';
 
 const idSchema = z.uuid({ error: 'IDの形式が正しくありません' });
 const nameSchema = z
@@ -33,6 +34,10 @@ export const workerInputSchema = z.object({
   name: nameSchema,
   trade: textSchema.optional(),
   note: textSchema.optional(),
+  // 残業単価（円/H）。空欄（空文字・null）は null ＝ 標準の計算式。省略（undefined）なら変更しない。
+  overtimeRate: z
+    .preprocess((v) => (typeof v === 'string' && v.trim() === '' ? null : v), z.number({ error: MSG_OVERTIME }).min(0, MSG_OVERTIME).nullable())
+    .optional(),
   active: z.boolean().optional(),
 });
 export type WorkerInput = z.input<typeof workerInputSchema>;
@@ -67,7 +72,7 @@ export const leaseItemInputSchema = z.object({
 export type LeaseItemInput = z.input<typeof leaseItemInputSchema>;
 
 export const workerWithRateSchema = workerInputSchema
-  .pick({ name: true, trade: true, note: true })
+  .pick({ name: true, trade: true, note: true, overtimeRate: true })
   .extend({ amount: amountSchema, effectiveFrom: dateSchema });
 export type WorkerWithRateInput = z.input<typeof workerWithRateSchema>;
 

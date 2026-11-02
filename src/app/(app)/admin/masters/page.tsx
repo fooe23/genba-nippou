@@ -9,6 +9,7 @@ import {
   listWorkers,
 } from '@/lib/db/masters';
 import { requireAdmin } from '@/lib/db/profile';
+import { getSettings } from '@/lib/db/settings';
 import { AdminNav } from '@/components/accounts/AdminNav';
 import { MastersTabs } from '@/components/masters/MastersTabs';
 
@@ -17,13 +18,14 @@ export const metadata = { title: 'マスター管理' };
 export default async function MastersPage() {
   await requireAdmin();
 
-  const [workers, suppliers, vehicles, leaseItems, units, weather] = await Promise.all([
+  const [workers, suppliers, vehicles, leaseItems, units, weather, settings] = await Promise.all([
     listWorkers(),
     listSuppliers(),
     listVehicles(),
     listLeaseItems(),
     listUnitOptions(),
     listWeatherOptions(),
+    getSettings(),
   ]);
 
   return (
@@ -31,7 +33,7 @@ export default async function MastersPage() {
       <AdminNav current="masters" />
       <h1 className="mb-4 text-xl font-bold">マスター管理</h1>
       <Suspense>
-        <MastersTabs data={{ today: todayJst(), workers, suppliers, vehicles, leaseItems, units, weather }} />
+        <MastersTabs data={{ today: todayJst(), workers, suppliers, vehicles, leaseItems, units, weather, settings }} />
       </Suspense>
     </main>
   );

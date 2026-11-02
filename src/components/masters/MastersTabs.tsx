@@ -2,8 +2,10 @@
 
 import { useSearchParams } from 'next/navigation';
 import type { LeaseItem, MasterOption, Supplier, Vehicle, Worker } from '@/lib/db/masters';
+import type { Settings } from '@/lib/db/settings';
 import { LeaseItemsPanel } from './LeaseItemsPanel';
 import { OptionsPanel } from './OptionsPanel';
+import { SettingsPanel } from './SettingsPanel';
 import { SuppliersPanel } from './SuppliersPanel';
 import { VehiclesPanel } from './VehiclesPanel';
 import { WorkersPanel } from './WorkersPanel';
@@ -16,6 +18,7 @@ const TABS = [
   { key: 'lease', label: 'リース品' },
   { key: 'units', label: '単位' },
   { key: 'weather', label: '天候' },
+  { key: 'settings', label: '労務の設定' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -31,6 +34,7 @@ export interface MastersData {
   leaseItems: LeaseItem[];
   units: MasterOption[];
   weather: MasterOption[];
+  settings: Settings;
 }
 
 export function MastersTabs({ data }: { data: MastersData }) {
@@ -74,6 +78,7 @@ export function MastersTabs({ data }: { data: MastersData }) {
         {active === 'lease' && <LeaseItemsPanel items={data.leaseItems} today={data.today} />}
         {active === 'units' && <OptionsPanel title="単位" options={data.units} onSave={upsertUnit} />}
         {active === 'weather' && <OptionsPanel title="天候" options={data.weather} onSave={upsertWeather} />}
+        {active === 'settings' && <SettingsPanel settings={data.settings} />}
       </div>
     </div>
   );

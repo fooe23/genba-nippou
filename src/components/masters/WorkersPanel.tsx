@@ -8,7 +8,7 @@ import type { Worker } from '@/lib/db/masters';
 import { amountSchema, dateSchema, firstError, workerInputSchema } from '@/lib/db/masters-schemas';
 import {
   ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row,
-  inputClass, primaryButtonClass, str, useRunner,
+  inputClass, numOrNull, primaryButtonClass, str, useRunner,
 } from './common';
 import { EditDialog } from './EditDialog';
 import { RateHistoryEditor } from './RateHistoryEditor';
@@ -38,6 +38,9 @@ export function WorkersPanel({ workers, today }: { workers: Worker[]; today: str
                 right={
                   <>
                     <span className="font-medium">{rate === null ? '未設定' : `${yen(rate)}/日`}</span>
+                    {w.overtimeRate !== null && (
+                      <span className="text-xs text-gray-600 dark:text-gray-400">残業 {yen(w.overtimeRate)}/H</span>
+                    )}
                     <ActiveBadge active={w.active} />
                   </>
                 }
@@ -64,6 +67,8 @@ function WorkerForm({ worker, onDone }: { worker: Worker | null; onDone: () => v
       name: str(fd, 'name'),
       trade: str(fd, 'trade'),
       note: str(fd, 'note'),
+      // 空欄は null（標準の計算式）。数値にできない入力は NaN で検証エラーにする。
+      overtimeRate: numOrNull(str(fd, 'overtimeRate')),
     };
     const rateRaw = str(fd, 'rateAmount').trim();
     const rateDate = str(fd, 'rateDate');
@@ -97,6 +102,20 @@ function WorkerForm({ worker, onDone }: { worker: Worker | null; onDone: () => v
         <Field label="メモ">
           <input name="note" defaultValue={worker?.note ?? ''} className={inputClass} />
         </Field>
+        <div>
+          <Field label="残業単価（円/H・任意）">
+            <input
+              name="overtimeRate"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="any"
+              defaultValue={worker?.overtimeRate ?? ''}
+              className={inputClass}
+            />
+          </Field>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">空欄なら 日当 ÷ 8 × 1.25（設定で変更可）</p>
+        </div>
         {!worker && (
           <div className="space-y-3 rounded-lg bg-gray-100 p-3 dark:bg-gray-900">
             <p className="text-sm font-bold">最初の日当（任意）</p>

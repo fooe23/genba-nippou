@@ -57,6 +57,7 @@ export async function upsertWorker(input: WorkerInput): Promise<string> {
     name: v.name,
     trade: nullable(v.trade),
     note: nullable(v.note),
+    overtime_rate: v.overtimeRate,
     active: v.active,
   });
   revalidatePath(PATH);
@@ -191,7 +192,7 @@ export async function createWorkerWithRate(input: WorkerWithRateInput): Promise<
     'gn_workers',
     'gn_worker_rates',
     'worker_id',
-    { name: v.name, trade: nullable(v.trade), note: nullable(v.note) },
+    { name: v.name, trade: nullable(v.trade), note: nullable(v.note), overtime_rate: v.overtimeRate },
     v.amount,
     v.effectiveFrom,
   );
