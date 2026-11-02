@@ -39,11 +39,14 @@ export interface ParseResult {
 
 // ---- 差分（アプリの現在のマスターとの突き合わせ） ----
 
-/** 既存マスターのうち差分に使う項目だけ（src/lib/db/masters.ts の Worker などはこれを満たす）。 */
-export interface CurrentWorker { name: string; trade: string | null; note: string | null; overtimeRate: number | null; active: boolean; rates: RateHistory[]; }
-export interface CurrentSupplier { name: string; category: string | null; contact: string | null; note: string | null; active: boolean; }
-export interface CurrentVehicle { name: string; kind: string | null; kmPerL: number | null; note: string | null; active: boolean; }
-export interface CurrentLeaseItem { name: string; spec: string | null; note: string | null; active: boolean; rates: RateHistory[]; }
+/**
+ * 既存マスターのうち差分に使う項目だけ（src/lib/db/masters.ts の Worker などはこれを満たす）。
+ * createdAt は同じ名前の行の中から RPC と同じく「作成が最も古い行」を選ぶのに使う。
+ */
+export interface CurrentWorker { createdAt: string; name: string; trade: string | null; note: string | null; overtimeRate: number | null; active: boolean; rates: RateHistory[]; }
+export interface CurrentSupplier { createdAt: string; name: string; category: string | null; contact: string | null; note: string | null; active: boolean; }
+export interface CurrentVehicle { createdAt: string; name: string; kind: string | null; kmPerL: number | null; note: string | null; active: boolean; }
+export interface CurrentLeaseItem { createdAt: string; name: string; spec: string | null; note: string | null; active: boolean; rates: RateHistory[]; }
 
 export interface CurrentMasters {
   workers: CurrentWorker[];
@@ -67,7 +70,8 @@ export interface ImportPayload {
 
 export interface FieldChange { label: string; before: string; after: string; }
 
-export type PreviewStatus = 'new' | 'updated' | 'unchanged';
+/** error は確認の時点で送れないと分かった行（アプリに同じ名前の行が 2 件以上ある など）。送らない。 */
+export type PreviewStatus = 'new' | 'updated' | 'unchanged' | 'error';
 
 export interface PreviewRow<P> {
   /** 選択のキー（`${kind}:${name}`）。 */
@@ -79,6 +83,8 @@ export interface PreviewRow<P> {
   payload: P;
   /** 既存の行が無効（active = false）のとき true。取り込みでは有効に戻らない。 */
   inactive: boolean;
+  /** status が error のときの理由。 */
+  error?: string;
 }
 
 export interface ImportPreview {

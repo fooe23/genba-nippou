@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { diffMasters } from '@/lib/import/diff';
+import { diffMasters, indexByName } from '@/lib/import/diff';
 import { selectableKeys, toPayload } from '@/lib/import/payload';
 import type { CurrentMasters, ParsedRows } from '@/lib/import/types';
 
 const current: CurrentMasters = {
   workers: [
-    { name: '山田 太郎', trade: '大工', note: null, overtimeRate: 2500, active: true, rates: [{ amount: 18000, effectiveFrom: '2026-04-01' }] },
-    { name: '鈴木 ', trade: '鳶', note: 'メモ', overtimeRate: null, active: false, rates: [] },
+    { createdAt: '2026-04-01T00:00:00+00:00', name: '山田 太郎', trade: '大工', note: null, overtimeRate: 2500, active: true, rates: [{ amount: 18000, effectiveFrom: '2026-04-01' }] },
+    { createdAt: '2026-04-02T00:00:00+00:00', name: '鈴木 ', trade: '鳶', note: 'メモ', overtimeRate: null, active: false, rates: [] },
   ],
-  suppliers: [{ name: '○○建材', category: '仕入', contact: null, note: null, active: true }],
-  vehicles: [{ name: 'ハイエース', kind: 'バン', kmPerL: 9.5, note: null, active: true }],
-  leaseItems: [{ name: '発電機', spec: '2kVA', note: null, active: true, rates: [{ amount: 3000, effectiveFrom: '2026-01-01' }] }],
+  suppliers: [{ createdAt: '2026-04-01T00:00:00+00:00', name: '○○建材', category: '仕入', contact: null, note: null, active: true }],
+  vehicles: [{ createdAt: '2026-04-01T00:00:00+00:00', name: 'ハイエース', kind: 'バン', kmPerL: 9.5, note: null, active: true }],
+  leaseItems: [{ createdAt: '2026-04-01T00:00:00+00:00', name: '発電機', spec: '2kVA', note: null, active: true, rates: [{ amount: 3000, effectiveFrom: '2026-01-01' }] }],
 };
 
 function parsed(p: Partial<ParsedRows>): ParsedRows {
@@ -86,6 +86,41 @@ describe('diffMasters', () => {
     expect(p.vehicles[0].changes).toEqual([{ label: '燃費', before: '9.5 km/ℓ', after: '10 km/ℓ' }]);
     expect(p.leaseItems[0].status).toBe('unchanged');
     expect(p.leaseItems[1]).toMatchObject({ status: 'new', payload: { name: '足場', spec: null, note: null, unit_price: 500 } });
+  });
+});
+
+describe('アプリに同じ名前の行が複数あるとき', () => {
+  // 古い行を無効にして、同じ名前で作り直した状態（RPC は作成が古い方＝無効の行を更新する）
+  const dup: CurrentMasters = {
+    ...current,
+    workers: [
+      { createdAt: '2026-06-01T00:00:00+00:00', name: '高橋', trade: '大工', note: null, overtimeRate: null, active: true, rates: [{ amount: 19000, effectiveFrom: '2026-06-01' }] },
+      { createdAt: '2025-01-01T00:00:00+00:00', name: '高橋 ', trade: '大工', note: null, overtimeRate: null, active: false, rates: [{ amount: 15000, effectiveFrom: '2025-01-01' }] },
+    ],
+  };
+
+  it('作成が最も古い行を突き合わせの相手にする（RPC の order by created_at limit 1 と同じ）', () => {
+    const index = indexByName(dup.workers);
+    expect(index.oldest.get('高橋')).toMatchObject({ createdAt: '2025-01-01T00:00:00+00:00', active: false });
+    expect(index.count.get('高橋')).toBe(2);
+    // 一覧の並び（有効が先）に関係なく古い方
+    expect(indexByName([...dup.workers].reverse()).oldest.get('高橋')?.active).toBe(false);
+  });
+
+  it('その名前はエラーにして、選んでも送らない', () => {
+    const p = diffMasters(parsed({ workers: [{ name: '高橋', trade: null, dailyRate: 20000, overtimeRate: null, note: null }] }), dup, '2026-11-03');
+    expect(p.workers[0]).toMatchObject({
+      status: 'error',
+      changes: [],
+      error: '同じ名前の行が 2 件登録されています。管理 → マスターで 1 件に整理してから取り込んでください。',
+    });
+    expect(selectableKeys(p)).toEqual([]);
+    expect(toPayload(p, ['workers:高橋']).workers).toEqual([]);
+  });
+
+  it('1 件だけならその行と比べる', () => {
+    const p = diffMasters(parsed({ workers: [{ name: '高橋', trade: null, dailyRate: 19000, overtimeRate: null, note: null }] }), { ...dup, workers: [dup.workers[0]] }, '2026-11-03');
+    expect(p.workers[0].status).toBe('unchanged');
   });
 });
 

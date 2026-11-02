@@ -9,7 +9,7 @@ import { dateSchema, firstError } from '@/lib/db/masters-schemas';
 import { diffMasters } from '@/lib/import/diff';
 import { csvToRows, decodeCsv, parseCsvText } from '@/lib/import/parse-csv';
 import { parseMasterSheet } from '@/lib/import/parse-sheet';
-import { toPayload } from '@/lib/import/payload';
+import { isSendable, toPayload } from '@/lib/import/payload';
 import {
   IMPORT_KINDS, KIND_LABELS,
   type CurrentMasters, type FieldChange, type ImportCounts, type ImportKind, type ParseResult, type PreviewRow, type RowError,
@@ -96,7 +96,7 @@ export function ImportPanel({
 
   const selectedKeys = useMemo(() => {
     if (!preview) return new Set<string>();
-    const keys = IMPORT_KINDS.flatMap((k) => (preview[k] as AnyRow[]).filter((r) => r.status !== 'unchanged').map((r) => r.key));
+    const keys = IMPORT_KINDS.flatMap((k) => (preview[k] as AnyRow[]).filter(isSendable).map((r) => r.key));
     return new Set(keys.filter((k) => !unchecked.has(k)));
   }, [preview, unchecked]);
 
@@ -159,10 +159,15 @@ export function ImportPanel({
       return;
     }
     const payload = toPayload(preview, selectedKeys);
+    // Server Action の本文の上限（1MB）より手前で止め、原因が分かる文言を出す。
+    if (new Blob([JSON.stringify(payload)]).size > 900_000) {
+      setError('一度に送る量が多すぎます。CSV を種別ごとに分けるなどして、何回かに分けて取り込んでください。');
+      return;
+    }
     setError(null);
     startTransition(async () => {
       try {
-        const res = await importMasters({ fileName, effectiveFrom, payload });
+        const res = await importMasters({ fileName: fileName.slice(0, 200), effectiveFrom, payload });
         if (!res.ok) {
           setError(res.error);
           return;
@@ -259,7 +264,7 @@ function CountBadge({ label, n, tone }: { label: string; n: number; tone: 'blue'
 
 function ChangeLine({ change, isNew }: { change: FieldChange; isNew: boolean }) {
   return (
-    <span className="block text-sm text-gray-700 dark:text-gray-300">
+    <span className="block text-sm text-gray-700 [overflow-wrap:anywhere] dark:text-gray-300">
       {isNew ? `${change.label}：${change.after}` : `${change.label}：${change.before} → ${change.after}`}
     </span>
   );
@@ -278,8 +283,10 @@ function KindSection({
   selected: Set<string>;
   onToggle: (key: string) => void;
 }) {
-  const changed = rows.filter((r) => r.status !== 'unchanged');
+  const changed = rows.filter(isSendable);
   const unchanged = rows.filter((r) => r.status === 'unchanged');
+  // アプリに同じ名前の行が複数あるなど、確認の時点で送れないと分かった行。
+  const errorRows = rows.filter((r) => r.status === 'error');
   const nNew = rows.filter((r) => r.status === 'new').length;
   const nUpd = changed.length - nNew;
 
@@ -290,7 +297,7 @@ function KindSection({
         <CountBadge label="新規" n={nNew} tone="blue" />
         <CountBadge label="更新" n={nUpd} tone="amber" />
         <CountBadge label="変更なし" n={unchanged.length} tone="gray" />
-        <CountBadge label="エラー" n={errors.length} tone="red" />
+        <CountBadge label="エラー" n={errors.length + errorRows.length} tone="red" />
       </div>
       {rows.length === 0 && errors.length === 0 && <p className="text-sm text-gray-600 dark:text-gray-400">取り込む行はありません。</p>}
       {changed.length > 0 && (
@@ -301,7 +308,7 @@ function KindSection({
                 <input type="checkbox" checked={selected.has(r.key)} onChange={() => onToggle(r.key)} className="mt-1 size-5 shrink-0" />
                 <span className="min-w-0">
                   <span className="flex flex-wrap items-center gap-2">
-                    <span className="font-bold">{r.name}</span>
+                    <span className="font-bold [overflow-wrap:anywhere]">{r.name}</span>
                     <StatusTag status={r.status} />
                     {r.inactive && <span className="text-xs text-gray-600 dark:text-gray-400">（無効のまま）</span>}
                   </span>
@@ -314,11 +321,16 @@ function KindSection({
           ))}
         </ul>
       )}
-      {errors.length > 0 && (
+      {errors.length + errorRows.length > 0 && (
         <ul className="mt-2 space-y-1">
           {errors.map((e) => (
-            <li key={`${e.rowNo}:${e.name}`} className="text-sm text-red-700 dark:text-red-400">
+            <li key={`${e.rowNo}:${e.name}`} className="text-sm text-red-700 [overflow-wrap:anywhere] dark:text-red-400">
               {`${e.rowNo} 行目${e.name ? `「${e.name}」` : ''}：${e.message}（取り込みません）`}
+            </li>
+          ))}
+          {errorRows.map((r) => (
+            <li key={r.key} className="text-sm text-red-700 [overflow-wrap:anywhere] dark:text-red-400">
+              {`「${r.name}」：${r.error ?? '取り込めません'}（取り込みません）`}
             </li>
           ))}
         </ul>
