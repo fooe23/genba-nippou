@@ -1,298 +1,266 @@
-# 第2計画：Excel 出力（V34 原本への埋め込み） 実装計画
+# 第2計画：Excel 出力（V34 原本をそのまま埋める）実装計画
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 現場×年月を指定すると、`templates/現場管理台帳_V34_原本.xlsm` に日報・マスター・前月繰越を書き込んだ xlsm（数式・書式・マクロ・プルダウンが原本どおり）をダウンロードでき、Storage に保存して後から再ダウンロードできる。
+**Goal:** 現場×年月を指定すると、雛形 `templates/現場管理台帳_V34_原本.xlsm` の入力セルだけにアプリの日報データを書き込んだ xlsm（数式・書式・マクロ・プルダウンは原本のまま）をダウンロードでき、同じファイルが Storage にも残る。
 
-**Architecture:** Python（openpyxl `keep_vba=True`）の純粋な「JSON → xlsm」関数を `excel/` に置き、pytest で原本との差分を検査する。Vercel の Python Function（`api/excel-fill.py`）がそれを HTTP で公開し、Next.js の Route Handler（`/api/export/excel`）がセッション確認・データ収集（RLS 経由）・JSON 組み立て・Python 呼び出し・Storage 保存・ダウンロード応答を担う。Python は DB に触らず、Next.js とは共有シークレットで結ぶ。
+**Architecture:** Next.js の Route Handler（`/api/export`）が認証と月次データの収集を行い、JSON（payload）を Python 関数に渡す。Python（openpyxl, `keep_vba=True`）が雛形を開いて payload を対応表どおりに書き、保存後に zip を直接編集して openpyxl が落とすプルダウン（x14 拡張）と「＋ 行追加」ボタン（drawing）を原本から戻す。Python は Vercel の Python Functions（`api/export/fill.py`）として同じデプロイに同居し、Node 側からは共有秘密ヘッダ付きの内部 POST で呼ぶ。ローカル開発では同じ Python モジュールを子プロセスで実行する。行が足りない日の行挿入は、雛形のレイアウト定義に基づく参照の書き換えを Python 側で行う（Task 6）。
 
-**Tech Stack:** openpyxl 3.1（Python 3.12 on Vercel／3.9 ローカル）、pytest、Vercel Python Runtime、Next.js 16 Route Handler、Supabase Storage（`gn-exports`）、Vitest。
+**Tech Stack:** Next.js 16 Route Handler / TypeScript / Vitest（既存）、Python 3.12（Vercel）・3.9（ローカル）、openpyxl 3.1.5、unittest（Python のテスト）、Supabase Storage（バケット `gn-exports`、パス `<site_id>/<YYYY-MM>/<file>`）。
 
-**Spec:** `docs/superpowers/specs/2026-10-30-genba-nippou-design.md` §8（Excel 出力）、§3（生成方式）、§11（繰越）。雛形の変更点は `templates/V34_変更点.md`、既存の復元処理は `scripts/make_v34.py`（x14 プルダウンの再作成、「＋ 行追加」ボタンの再注入）。計算ルールの記録は `docs/superpowers/plans/2026-10-30-phase1-record.md`。
+**Spec:** `docs/superpowers/specs/2026-10-30-genba-nippou-design.md` §8（Excel出力）、§8.4（行挿入）、§8.5（前月繰越）、§11、§14（テスト）。雛形は V34 原本（`templates/V34_変更点.md` が V33 からの差分）。計算ルールは `docs/superpowers/plans/2026-10-30-phase1-record.md`「決定（2026-10-31）人工・残業ルール」。
 
 ## Global Constraints
-- 原本は `templates/現場管理台帳_V34_原本.xlsm`（変更しない）。出力ファイル名は `[現場名]_[YYYY年MM月].xlsm`（現場名の `\ / : * ? " < > |` は `_` に置換）。
-- **入力セル以外に書かない**。数式・見出し・書式・結合・印刷範囲・定義名（GN_*）・VBA は原本のまま。openpyxl で落ちるもの（x14 の入力規則、「＋ 行追加」ボタンの drawing）は `scripts/make_v34.py` と同じ方法で復元する。
-- その月の日報が **31 件を超えたら出力せず** `日報が31件を超えています（N件）。雛形の上限のため出力できません。` を返す。
-- Python は DB・Supabase に触らない。Next.js からの JSON だけを受け取り、`x-export-secret` ヘッダーが環境変数 `EXCEL_EXPORT_SECRET` と一致しないときは 401。
-- Route Handler は `requireProfile` 相当（未ログインは 401）。現場の可視性は RLS に任せる（削除済み現場は 404）。
-- 文言は日本語。スマホ 375px、タップ 44px。Server Action／Route Handler は throw せず `{ ok, error }` か適切な HTTP ステータスを返す。
-- 雛形の人工・残業の計算は Excel 側の数式（GN_* 設定）で行うので、`現場情報マスター!D25:D28` に `gn_settings` の 4 値を書く。**Excel の労務費は、マスターシートに書いた日当・残業単価から Excel が計算する。** 月の途中で日当が変わった作業員は、アプリの保存値と Excel の値が食い違う（既知の制約。マスターには「その月の最終日報日時点の有効単価」を書く）。
+- 雛形は `templates/現場管理台帳_V34_原本.xlsm`。**原本ファイルは変更しない。** 出力は常にこの原本を開いて埋める。
+- 書き込むのは下の対応表の入力セルだけ。数式セル・見出し・書式・結合・印刷設定・VBA（`xl/vbaProject.bin`）・定義名（`GN_SHOTEI` ほか 3 つ）には触れない。例外は Task 4 の「日当・リース単価の上書き」（スナップショットが雛形のマスター値と違う行だけ、数式セルに値を書く）。
+- ファイル名は `[現場名]_[YYYY年MM月].xlsm`（現場名の `/ \ : * ? " < > |` は `_` に置換）。
+- その月の日報が 32 件以上なら出力しない（雛形の上限 31 シート）。
+- 出力できるのは社員と管理者（`profiles.account_type = 'employee'` または `is_admin`）。協力会社は不可。削除済みの現場は不可（完了現場は可）。
+- Python の Vercel 関数は `api/export/fill.py`。秘密は環境変数 `GN_EXPORT_SECRET`（Node と Python の両方で読む）。Node → Python の呼び先は `process.env.GN_EXPORT_FILL_URL`（未設定なら `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}/api/export/fill`）。ローカル（`process.env.VERCEL` 無し）では `python3 python/run_fill.py` を子プロセスで実行（stdin に JSON、stdout に xlsm）。
+- Python の依存は `requirements.txt`（`openpyxl==3.1.5` のみ）。純 Python 以外は入れない。
+- Server Action／Route Handler の失敗は JSON `{ ok: false, error: '日本語の文言' }` で返す。UI は日本語、375px、44px。
+- 既存の約束事：読み取りは `src/lib/db/*.ts`（`server-only`）、純関数は `src/lib/export/*.ts` と `python/genba_export/*.py`、テストは `tests/**`（Vitest）と `python/tests/**`（unittest）。
 
 ## Review Focus
-- 作業員が 11 人以上／車両 4 台以上／リース・現金・買掛・作業内容が 7 行以上の日：行を挿入し、同シートの合計・本日原価集計・集計データ・月次集計・出面一覧の参照がずれないこと（Task 3 のテストで、挿入後の数式文字列を検査）。
-- その月に日報が 0 件：出力ボタンを出さない（Task 6）。1 件だけ：`2回目` 以降は空のまま（F2 空、数式はそのまま）。
-- 現場名に `/` や `:` が入る：ファイル名が置換される（Task 5 のテスト）。Storage のパスはファイル名ではなく `<site_id>/<YYYY-MM>/<timestamp>.xlsm`。
-- 承認されていない日報を含む月：出力はできる（B80〜K80 の確認者・承認者・日付は承認済みのときだけ書く）。画面に「未承認の日報 N 件を含みます」と出す（Task 6）。
-- 前月繰越：出力月より前の労務行の人工・労務費（作業員ごと）＋ `gn_carryovers`。繰越基準日より前の日報は除く（アプリの `workerCumulative` と同じ規則。Task 5 でその関数を再利用する）。
+- 日当がその月の途中で変わった作業員：雛形のマスターには 1 つの日当しか書けない。各日の労務費は保存値（スナップショット）と一致していなければならない → Task 4 の上書き規則と Task 1 の J 列テスト。
+- 作業員が 11 人以上・車両 4 台以上などの日：行挿入後も 月次集計・集計データ・出面一覧 の参照が正しいこと → Task 6 のテスト（参照文字列の検査）と Task 7 の利用者確認。
+- 同じ作業員が 1 日に 2 行（午前・午後で別の時間）あるとき：雛形は行ごとに VLOOKUP するので問題ないが、出面一覧は名前で SUMIFS するため 2 行の合計になる（アプリの作業員別累計と同じ）。Task 4 のテストで 2 行を含める。
+- 時間が入っていない行（共通時間で計算）：C・D を空のまま書き、E・F も空にする（雛形の数式が共通値を使う）。個別の休憩・中抜だけ入っている行は C・D が空だと雛形は共通実働を使うので、**C・D が空で E か F だけある行は、共通の開始・終了を C・D に書く**（Task 4）。
+- 日報が 0 件の月、現場に作業員が未選択の月、承認者が未設定の日報、重要事項が 0 件、改行を含む連絡事項：いずれも例外にせず空欄で出す（Task 4・5 のテスト）。
 
 ---
 
-## ファイル構成
+## 雛形 V34 のセル対応表（Python の `layout.py` に定数として持つ）
 
-| 場所 | 役割 |
-|---|---|
-| `excel/__init__.py`, `excel/layout.py` | V34 の座標定義（シート名・表の行範囲・列・合計行・参照元）。定数だけ |
-| `excel/fill.py` | `fill_workbook(payload: dict, template_path: str) -> bytes`。入力セルへの書き込み、繰越、ヘッダ |
-| `excel/rows.py` | 行の挿入と数式の参照書き換え（§8.4） |
-| `excel/restore.py` | `scripts/make_v34.py` から移した「x14 入力規則の再作成」「drawing の再注入」 |
-| `excel/validate.py` | `assert_untouched(original_path, output_bytes, written_cells)`：原本との差分検査（テスト専用） |
-| `excel/tests/*.py` | pytest |
-| `requirements.txt` | `openpyxl==3.1.5` |
-| `api/excel-fill.py` | Vercel Python Function（HTTP: POST JSON → xlsm） |
-| `vercel.json` | Python 関数の `maxDuration`・`memory`、テンプレートの同梱 |
-| `src/lib/export/payload.ts` | DB の読み取り結果 → Python に渡す JSON（純関数） |
-| `src/lib/export/filename.ts` | ファイル名・Storage パス |
-| `src/lib/db/exports.ts` | 出力履歴（Storage の一覧）と署名 URL |
-| `src/app/api/export/excel/route.ts` | Route Handler |
-| `src/components/site/ExcelExportSection.tsx` | 現場詳細の「Excel 出力」 |
-| `src/content/guide/excel.md` | ガイド |
+| 場所 | セル | 書く値 |
+|---|---|---|
+| 現場情報マスター | D4〜D12 | 現場名、客先名、工事名、工事番号、工事概要、工事総請負金額（数値）、着工予定日（date）、竣工予定日（date）、請負の種類 |
+| 現場情報マスター | D25〜D28 | 労務の設定（所定、固定残業上限、割増率、基準時間）＝ `gn_settings` の値 |
+| マスター（作業員） | 行 3〜32、B 名前・C 職種・D 日当・E 残業単価・F 備考 | この月の出力対象の作業員（Task 4 の選び方）。最大 30 人 |
+| マスター（取引先） | 行 3〜32、H 名前・I 区分・J 担当者・K 備考 | 最大 30 件 |
+| マスター（車両） | 行 3〜22、N 名前・O 種別・P 燃費・Q 備考 | 最大 20 台 |
+| マスター（リース品） | 行 3〜22、T 品目・U 規格・V 単価・W 備考 | 最大 20 件 |
+| マスター（前月繰越） | 行 36〜65、C 人工・D 労務費 | 作業員 i（行 3+i）に対応。出力月より前の全日報の人工・労務費の合計＋ `gn_carryovers` |
+| `N回目` | F2（date）、F3、F4 | 日付、天候、作業責任者 |
+| `N回目` | B6（time）、C6（time）、D6、E6 | 共通の開始・終了・休憩分・中抜分 |
+| `N回目` 作業員 | 行 8〜17：B 名前、C 開始（time）、D 終了（time）、E 休憩、F 中抜、L 備考。J は数式（例外あり） | 労務行 |
+| `N回目` 車両 | 行 21〜23：B 車両名、D 走行距離、E 燃料単価、H 備考 | 燃料行（C 燃費は数式） |
+| `N回目` リース | 行 27〜32：B 品目、C 規格、D 単位、E 数量、H 備考。F は数式（例外あり） | リース行 |
+| `N回目` 現金 | 行 36〜41：B 品目、C 規格、D 単位、E 数量、F 購入単価、H 購入先 | 現金行 |
+| `N回目` 買掛 | 行 45〜50：B 品目、C 規格、D 単位、E 数量、F 仕入単価、H 仕入先 | 買掛行 |
+| `N回目` | E60 | 累計原価（この日までの `cost_total` の累計。繰越は含まない） |
+| `N回目` | H60 | 本日出来高（`output_total`） |
+| `N回目` 作業内容 | 行 63〜68：B 工種、C 施工内容（C:D 結合）、E 数量、F 単位、G 投入人工、I 施工単価 | 作業内容行 |
+| `N回目` | A71（A71:L74 結合） | 重要事項の文章＋`gn_report_issues` の件を「・」付きで改行区切りで追記 |
+| `N回目` | A76（A76:L79 結合） | 1 行目 `【通算M回目】`、2 行目以降に連絡事項 |
+| `N回目` | B80、E80、H80、K80（date） | 作成者名、確認者名、承認者名、承認日（承認済みのときだけ） |
+| 月次集計・現場原価集計・集計データ・出面一覧 | — | 書かない（数式） |
 
-Python のパッケージは Next.js とは独立（`package.json` のテストには含めない）。ローカルは `python3 -m pytest excel/tests`。
+雛形の明細行数：作業員 10、車両 3、リース 6、現金 6、買掛 6、作業内容 6。日付の time 値は `datetime.time`、日付は `datetime.date` で書く（雛形の表示形式がそのまま効く）。
 
 ---
 
-### Task 1: Python の座標定義と基本の埋め込み（行挿入なし）
+### Task 1: Python パッケージの骨格と「現場情報・マスター・繰越」の書き込み
 
 **Files:**
-- Create: `excel/__init__.py`, `excel/layout.py`, `excel/fill.py`, `excel/validate.py`, `requirements.txt`, `excel/tests/conftest.py`, `excel/tests/test_fill.py`, `excel/tests/fixtures/payload_basic.json`
+- Create: `python/genba_export/__init__.py`, `python/genba_export/layout.py`, `python/genba_export/fill.py`, `python/genba_export/postprocess.py`, `python/run_fill.py`, `python/tests/__init__.py`, `python/tests/test_fill_masters.py`, `python/tests/fixtures/payload_small.json`, `requirements.txt`
+- Modify: `package.json`（`"test:py": "python3 -m unittest discover -s python/tests -t ."`）、`.gitignore`（`python/**/__pycache__/`）
 
 **Interfaces:**
-- Produces: `fill_workbook(payload, template_path) -> bytes`（xlsm のバイト列）。`payload` の形は下記（Task 5 の `buildExportPayload` が同じ形を作る）。
-- Produces: `layout.py` の定数：`SITE_SHEET='現場情報マスター'`, `MASTER_SHEET='マスター'`, `DAY_SHEET(n)='{n}回目'`, `SUMMARY_SHEETS=['月次集計','現場原価集計','集計データ','出面一覧']`, 表定義 `TABLES = { 'labor': Table(first=8, last=17, total=18, cols={'name':'B','start':'C','end':'D','break':'E','gap':'F','note':'L'}), 'vehicle': Table(21,23,24,{'name':'B','distance':'D','price':'E','note':'H'}), 'lease': Table(27,32,33,{'name':'B','spec':'C','unit':'D','qty':'E','note':'H'}), 'cash': Table(36,41,42,{'name':'B','spec':'C','unit':'D','qty':'E','price':'F','vendor':'H'}), 'credit': Table(45,50,51,{...同じ}), 'work': Table(63,68,69,{'trade':'B','desc':'C','qty':'E','unit':'F','man_days':'G','price':'I'}) }`、単独セル `CELLS = {'date':'F2','weather':'F3','supervisor':'F4','common_start':'B6','common_end':'C6','common_break':'D6','common_gap':'E6','cum_cost':'E60','output':'H60','issues':'A71','notes':'A76','creator':'B80','reviewer':'E80','approver':'H80','approved_date':'K80'}`、マスター表 `MASTER = {'workers': (3, 32, {'no':'A','name':'B','trade':'C','daily_rate':'D','overtime_rate':'E','note':'F'}), 'suppliers': (3, 30, {'no':'G','name':'H','category':'I','contact':'J','note':'K'}), 'vehicles': (3, 22, {'no':'M','name':'N','kind':'O','km_per_l':'P','note':'Q'}), 'lease_items': (3, 22, {'no':'S','name':'T','spec':'U','unit_price':'V','note':'W'})}`、繰越 `CARRY = (36, 65, {'man_days':'C','cost':'D'})`（作業員 i 行目 ↔ 繰越 i 行目）、現場情報 `SITE_CELLS = {'name':'D4','client':'D5','project':'D6','project_no':'D7','overview':'D8','contract_amount':'D9','start_date':'D10','end_date':'D11','contract_type':'D12','shotei':'D25','overtime_limit':'D26','multiplier':'D27','base_hours':'D28'}`。
+- Produces: `fill.fill_workbook(template_path: str, payload: dict) -> bytes`（xlsm のバイト列）。`layout.py` の定数 `SITE_INFO_CELLS`, `MASTER_BLOCKS`, `CARRYOVER_ROWS`, `DAY_TABLES`（各表の `first_row, last_row, total_row, columns`）、`DAY_CELLS`。
+- payload の形（Task 4 の TypeScript 側と一致させる。キーは snake_case）:
+  ```json
+  { "file_name": "現場_2026年11月.xlsm",
+    "site": { "name": "", "client_name": null, "project_name": null, "project_no": null, "overview": null, "contract_amount": null, "start_date": null, "end_date": null, "contract_type": null },
+    "settings": { "shotei_hours": 7.5, "fixed_overtime_limit": 8, "overtime_multiplier": 1.25, "overtime_base_hours": 8 },
+    "workers": [ { "name": "", "trade": null, "daily_rate": null, "overtime_rate": null, "note": null, "carry_man_days": 0, "carry_cost": 0 } ],
+    "suppliers": [ { "name": "", "category": null, "contact": null, "note": null } ],
+    "vehicles": [ { "name": "", "kind": null, "km_per_l": null, "note": null } ],
+    "lease_items": [ { "name": "", "spec": null, "unit_price": null, "note": null } ],
+    "days": [ { "index": 1, "date": "2026-11-01", "total_index": 12, "weather": null, "supervisor": null,
+                "common": { "start": "08:00", "end": "17:30", "break_min": 90, "gap_min": 0 },
+                "labor": [ { "name": "", "start": null, "end": null, "break_min": null, "gap_min": null, "note": null, "daily_rate": 18000, "master_daily_rate": 18000 } ],
+                "fuel": [ { "name": "", "distance_km": null, "price_per_l": null, "note": null } ],
+                "lease": [ { "name": "", "spec": null, "unit": null, "qty": null, "note": null, "unit_price": 3000, "master_unit_price": 3000 } ],
+                "cash": [ { "name": "", "spec": null, "unit": null, "qty": null, "unit_price": null, "vendor": null } ],
+                "credit": [ { "name": "", "spec": null, "unit": null, "qty": null, "unit_price": null, "vendor": null } ],
+                "work": [ { "trade": null, "description": null, "qty": null, "unit": null, "man_days": null, "unit_price": null } ],
+                "cumulative_cost": 0, "output_total": 0,
+                "issues_text": null, "issues": [ "件の本文" ], "notes_text": null,
+                "created_by": null, "reviewed_by": null, "approved_by": null, "approved_at": null } ] }
+  ```
 
-payload（JSON）：
-```json
-{ "site": {"name","client","project","project_no","overview","contract_amount","start_date","end_date","contract_type"},
-  "settings": {"shotei_hours":7.5,"fixed_overtime_limit":8,"overtime_multiplier":1.25,"overtime_base_hours":8},
-  "masters": {"workers":[{"name","trade","daily_rate","overtime_rate","note","carry_man_days","carry_cost"}],
-              "suppliers":[{"name","category","contact","note"}], "vehicles":[{"name","kind","km_per_l","note"}],
-              "lease_items":[{"name","spec","unit_price","note"}]},
-  "reports": [ { "date":"2026-11-01","weather","supervisor","common":{"start","end","break_min","gap_min"},
-                 "labor":[{"name","start","end","break_min","gap_min","note"}],
-                 "vehicles":[{"name","distance_km","price_per_l","note"}],
-                 "lease":[{"name","spec","unit","qty","note"}],
-                 "cash":[{"name","spec","unit","qty","unit_price","vendor"}],
-                 "credit":[{"name","spec","unit","qty","unit_price","vendor"}],
-                 "work":[{"trade","description","qty","unit","man_days","unit_price"}],
-                 "cumulative_cost": 123456, "output_total": 50000,
-                 "issues_text":"…", "notes_text":"…", "total_index": 12,
-                 "creator":"…", "reviewer":null, "approver":null, "approved_date":null } ] }
-```
-`reports` は日付順で最大 31 件。`labor[].start/end` が null の行は C・D を空のまま（雛形の数式が共通値を使う）。日付は Excel の日付型で書く（文字列ではなく `datetime.date`）。金額・数量は数値。空文字は書かない（None のまま）。
-
-- [ ] **Step 1: `excel/validate.py` と失敗するテストを書く**
+- [ ] **Step 1: 失敗するテストを書く（`python/tests/test_fill_masters.py`）**
 
 ```python
-# excel/tests/test_fill.py
-def test_writes_header_and_labor(template, payload_basic):
-    out = fill_workbook(payload_basic, template)
-    wb = load_workbook(io.BytesIO(out), keep_vba=True)
-    ws = wb["1回目"]
-    assert ws["F2"].value == date(2026, 11, 1)
-    assert ws["F3"].value == "晴れ" and ws["F4"].value == "検証太郎"
-    assert (ws["B6"].value, ws["C6"].value, ws["D6"].value, ws["E6"].value) == ("08:00", "17:30", 90, 0)
-    assert ws["B8"].value == "山田 太郎" and ws["C8"].value is None   # 個別時間なし
-    assert ws["B9"].value == "鈴木 一郎" and ws["C9"].value == "08:00" and ws["D9"].value == "12:00"
-    assert ws["L8"].value == "大工"
-    assert ws["E60"].value == 10600 and ws["H60"].value == 50000
-    assert ws["A76"].value.startswith("【通算12回目】\n")
-    assert wb["2回目"]["F2"].value is None                            # 2件目は空のまま
-
-def test_site_master_and_settings(template, payload_basic):
-    ws = wb["現場情報マスター"]; assert ws["D4"].value == "検証現場X"; assert ws["D9"].value == 10_000_000
-    assert ws["D25"].value == 7.5 and ws["D28"].value == 8
-    wm = wb["マスター"]; assert wm["B3"].value == "山田 太郎" and wm["D3"].value == 18000 and wm["E3"].value is None
-    assert wm["C36"].value == 2.5 and wm["D36"].value == 45000      # 前月繰越
-
-def test_untouched_cells_equal_original(template, payload_basic):
-    out = fill_workbook(payload_basic, template)
-    assert_untouched(template, out, written_cells(payload_basic))   # 数式・定義名・シート数・vbaProject.bin の一致
-
-def test_too_many_reports_raises(template, payload_basic):
-    payload = {**payload_basic, "reports": payload_basic["reports"] * 32}
-    with pytest.raises(ValueError, match="31"):
-        fill_workbook(payload, template)
+class FillMastersTest(unittest.TestCase):
+    def test_site_info_and_masters_written(self):
+        out = fill_workbook(TEMPLATE, load_fixture("payload_small.json"))
+        wb = openpyxl.load_workbook(io.BytesIO(out), keep_vba=True)
+        info = wb["現場情報マスター"]
+        self.assertEqual(info["D4"].value, "検証現場")
+        self.assertEqual(info["D9"].value, 12000000)
+        self.assertEqual(info["D10"].value, datetime.date(2026, 10, 1))
+        self.assertEqual(info["D25"].value, 7.5)
+        m = wb["マスター"]
+        self.assertEqual([m["B3"].value, m["C3"].value, m["D3"].value, m["E3"].value, m["F3"].value], ["山田 太郎", "大工", 18000, None, "備考A"])
+        self.assertEqual(m["E4"].value, 3000)        # 残業単価あり
+        self.assertEqual(m["H3"].value, "○○建材")
+        self.assertEqual(m["P3"].value, 9.5)         # 車両 燃費
+        self.assertEqual(m["V3"].value, 3000)        # リース単価
+        self.assertEqual([m["C36"].value, m["D36"].value], [12.5, 225000])  # 前月繰越
+        self.assertEqual([m["C37"].value, m["D37"].value], [0, 0])
+    def test_template_untouched_elsewhere(self):
+        # 書いたセル以外は原本と同じ：数式・定義名・VBA
+        ...  # 原本と出力を openpyxl で開き、1回目!G8/H8/I8/J8/K8 の数式文字列、定義名 4 つ、
+             # zip 内 xl/vbaProject.bin のバイト列が一致すること
+    def test_more_than_30_workers_fails(self):
+        with self.assertRaises(ExportError) as cm: fill_workbook(TEMPLATE, payload_with_workers(31))
+        self.assertEqual(cm.exception.code, "too_many_workers")
 ```
-`assert_untouched` は、原本と出力の両方を `load_workbook(keep_vba=True)` で開き、全シート・全セルについて「書き込み対象セル以外は value（数式文字列を含む）が等しい」「`wb.defined_names` が等しい」「`sheetnames` が等しい」こと、さらに zip 内の `xl/vbaProject.bin` のバイト列が等しいことを検査する。`written_cells(payload)` は `fill_workbook` が書いた `{(sheet, coord)}` を返す補助（`fill.py` が返す記録を使う）。
 
-- [ ] **Step 2: テストが失敗することを確認**　Run: `python3 -m pytest excel/tests -q`　Expected: ImportError（fill_workbook 未定義）
+- [ ] **Step 2: 実行して失敗を確認** — `npm run test:py` → `ModuleNotFoundError: genba_export`
+- [ ] **Step 3: 実装**
+  - `layout.py`：上の対応表を定数にする。`DAY_SHEETS = [f"{i}回目" for i in range(1, 32)]`。
+  - `fill.py`：`class ExportError(Exception)` に `code: str`（`too_many_workers` / `too_many_days` / `template_not_found` など）と日本語 `message`。`fill_workbook` は `openpyxl.load_workbook(template_path, keep_vba=True)` → `_write_site_info` → `_write_masters`（作業員 30・取引先 30・車両 20・リース 20 を超えたら `ExportError`）→ `_write_carryover`（作業員の並びと同じ行）→ （Task 2 以降で日報）→ `BytesIO` に保存 → `postprocess.restore_parts(template_path, saved_bytes)`（Task 1 では「原本から `xl/vbaProject.bin` が落ちていないことの確認」だけ。x14/図形の復元は Task 3）。`warnings.filterwarnings("ignore", message="Data Validation extension")`。
+  - 日付文字列 `YYYY-MM-DD` → `datetime.date`、時刻 `HH:MM` → `datetime.time`、None はセルを空のまま（`cell.value = None`）。
+  - `run_fill.py`：stdin の JSON（`{"template": "<path>", "payload": {...}}`）→ stdout に xlsm バイト列。失敗は stderr に `{"code":..., "message":...}` を書き exit 1。
+- [ ] **Step 4: テストが通ることを確認** — `npm run test:py` → OK
+- [ ] **Step 5: コミット** — `feat(export): Python で V34 雛形に現場情報・マスター・前月繰越を書き込む`
 
-- [ ] **Step 3: `excel/layout.py`・`excel/fill.py` を実装**
-
-`fill_workbook(payload, template_path)`：`load_workbook(template_path, keep_vba=True)` → `warnings` で x14 の警告を抑止 → 31 件超なら `ValueError('日報が31件を超えています（N件）')` → 現場情報・設定 → マスター 4 表（No. は 1 から連番、`overtime_rate` は None/0 なら空）→ 繰越（作業員 i 行目の C/D）→ 各日報を `N回目` に（`total_index` から `A76` の先頭行 `【通算M回目】` を作り、`notes_text` を改行で続ける。`issues_text` はそのまま A71）→ `io.BytesIO` に保存して bytes を返す。書いたセルを `fill.last_written: set[(sheet, coord)]` に記録する。時刻は `"HH:MM"` の文字列（雛形の入力規則はリスト。B6〜E6 は数値 `(C6-B6)*24` で計算するので、**B6・C6 と作業員の C・D は Excel の時刻として `datetime.time` で書く**。テストの期待値も `time(8, 0)` に直す）。
-
-- [ ] **Step 4: テストが通ることを確認**　Run: `python3 -m pytest excel/tests -q`　Expected: 4 passed
-
-- [ ] **Step 5: Commit**　`git add excel requirements.txt && git commit -m "feat(excel): V34 原本への基本の埋め込み（Python、行挿入なし）"`
-
----
-
-### Task 2: 落ちた入力規則と「＋ 行追加」ボタンの復元
+### Task 2: 日報シート（N回目）の書き込み
 
 **Files:**
-- Create: `excel/restore.py`, `excel/tests/test_restore.py`
-- Modify: `excel/fill.py`（保存前後に restore を呼ぶ）, `scripts/make_v34.py`（復元処理を `excel/restore.py` から import して重複を消す。挙動は変えない）
+- Modify: `python/genba_export/fill.py`, `python/genba_export/layout.py`
+- Create: `python/tests/test_fill_days.py`, `python/tests/fixtures/payload_days.json`
 
 **Interfaces:**
-- Produces: `read_validations(template_path) -> dict[sheet, list]`, `apply_validations(wb, validations)`, `reinject_drawings(template_path, output_bytes) -> bytes`（`scripts/make_v34.py` の `read_source_validations` / `read_source_drawings` / `reinject_drawings` を関数化したもの）。
+- Consumes: Task 1 の payload `days[]`。
+- Produces: `fill._write_day(ws, day: dict)`（1 シート分）。日報が無い `N回目` シートは触らない。
 
 - [ ] **Step 1: 失敗するテスト**
 
 ```python
-def test_validations_restored(template, payload_basic):
-    wb = load_workbook(io.BytesIO(fill_workbook(payload_basic, template)), keep_vba=True)
-    dvs = wb["1回目"].data_validations.dataValidation
-    sqrefs = " ".join(str(d.sqref) for d in dvs)
-    assert "F3" in sqrefs and "B8" in sqrefs and "B21" in sqrefs and "B27" in sqrefs   # 天候・作業員・車両・品目
-    assert any("D12" in str(d.sqref) for d in wb["現場情報マスター"].data_validations.dataValidation)
-
-def test_add_row_button_kept(template, payload_basic):
-    out = fill_workbook(payload_basic, template)
-    with zipfile.ZipFile(io.BytesIO(out)) as zf:
-        names = zf.namelist()
-        assert any(n.startswith("xl/drawings/drawing") for n in names)
-        sheet1 = zf.read("xl/worksheets/sheet3.xml").decode()      # 1回目（シート順は conftest で解決する）
-        assert "<drawing " in sheet1
+def test_day_sheet_values(self):
+    wb = self.fill("payload_days.json")
+    ws = wb["1回目"]
+    self.assertEqual(ws["F2"].value, datetime.date(2026, 11, 1)); self.assertEqual(ws["F3"].value, "晴れ"); self.assertEqual(ws["F4"].value, "検証太郎")
+    self.assertEqual([ws["B6"].value, ws["C6"].value, ws["D6"].value, ws["E6"].value], [datetime.time(8, 0), datetime.time(17, 30), 90, 0])
+    self.assertEqual([ws["B8"].value, ws["C8"].value, ws["D8"].value, ws["L8"].value], ["山田 太郎", None, None, "大工"])   # 共通時間の行
+    self.assertEqual([ws["B9"].value, ws["C9"].value, ws["D9"].value, ws["E9"].value], ["鈴木 一郎", datetime.time(8, 0), datetime.time(12, 0), 0])
+    self.assertEqual(ws["J8"].value, "=IFERROR(VLOOKUP(B8,マスター!$B$3:$D$32,3,0),0)")  # 数式のまま
+    self.assertEqual([ws["B21"].value, ws["D21"].value, ws["E21"].value], ["ハイエース", 40, 170])
+    self.assertEqual([ws["B27"].value, ws["E27"].value], ["発電機", 2])
+    self.assertEqual([ws["B36"].value, ws["F36"].value, ws["H36"].value], ["ビス", 500, "ホームセンター"])
+    self.assertEqual([ws["B45"].value, ws["H45"].value], ["合板", "○○建材"])
+    self.assertEqual([ws["E60"].value, ws["H60"].value], [10600, 50000])
+    self.assertEqual([ws["B63"].value, ws["C63"].value, ws["E63"].value, ws["G63"].value, ws["I63"].value], ["解体", "外壁撤去", 10, 1.5, 5000])
+    self.assertEqual(ws["A71"].value, "追加工事の指示あり\n・サッシ追加 2 か所")
+    self.assertEqual(ws["A76"].value, "【通算12回目】\n雨天のため午後中止")
+    self.assertEqual([ws["B80"].value, ws["E80"].value, ws["H80"].value, ws["K80"].value], ["検証太郎", "確認花子", "承認次郎", datetime.date(2026, 11, 2)])
+def test_untouched_day_sheets_and_empty_fields(self):
+    # days が 2 件なら 3回目 以降の F2 は None のまま。承認なしの日は K80 None、重要事項なしは A71 None
+def test_rate_override_when_snapshot_differs(self):
+    # labor.daily_rate=19000, master_daily_rate=18000 の行は J に 19000 の値、同じ行は数式のまま。リースの F も同じ規則
+def test_partial_time_uses_common_start_end(self):
+    # start/end が無く break_min=30 だけの行は C・D に共通の開始・終了、E に 30
+def test_too_many_days(self):
+    # days が 32 件 → ExportError(code="too_many_days")
+def test_too_many_rows_without_insert(self):
+    # 作業員 11 人の日 → ExportError(code="rows_overflow")（Task 6 で行挿入に置き換える）
 ```
-- [ ] **Step 2: 失敗を確認**　Run: `python3 -m pytest excel/tests/test_restore.py -q`　Expected: FAIL（入力規則 0 件・drawing なし）
-- [ ] **Step 3: `excel/restore.py` を実装し、`fill_workbook` の保存直前に `apply_validations`、保存直後に `reinject_drawings` を通す。`scripts/make_v34.py` は同じ関数を使うよう書き換え、`python3 scripts/make_v34.py templates/現場管理台帳_V33_原本.xlsm /tmp/claude-501/v34_check.xlsm` が今までと同じファイル（`templates/現場管理台帳_V34_原本.xlsm` と全セル一致）を作ることを `assert_untouched` で確認する**
-- [ ] **Step 4: 通ることを確認**　Run: `python3 -m pytest excel/tests -q`　Expected: all passed
-- [ ] **Step 5: Commit**　`git commit -m "feat(excel): 入力規則と行追加ボタンを原本から復元"`
 
----
+- [ ] **Step 2: 失敗を確認** → **Step 3: 実装**（`_write_day`：表ごとに `DAY_TABLES` の列と行を使い、行数超過は `ExportError("rows_overflow", "{date} の{表名}が{n}行で雛形の{max}行を超えています")`。重要事項は `issues_text` と `issues` を `"\n"` で連結し件には `・` を付ける。連絡事項は `【通算M回目】` を 1 行目に）→ **Step 4: 通過確認** → **Step 5: コミット** `feat(export): 日報シート（N回目）に日報を書き込む`
 
-### Task 3: 行が足りない日の行挿入と参照の書き換え（§8.4）
+### Task 3: 保存後の復元（プルダウン・行追加ボタン）と原本差分テスト
 
 **Files:**
-- Create: `excel/rows.py`, `excel/tests/test_rows.py`
-- Modify: `excel/fill.py`（表の件数が定員を超えたら `rows.expand_table` を先に呼ぶ）, `excel/layout.py`（`集計データ` の各回目のブロック定義を追加）
+- Modify: `python/genba_export/postprocess.py`
+- Create: `python/tests/test_postprocess.py`
+- Reference: `scripts/make_v34.py` の x14 データ検証復元と drawing 復元のコード（流用してよい。`-I` 用の sys.path 細工は不要）
 
 **Interfaces:**
-- Produces: `expand_table(wb, day_sheet: str, table: str, extra: int) -> None`。`shift_refs(formula: str, target_sheet: str, from_row: int, by: int, current_sheet: str) -> str`（`openpyxl.formula.Tokenizer` で RANGE トークンだけを書き換える。`target_sheet` への参照（同シート内の無印参照、または `'N回目'!` 付き）で行番号 ≥ `from_row` のものを `by` 行ずらす。`$` 付き（絶対）も同様にずらす。他シートへの参照は触らない）。
-
-アルゴリズム（`expand_table`）：
-1. `table.last` の直下に `extra` 行を `ws.insert_rows(last+1, extra)`（openpyxl は参照を直さない）。
-2. まず **そのブック内の全シートの全数式** を `shift_refs(..., target_sheet=day_sheet, from_row=last+1, by=extra)` で書き換える（挿入行より下を指す参照だけがずれる。合計 `SUM(G8:G17)` は終端 17 が `from_row` 未満なので変わらないので、次で広げる）。
-3. 合計行の `SUM` 範囲を `first..last+extra` に広げる（表の `total` 行の全数式について `last` → `last+extra`）。
-4. 挿入した各行に、直上の明細行（`last` 行）の数式を相対参照で複製（`openpyxl.formula.translate.Translator`）し、書式・行の高さ・結合（`C63:D63` のような行内結合）を複製。A 列の項番を連番で書く。
-5. 印刷範囲の終端行と、`A71:L74`・`A76:L79` などの結合の行番号は手順 2 で ws 側の `merged_cells` と `print_area` も同じ規則でずらす（`insert_rows` は結合を動かさないため自前で）。
-6. `labor` のときは `集計データ` にもその回目の労務ブロック（`B=回目` の値が一致する `A='労務'` の行の直下）に `extra` 行を挿入し、`C/D/E/F` の数式（`'N回目'!B{row}` 等）を新しい行番号で書く。`出面一覧`・`月次集計` は列全体の SUMIFS／固定セル参照なので手順 2 だけで足りる（`COUNTA('1回目'!B8:B17)` は手順 3 と同じ規則で終端を広げる）。
-7. `drawing`（＋ 行追加ボタン）のアンカー行は動かさない（ボタンは表の見出し行にあり、挿入行より上）。
+- Produces: `postprocess.restore_parts(template_path: str, saved: bytes) -> bytes`。openpyxl が保存した zip に対し、原本 zip から (1) 各シート XML の `<extLst>` 内 x14 `dataValidations`、(2) 日報シートの drawing パーツ（`xl/drawings/drawingN.xml`・`_rels`・`[Content_Types].xml` の登録・シート XML の `<drawing r:id>`）、(3) `xl/vbaProject.bin` を戻す。出力ファイル名の拡張子は `.xlsm`。
 
 - [ ] **Step 1: 失敗するテスト**
 
 ```python
-def test_shift_refs():
-    assert shift_refs("=SUM(G53:G57)", "1回目", 18, 2, "1回目") == "=SUM(G55:G59)"
-    assert shift_refs("=I18", "1回目", 18, 2, "1回目") == "=I20"
-    assert shift_refs("=SUM(G8:G17)", "1回目", 18, 2, "1回目") == "=SUM(G8:G17)"       # 挿入点より上は不変
-    assert shift_refs("='1回目'!G58", "1回目", 18, 2, "月次集計") == "='1回目'!G60"
-    assert shift_refs("='2回目'!G58", "1回目", 18, 2, "月次集計") == "='2回目'!G58"     # 別シートは不変
-    assert shift_refs("=IFERROR('1回目'!$F$2,\"\")", "1回目", 18, 2, "出面一覧") == "=IFERROR('1回目'!$F$2,\"\")"
-
-def test_twelve_workers(template, payload_basic):
-    p = with_labor_rows(payload_basic, 12)
-    wb = load_workbook(io.BytesIO(fill_workbook(p, template)), keep_vba=True)
-    ws = wb["1回目"]
-    assert ws["B19"].value == p["reports"][0]["labor"][11]["name"]
-    assert ws["I20"].value == "=SUM(I8:I19)" and ws["K20"].value == "=SUM(K8:K19)"
-    assert ws["G55"].value == "=I20"                       # 本日原価集計の労務費（2行下がる）
-    assert ws["G60"].value == "=SUM(G55:G59)"              # 本日原価合計
-    assert ws["H19"].value.startswith("=IFERROR(IF(G19<=GN_SHOTEI")
-    assert wb["月次集計"]["D4"].value == "='1回目'!I20" and wb["月次集計"]["C4"].value == "=COUNTA('1回目'!B8:B19)"
-    assert wb["月次集計"]["D5"].value == "='2回目'!I18"
-    assert ws.print_area == "'1回目'!$A$1:$L$82"
-    sd = wb["集計データ"]
-    labor_rows_1 = [r for r in range(2, sd.max_row + 1) if sd[f"A{r}"].value == "労務" and sd[f"B{r}"].value in (1, "1")]
-    assert len(labor_rows_1) == 12 and sd[f"C{labor_rows_1[-1]}"].value == "=IFERROR('1回目'!B19,\"\")"
-
-def test_seven_work_rows_and_vehicles(template, payload_basic):
-    p = with_rows(payload_basic, work=7, vehicles=4)
-    ...  # 作業内容 7 行目が 70 行目（挿入後）、J70 の数式、合計 J71=SUM(J64:J70)（車両で 1 行、作業で 1 行ずれる）、A72 の結合が A73:L76 に移ること
+def test_validations_and_buttons_restored(self):
+    out = fill_workbook(TEMPLATE, payload)
+    with zipfile.ZipFile(io.BytesIO(out)) as z, zipfile.ZipFile(TEMPLATE) as t:
+        s_out = z.read("xl/worksheets/sheet3.xml").decode()   # 1回目（シート番号は原本の workbook.xml から引く）
+        self.assertIn("x14:dataValidations", s_out)
+        self.assertEqual(sorted(n for n in z.namelist() if n.startswith("xl/drawings/")), sorted(n for n in t.namelist() if n.startswith("xl/drawings/")))
+        self.assertEqual(z.read("xl/vbaProject.bin"), t.read("xl/vbaProject.bin"))
+def test_excel_opens(self):  # openpyxl で再読込できる（壊れていない）
 ```
-- [ ] **Step 2: 失敗を確認**　Run: `python3 -m pytest excel/tests/test_rows.py -q`　Expected: FAIL
-- [ ] **Step 3: `excel/rows.py` を実装し、`fill.py` から表ごとに呼ぶ（上の表から順に。1 つの表を広げたら次の表の行番号は `layout` の値＋累積のずれで計算する）**
-- [ ] **Step 4: 通ることを確認**　Run: `python3 -m pytest excel/tests -q`　Expected: all passed
-- [ ] **Step 5: 利用者確認用の見本を作る**　`python3 -c "..."` で 12 人・車両 4・作業 7 の見本 `/tmp/claude-501/sample_expand.xlsm` を出し、Excel で開いて月次集計の値が妥当かを利用者に確認してもらう（この計画の最後にまとめて）。
-- [ ] **Step 6: Commit**　`git commit -m "feat(excel): 定員を超える日の行挿入と参照の書き換え"`
 
----
+- [ ] **Step 2: 失敗を確認** → **Step 3: 実装** → **Step 4: 通過確認** → **Step 5: コミット** `feat(export): 保存後にプルダウンと行追加ボタンを原本から復元`
 
-### Task 4: Vercel の Python Function
+### Task 4: 月次データの収集と payload の組み立て（TypeScript）
 
 **Files:**
-- Create: `api/excel-fill.py`, `vercel.json`, `api/_template/README.md`
-- Modify: `.env.example`（`EXCEL_EXPORT_SECRET=`）, `README.md`（Vercel の環境変数に `EXCEL_EXPORT_SECRET` を追加、Python 関数の説明）, `.gitignore`（`__pycache__/`, `.pytest_cache/`）
+- Create: `src/lib/export/payload.ts`（純関数）, `src/lib/export/types.ts`, `src/lib/db/export.ts`（server-only の読み取り）, `tests/export/payload.test.ts`
+- Modify: `src/lib/db/reports.ts`（必要なら月の日報＋明細＋件をまとめて読む関数を追加）
 
 **Interfaces:**
-- Produces: `POST /api/excel-fill`（ヘッダー `x-export-secret`、本文は Task 1 の payload JSON）→ 200 `application/vnd.ms-excel.sheet.macroEnabled.12` のバイト列、401（秘密不一致）、400（payload 不正・31 件超：本文 `{ "error": "…" }`）、500（それ以外。本文に原因は出さず `console` に残す）。
+- Consumes: `Site`（`src/lib/db/sites.ts`）、`Settings`（`src/lib/db/settings.ts`）、`Worker/Supplier/Vehicle/LeaseItem`（`src/lib/db/masters.ts`）、`ReportDetail`／`Issue`（`src/lib/db/reports.ts`）、`Carryover`、`workerCumulative`（`src/lib/calc/aggregate.ts`）、`rateAt`。
+- Produces: `buildExportPayload(input: ExportInput): ExportPayload`（Task 1 の JSON と同じ形。型は `types.ts`）、`exportFileName(siteName: string, month: string): string`、`loadExportInput(siteId: string, month: 'YYYY-MM'): Promise<ExportInput>`（DB 読み取り：現場、設定、現場で使うマスター、その月の日報全件（明細・件・作成者/確認者/承認者の氏名）、月より前の全労務行（繰越計算用）、繰越初期値）。
 
-- [ ] **Step 1: `api/excel-fill.py` を実装**　`BaseHTTPRequestHandler` 形式（Vercel Python Runtime）。`sys.path` に repo ルートを足して `from excel.fill import fill_workbook`。テンプレートのパスは `os.path.join(os.path.dirname(__file__), '..', 'templates', '現場管理台帳_V34_原本.xlsm')`。本文は 5MB まで。
-- [ ] **Step 2: `vercel.json`**
-```json
-{ "functions": { "api/excel-fill.py": { "maxDuration": 60, "memory": 1024, "includeFiles": "templates/現場管理台帳_V34_原本.xlsm" } } }
-```
-`includeFiles` が Python で効かない場合の予備：テンプレートを `api/_template/現場管理台帳_V34_原本.xlsm` にもコピーし（`_` 始まりのディレクトリは関数にならない）、関数はまず `templates/`、無ければ `api/_template/` を読む。README にその旨を書く。
-- [ ] **Step 3: ローカルで関数を直接呼ぶテスト**　`excel/tests/test_api.py`：`api/excel-fill.py` の handler を `http.server` で起動して POST し、401（秘密なし）と 200（正しい秘密＋`payload_basic`）、400（32 件）を確認。
-- [ ] **Step 4: 配置の確認（利用者と）**　push 後、Vercel の環境変数 `EXCEL_EXPORT_SECRET` を設定（利用者）→ `curl -X POST https://genba-nippou-ten.vercel.app/api/excel-fill` が 401 を返すこと、正しい秘密で `payload_basic.json` を送ると xlsm が返ることを私が確認する。Python のビルドが失敗したら、ログを読んで対処（`requirements.txt`、ランタイム版）。
-- [ ] **Step 5: Commit**　`git commit -m "feat(api): Excel 出力の Python Function（Vercel）"`
+規則（テストで固定する）：
+- 日報は日付順。`index` は 1 から、`total_index` は現場の全日報での通算（`visitNumbers` と同じ）。
+- 作業員の並び：現場で選択した順（`gn_site_workers.sort_order`）→ 未選択だがその月の日報で使った作業員を名前順で末尾に。取引先・車両・リース品も同じ。雛形の上限（30/30/20/20）を超えたら `{ ok: false, error }` にする材料として `warnings` を返す。
+- マスターの日当は**その月の最初の日報日付時点**の `rateAt`。各労務行の `daily_rate` は保存値（スナップショット）、`master_daily_rate` はその作業員のマスター値。リース単価も同じ。
+- 前月繰越：`workerCumulative` と同じ規則（`gn_carryovers` の `before_date` より前の日報は初期値に含まれているとみなして除外）で、出力月の 1 日より前の人工・労務費。
+- `cumulative_cost`：その現場の、この日までの `cost_total` の累計（出力月より前も含む。繰越初期値は含まない）。
+- 時間が無く休憩・中抜だけある労務行：`start/end` に共通の開始・終了を入れる（Python 側は受け取った値を書くだけ）。
+- 重要事項の件は `gn_report_issues` の本文（対応中・完了どちらも）。
 
----
+- [ ] **Step 1: 失敗するテスト（`tests/export/payload.test.ts`）** — 上の規則それぞれに 1 件（日付順と index、作業員の並びと上限警告、月途中の日当変更（master と line が違う）、繰越の計算、cumulative_cost、休憩だけの行、ファイル名の禁止文字置換、日報 0 件の月は `days: []`）。
+- [ ] **Step 2: 失敗を確認** → **Step 3: 実装** → **Step 4: 通過確認** → **Step 5: コミット** `feat(export): 月次データから Excel 出力用 payload を組み立てる`
 
-### Task 5: Next.js 側のデータ収集と Route Handler
+### Task 5: Vercel の Python 関数、Node からの呼び出し、Route Handler、画面、Storage 保存
 
 **Files:**
-- Create: `src/lib/export/payload.ts`, `src/lib/export/filename.ts`, `src/lib/db/exports.ts`, `src/app/api/export/excel/route.ts`, `tests/export/payload.test.ts`, `tests/export/filename.test.ts`
-- Modify: `src/lib/db/reports.ts`（月の日報を明細付きでまとめて読む `listReportsWithLines(siteId, month)`：既存 `getReport` のページング規則に従う）, `src/lib/db/summary.ts`（繰越に使う `loadLaborEntries` はそのまま）
+- Create: `api/export/fill.py`（Vercel Python Function。`BaseHTTPRequestHandler` で POST を受け、`X-Export-Secret` を `GN_EXPORT_SECRET` と比較、本文 JSON → `fill_workbook` → `application/vnd.ms-excel.sheet.macroEnabled.12` で返す。失敗は 400/500 の JSON）, `vercel.json`（`functions: { "api/export/fill.py": { "maxDuration": 60, "includeFiles": "{templates/現場管理台帳_V34_原本.xlsm,python/**}" } }`）, `src/lib/export/fill-client.ts`（`fillWorkbook(payload): Promise<Buffer>`：本番は fetch、ローカルは `child_process.spawn('python3', ['python/run_fill.py'])`）, `src/app/api/export/route.ts`（GET `?site=<uuid>&month=YYYY-MM`）, `src/app/(app)/sites/[siteId]/export/page.tsx`, `src/components/export/ExportPanel.tsx`, `src/lib/db/export-files.ts`（Storage の一覧と署名 URL）, `src/content/guide/excel.md`（章を本文で置き換え）, `.env.example`（`GN_EXPORT_SECRET`）
+- Modify: `src/app/(app)/sites/[siteId]/page.tsx`（「Excel 出力」リンク）, `README.md`（Vercel の環境変数 `GN_EXPORT_SECRET`、Python 関数の説明、ローカルは `python3` と `pip install -r requirements.txt`）, `src/lib/guide.ts`（章名「Excel出力」に変更）, `tests/guide.test.ts`
 
 **Interfaces:**
-- Consumes: `workerCumulative(entries, carryovers, workerNames, period)`（`src/lib/calc/aggregate.ts`。繰越＝`period.from` より前の分）、`visitNumbers(allDates, date)`（通算回目）、`rateAt(rates, date)`、`getSettings()`、`listWorkers/…`、`getSiteMasters(siteId)`（現場で使うマスター）、`listSiteMembers`（確認者・承認者の氏名）、`listReportHeads`。
-- Produces: `buildExportPayload(input: ExportInput): ExportPayload`（純関数。`ExportInput` は上の読み取り結果の束。`ExportPayload` は Task 1 の JSON と同じ型）。`exportFileName(siteName, month) -> string`（`[現場名]_[YYYY年MM月].xlsm`、禁止文字は `_`）。`storagePath(siteId, month, now) -> string`（`<site_id>/<YYYY-MM>/<YYYYMMDD-HHmmss>.xlsm`）。`listExports(siteId) -> { path, month, createdAt, size }[]`、`signedUrl(path) -> string`（60 秒）。
+- Route: `GET /api/export?site=&month=` → 認証（`requireProfile` 相当。協力会社は 403 JSON）→ `loadExportInput` → `buildExportPayload` → 32 件以上・上限超過は 400 JSON → `fillWorkbook` → Storage `gn-exports/<site_id>/<month>/<file_name>` に `upsert: true` で保存（失敗してもダウンロードは返し、`console.error`）→ `Content-Disposition: attachment; filename*=UTF-8''<encoded>` で返す。
+- 画面 `/sites/[siteId]/export`：月の選択（日報のある月を新しい順に、既定は最新）、その月の件数と「行が雛形を超える日」の一覧（Task 6 まではその日の表名と件数を警告として表示し、出力ボタンを無効にする）、「Excel をダウンロード」（`<a href="/api/export?…" download>`）、過去に出力したファイルの一覧（署名 URL、有効 1 時間）。協力会社には「現場の担当者（社員）に依頼してください」。
 
-規則：
-- `reports` は `month` の日報を日付順に。`labor[].start/end` は個別時間がなければ null。`cumulative_cost` はその日までの（月をまたいだ）`cost_total` の累計（繰越初期値は含めない）。`output_total` はその日の `output_total`。`total_index` は `visitNumbers`。
-- `masters.workers` は「現場で使う作業員（`gn_site_workers`）∪ その月の労務行で参照した作業員」を名前順。`daily_rate` は `rateAt(rates, その月の最終日報日)`、`overtime_rate` はマスター値。`carry_man_days/carry_cost` は `workerCumulative` の繰越（`period.from` = 月初）。取引先・車両・リース品も「現場で使う ∪ 使った」。30／20 件を超えたら先頭から切り、`warnings` に `作業員が30人を超えたため、31人目以降はマスターに書いていません` を積む（Route Handler がヘッダー `x-export-warnings` で返し、画面に出す）。
-- `creator` は `created_by` の氏名、`reviewer/approver` は `reviewed_by/approved_by` の氏名、`approved_date` は承認日（`status === 'approved'` のときだけ）。
+- [ ] **Step 1: テスト** — `tests/export/route-guards.test.ts`：クエリ検証（uuid・月の形式）の純関数、`contentDispositionFileName('現場A_2026年11月.xlsm')` の RFC 5987 エンコード。`fill-client` はローカル経路を `python3` が無い環境でもテストできるよう、spawn を注入可能にして「stderr の JSON を日本語エラーに変換する」ことを検査。
+- [ ] **Step 2: 実装** → **Step 3: ローカルで動作確認**（`npm run dev` でログインし、村山邸の 2026-11 を出力してファイルが開けること。Excel が無い環境では openpyxl で再読込）→ **Step 4: `npm test`・`npm run test:py`・tsc・lint・build** → **Step 5: コミット** `feat(export): Excel 出力の API・画面・Storage 保存と Vercel の Python 関数`
 
-Route Handler `GET /api/export/excel?site=<uuid>&month=YYYY-MM`：
-1. `getCurrentProfile()`（null → 401）。`site` が UUID でない／`month` が形式外 → 400。`getSite`（null または削除済み → 404）。
-2. 読み取り → `buildExportPayload` → 日報 0 件なら 400 `{ error: 'この月の日報がありません' }`、32 件以上なら 400。
-3. `fetch(`${origin}/api/excel-fill`, { method: 'POST', headers: { 'x-export-secret': process.env.EXCEL_EXPORT_SECRET }, body })`（`origin` はリクエストの URL から。ローカルでは Python 関数が無いので、`EXCEL_FILL_URL` が設定されていればそれを使う）。非 200 → 502 `{ error: 'Excel の生成に失敗しました。しばらくしてからもう一度お試しください。' }`。
-4. Storage `gn-exports` に `storagePath` で upload（`contentType` は xlsm の MIME）。失敗しても応答は返す（`x-export-saved: 0`）。
-5. 200、`Content-Disposition: attachment; filename*=UTF-8''<encodeURIComponent(name)>`、本文はバイト列。
-
-- [ ] **Step 1: テスト（payload・filename）を書く**　`tests/export/payload.test.ts`：2 日分の入力から `reports[0].total_index`、`cumulative_cost`（前月分を含む）、個別時間 null の扱い、`masters.workers` の順と `daily_rate`（最終日報日時点）、繰越の値（`workerCumulative` と一致）、31 件超で `tooMany: true`。`tests/export/filename.test.ts`：`村山邸/母屋:改修` → `村山邸_母屋_改修_2026年11月.xlsm`。
-- [ ] **Step 2: 失敗を確認**　Run: `npm test -- tests/export`　Expected: FAIL
-- [ ] **Step 3: 実装**（`payload.ts`, `filename.ts`, `reports.ts` の読み取り追加, `exports.ts`, `route.ts`）
-- [ ] **Step 4: 通ることを確認**　Run: `npm test && npx tsc --noEmit && npm run lint`
-- [ ] **Step 5: Commit**　`git commit -m "feat(export): Excel 出力のデータ収集・Route Handler・Storage 保存"`
-
----
-
-### Task 6: 画面・ガイド・記録
+### Task 6: 行が足りない日の行挿入（§8.4）
 
 **Files:**
-- Create: `src/components/site/ExcelExportSection.tsx`
-- Modify: `src/app/(app)/sites/[siteId]/page.tsx`（「集計を見る」の下に配置）, `src/content/guide/excel.md`（「Excel出力（第2計画で追記）」→ 本文）, `src/lib/guide.ts`（題名を「Excel出力」に）, `tests/guide.test.ts`, `docs/superpowers/plans/README.md`（第2計画の行を本ファイル名に）, `docs/superpowers/plans/2026-10-30-phase1-record.md`（「第2計画 2026-11-03」節）, `README.md`
+- Create: `python/genba_export/insert_rows.py`, `python/tests/test_insert_rows.py`
+- Modify: `python/genba_export/fill.py`（`rows_overflow` の代わりに挿入を呼ぶ）, `python/genba_export/layout.py`（表ごとの `total_row`・参照元の定義）, `src/components/export/ExportPanel.tsx`（警告を「行を追加して出力します」の案内に変更し、ボタンを有効化）
 
-**Interfaces:** `ExcelExportSection({ siteId, months: { month: string; count: number; unapproved: number }[], exports: ExportEntry[] })`（サーバーで集計して渡す）。
+**Interfaces:**
+- Produces: `insert_rows.expand_table(wb, sheet_name, table_key, extra: int)`。規則：
+  1. 表の最終明細行の直下に `extra` 行を挿入（`ws.insert_rows`）。
+  2. 挿入行に、直上の明細行の数式（相対参照の行番号を置換）・書式・結合（C:D など）・行の高さ・項番（A 列の連番）を複製。
+  3. 合計行の `SUM(G27:G32)` などを広げる。
+  4. 同じシート内で挿入位置より下を参照する数式（`G24`, `=I18`, `=G24`, `=G33`… の本日原価集計、`B70`, `K60`, `H69/J69`, `A71`…）の行番号を `extra` だけずらす。結合セル（A71:L74 など）と印刷範囲も同じ。
+  5. 他シートの参照：月次集計（`'N回目'!F2, F3, B8:B17, I18, G24, G33, G42, G51, G58, J69, K60, B70`）、現場原価集計（`'31回目'!K60`）、出面一覧（`'N回目'!$F$2`）、集計データ（`'N回目'!B8..L17, B21..G23, B27..G32, B36.., B45..`）をずらす。作業員が 11 人以上のときは集計データにその回目の「労務」行を追加し、出面一覧と マスター!E36.. の `SUMIFS` 範囲（`$2:$1272`）を広げる。
+  6. ずらしの実装は「シート名＋セル参照の正規表現置換」ではなく、`openpyxl.formula.translate.Translator` と自前の行番号写像（`old_row -> new_row`）で参照ごとに書き換える（`$F$2` のような絶対参照も対象、範囲 `B8:B17` は両端を写像）。
 
-- [ ] **Step 1: 実装**　月の選択（日報のある月だけ。既定は最新月）、「Excel を出力」ボタン（`<a href="/api/export/excel?site=…&month=…" download>` ではなく `fetch` → `blob` → `a.click()` にして、エラー JSON を日本語で表示できるようにする）、「未承認の日報 N 件を含みます」の注記、`x-export-warnings` の表示、過去の出力一覧（月・日時・サイズ、「ダウンロード」は署名 URL を Server Action で取って開く）。完了現場・閲覧専用でも出力できる。
-- [ ] **Step 2: ガイド**　「現場詳細 → Excel を出力」「ファイル名」「前月繰越は自動」「作業員は 30 人まで」「月の途中で日当が変わった場合の注意」「出力したファイルは後からダウンロードできる」「＋ 行追加の備考が残る既知の注意（V34_変更点.md）」。
-- [ ] **Step 3: `npm test && npx tsc --noEmit && npm run lint && npm run build`**
-- [ ] **Step 4: Commit**　`git commit -m "feat(site): Excel 出力の画面とガイド"`
+- [ ] **Step 1: テスト** — 作業員 12 人・車両 5 台の 1回目 で：(a) B8〜B19 に名前、I18 相当（合計行）が `=SUM(I8:I19)` になり行番号が 20、(b) 本日原価集計の `=I18` が `=I20`、(c) 月次集計 A4 の `'1回目'!I18` が `I20`、`C4` が `COUNTA('1回目'!B8:B19)`、(d) 集計データに 1回目 の労務行が 12 行、(e) 出面一覧の SUMIFS 範囲が広がっている、(f) 2回目 以降の参照は変わらない、(g) 結合 A71:L74 が A73:L76 になり印刷範囲が `A1:L82`。openpyxl の再読込で数式文字列を検査する（LibreOffice は無いので再計算はしない）。
+- [ ] **Step 2: 失敗確認** → **Step 3: 実装** → **Step 4: 通過確認** → **Step 5: コミット** `feat(export): 行が足りない日は行を挿入して参照をずらす`
+
+### Task 7: 利用者による Excel での確認と記録
+
+**Files:**
+- Modify: `docs/superpowers/plans/2026-10-30-phase1-record.md`（第2計画の記録）, `README.md`
+
+- [ ] **Step 1:** 本番で 2026-11 を出力し、Excel で開く：マクロ有効で開けること、月次集計の労務費・本日原価がアプリの集計と一致すること、プルダウン（天候・作業員・車両・リース品）が動くこと、「＋ 行追加」ボタンが残っていること、作業員 11 人の日（テスト用に作る）で月次集計が正しいこと。
+- [ ] **Step 2:** 不一致があれば記録して修正タスクに戻す。合格なら記録に「第2計画 完了」。
 
 ---
 
-### Task 7: 本番での検証（利用者と）
-
-- [ ] 村山邸の 2026 年 11 月を出力 → Excel で開く：マクロ警告が出て有効化できる（VBA が残っている）、天候・作業員名のプルダウンが効く、`1回目` の日付・作業員・時刻が合う、月次集計の労務費・本日原価がアプリの集計画面と一致する、マスターシートの日当・残業単価・前月繰越が合う。
-- [ ] 作業員 12 人の日報を試験で作って出力 → 行が増え、合計・月次集計が合う。
-- [ ] 現場詳細の出力一覧から再ダウンロードできる。
-- [ ] 結果と据え置き事項を記録に書く。
-
-## セルフレビュー（作成時）
-- 仕様 §8.1〜8.5 の各項目：8.1（単位・ファイル名・再出力・Storage・31 件超）→ Task 5/6。8.2（keep_vba・入力セルのみ・行挿入・プルダウン再設定）→ Task 1/2/3。8.3 対応表 → Task 1 の `layout.py`（V34 で備考が L 列、残業単価が E 列に変わった点を反映。`マスター G3〜K32` は実ファイルでは取引先が G3〜K30 なので 30 件）。8.4 → Task 3。8.5 → Task 5（`workerCumulative` を再利用）。§3 の Python 関数 → Task 4。
-- Task 間の名前：`fill_workbook` / payload の JSON 形（Task 1 ↔ 5）、`EXCEL_EXPORT_SECRET`（Task 4 ↔ 5）、`storagePath`（Task 5 ↔ 6）を統一した。
-- 未決：Vercel の Python 関数でテンプレートを同梱する方法（`includeFiles` が効かない場合の予備を Task 4 に書いた）。Hobby プランの関数時間（60 秒指定、超える場合は 300 秒まで上げられる）。
+## 自己点検（計画作成時）
+- §8.1：単位・ファイル名・再ダウンロード（Task 4・5）、31 件超の停止（Task 2・5）。§8.2：手順 1〜5（Task 1・2・3・6）。§8.3：対応表（上の表＝ V34 で L 列・D25〜D28 を追加。原本の E60/H60/B80〜K80 はそのまま）。§8.4：Task 6。§8.5：Task 1・4。§14：原本差分テスト（Task 1・3）、行挿入テスト（Task 6）。LibreOffice での再計算は環境に無いため、数式文字列の検査（Task 6）と利用者の Excel 確認（Task 7）で代える。
+- §14 の「非同期ジョブ」：1 か月分は数秒で終わるため同期の Route Handler にする（60 秒上限）。遅い場合は後で非同期化する。
+- 既知の制限（ガイドに書く）：マスターの日当は月初の日報時点の値（月途中で変わった行は J 列に値を書くので労務費は一致）。雛形の集計データが参照する備考は L 列（職種）なので、備考に職種を入れる運用は変わらない。
