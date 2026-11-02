@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { APP_NAME } from '@/lib/constants';
+import { APP_NAME, GYOMU_NIPPOU_URL } from '@/lib/constants';
 import { createBrowserSupabase } from '@/lib/supabase/client';
 
 export default function LoginPage() {
@@ -42,6 +43,14 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-dvh items-center justify-center px-4 py-8">
       <div className="w-full max-w-sm">
+        <Image
+          src="/logo.png"
+          alt="オオホリ建託"
+          width={322}
+          height={199}
+          priority
+          className="mx-auto mb-4 h-auto w-40 dark:invert"
+        />
         <h1 className="mb-6 text-center text-2xl font-bold">{APP_NAME}</h1>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -85,9 +94,21 @@ export default function LoginPage() {
             {loading ? 'ログイン中…' : 'ログイン'}
           </button>
         </form>
-        <p className="mt-6 text-sm text-gray-600 dark:text-gray-400">
-          パスワードをお忘れの場合は管理者に再設定を依頼してください。
-        </p>
+        <div className="mt-6 space-y-2 text-sm text-gray-600 dark:text-gray-400">
+          <p>
+            パスワードをお忘れの場合は、
+            <a
+              href={GYOMU_NIPPOU_URL}
+              target="_blank"
+              rel="noopener"
+              className="font-medium text-blue-700 underline underline-offset-4 dark:text-blue-400"
+            >
+              業務日報アプリ
+            </a>
+            のログイン画面にある「パスワードを忘れた方」から再設定してください（同じメールアドレスとパスワードで両方にログインできます）。
+          </p>
+          <p>協力会社の方は、管理者に再設定を依頼してください。</p>
+        </div>
       </div>
     </main>
   );
