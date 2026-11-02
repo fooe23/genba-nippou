@@ -1253,3 +1253,17 @@ $$;
 
 revoke all on function public.gn_import_masters(text, date, jsonb) from public, anon;
 grant execute on function public.gn_import_masters(text, date, jsonb) to authenticated;
+
+-- =====================================================================
+-- 氏名の参照関数（Excel 出力用、2026-11-03）
+-- =====================================================================
+create or replace function public.gn_profile_names(p_ids uuid[])
+returns table (id uuid, display_name text)
+language sql stable security definer set search_path = public as $$
+  select p.id, coalesce(nullif(btrim(p.name), ''), p.email, '') as display_name
+    from public.profiles p
+   where auth.uid() is not null
+     and p.id = any (coalesce(p_ids, array[]::uuid[]));
+$$;
+revoke all on function public.gn_profile_names(uuid[]) from public, anon;
+grant execute on function public.gn_profile_names(uuid[]) to authenticated;
