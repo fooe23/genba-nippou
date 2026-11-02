@@ -26,6 +26,7 @@ export function LineTable<L>({
   subtotalLabel,
   subtotal,
   emptyText,
+  hint,
 }: {
   title: string;
   rows: Row<L>[];
@@ -37,6 +38,8 @@ export function LineTable<L>({
   subtotalLabel: string;
   subtotal: string;
   emptyText: string;
+  /** 表の下に出す補足（プルダウンに無いときの案内など）。 */
+  hint?: string;
 }) {
   return (
     <section aria-label={title} className="mb-8">
@@ -114,6 +117,7 @@ export function LineTable<L>({
           {subtotalLabel} <span className="font-bold tabular-nums">{subtotal}</span>
         </p>
       </div>
+      {hint && <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">{hint}</p>}
     </section>
   );
 }

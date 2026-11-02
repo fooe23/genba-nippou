@@ -18,23 +18,40 @@ interface Props {
 
 type Key = keyof SiteMasters;
 
+const smallButtonClass =
+  'min-h-11 rounded-lg border border-gray-400 px-3 text-sm font-medium disabled:opacity-50 dark:border-gray-600';
+
 function Checklist({
   title,
   items,
   checked,
   onToggle,
+  onSetAll,
 }: {
   title: string;
   items: CheckItem[];
   checked: Set<string>;
   onToggle: (id: string) => void;
+  /** すべて選択（有効なものだけ）／すべて外す */
+  onSetAll: (ids: string[]) => void;
 }) {
+  const activeIds = items.filter((i) => i.active).map((i) => i.id);
   return (
     <fieldset className="space-y-1">
       <legend className="mb-1 font-bold">
         {title}
         <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-400">（{checked.size}件選択中）</span>
       </legend>
+      {items.length > 0 && (
+        <div className="mb-1 flex flex-wrap gap-2">
+          <button type="button" onClick={() => onSetAll(activeIds)} className={smallButtonClass}>
+            すべて選択（有効な{activeIds.length}件）
+          </button>
+          <button type="button" onClick={() => onSetAll([])} disabled={checked.size === 0} className={smallButtonClass}>
+            すべて外す
+          </button>
+        </div>
+      )}
       {items.length === 0 ? (
         <EmptyText>選べる項目がありません。マスター管理で登録してください。</EmptyText>
       ) : (
@@ -87,6 +104,11 @@ export function SiteMastersSection({ siteId, selected, workers, suppliers, vehic
     });
   }
 
+  function setAll(key: Key, ids: string[]) {
+    setSaved(false);
+    setSel((prev) => ({ ...prev, [key]: new Set(ids) }));
+  }
+
   // 既存の並び（保存済みの順）を保ち、新しく選んだものは一覧順で末尾に足す。
   function ordered(key: Key, items: CheckItem[]): string[] {
     const keep = selected[key].filter((id) => sel[key].has(id));
@@ -111,10 +133,13 @@ export function SiteMastersSection({ siteId, selected, workers, suppliers, vehic
 
   return (
     <div className="space-y-5">
-      <Checklist title="作業員" items={workers} checked={sel.workerIds} onToggle={(id) => toggle('workerIds', id)} />
-      <Checklist title="取引先" items={suppliers} checked={sel.supplierIds} onToggle={(id) => toggle('supplierIds', id)} />
-      <Checklist title="車両" items={vehicles} checked={sel.vehicleIds} onToggle={(id) => toggle('vehicleIds', id)} />
-      <Checklist title="リース品" items={leaseItems} checked={sel.leaseItemIds} onToggle={(id) => toggle('leaseItemIds', id)} />
+      <p className="text-sm text-gray-600 dark:text-gray-400">
+        ここで選んだものだけが、この現場の日報のプルダウンに出ます。何も選んでいない種類は、有効なもの全部が出ます。
+      </p>
+      <Checklist title="作業員" items={workers} checked={sel.workerIds} onToggle={(id) => toggle('workerIds', id)} onSetAll={(ids) => setAll('workerIds', ids)} />
+      <Checklist title="取引先" items={suppliers} checked={sel.supplierIds} onToggle={(id) => toggle('supplierIds', id)} onSetAll={(ids) => setAll('supplierIds', ids)} />
+      <Checklist title="車両" items={vehicles} checked={sel.vehicleIds} onToggle={(id) => toggle('vehicleIds', id)} onSetAll={(ids) => setAll('vehicleIds', ids)} />
+      <Checklist title="リース品" items={leaseItems} checked={sel.leaseItemIds} onToggle={(id) => toggle('leaseItemIds', id)} onSetAll={(ids) => setAll('leaseItemIds', ids)} />
       <ErrorText message={error} />
       {saved && !error && (
         <p role="status" className="text-sm font-medium text-green-700 dark:text-green-400">

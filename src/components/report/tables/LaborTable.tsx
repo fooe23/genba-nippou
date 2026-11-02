@@ -85,6 +85,7 @@ export function LaborTable({
       subtotalLabel="労務費 小計"
       subtotal={money(subtotal)}
       emptyText="作業員はまだありません。「＋追加」で入力します。時間を空欄にすると共通時間で計算します。"
+      hint="作業員がプルダウンに無いときは、管理者が 管理 → 現場 → ③ この現場で使うマスター で追加できます（何も選んでいない現場は有効な作業員全員が出ます）。"
     />
   );
 }

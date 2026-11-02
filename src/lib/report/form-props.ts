@@ -25,11 +25,13 @@ function weekday(date: string): string {
 }
 
 // 現場で使う（選択済みの）マスターのうち有効なもの＋この日報ですでに使っているもの。並びは現場の選択順。
-function forSite<T extends { id: string; active: boolean }>(items: T[], selectedIds: string[], usedIds: Set<string>): T[] {
+// 現場で 1 件も選んでいない種類は、有効なもの全部（マスターの並び）を出す（設定し忘れでも入力できるように）。
+export function forSite<T extends { id: string; active: boolean }>(items: T[], selectedIds: string[], usedIds: Set<string>): T[] {
   const byId = new Map(items.map((i) => [i.id, i]));
   const out: T[] = [];
   const seen = new Set<string>();
-  for (const id of selectedIds) {
+  const ids = selectedIds.length > 0 ? selectedIds : items.filter((i) => i.active).map((i) => i.id);
+  for (const id of ids) {
     const item = byId.get(id);
     if (item && !seen.has(id) && (item.active || usedIds.has(id))) {
       out.push(item);
