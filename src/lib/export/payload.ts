@@ -65,30 +65,46 @@ export function exportFileName(siteName: string, month: string): string {
 // ─── マスターの選び方 ───
 
 /**
- * 現場で選択した順 → 未選択だがその月に使ったものを名前順で末尾。
+ * 現場で選択した順 → 以降の各グループ（その月に使った未選択、繰越だけの未選択 …）をグループごとに名前順で末尾へ。
  * マスターに無い id（削除済みなど）は飛ばす。
  */
-function pickMasters<T extends { id: string; name: string }>(all: T[], selectedIds: string[], usedIds: Iterable<string>): T[] {
+function pickMasters<T extends { id: string; name: string }>(all: T[], selectedIds: string[], ...groups: Iterable<string>[]): T[] {
   const byId = new Map(all.map((m) => [m.id, m]));
   const out: T[] = [];
   const seen = new Set<string>();
-  for (const id of selectedIds) {
-    const m = byId.get(id);
-    if (m && !seen.has(id)) {
-      out.push(m);
-      seen.add(id);
+  const take = (ids: Iterable<string>): T[] => {
+    const got: T[] = [];
+    for (const id of ids) {
+      const m = byId.get(id);
+      if (m && !seen.has(id)) {
+        got.push(m);
+        seen.add(id);
+      }
     }
+    return got;
+  };
+  out.push(...take(selectedIds));
+  for (const g of groups) out.push(...take(g).sort((a, b) => a.name.localeCompare(b.name, 'ja')));
+  return out;
+}
+
+/** 名前（前後空白を除く）→ id。同じ名前が 2 件以上あるものは入れない（どちらか決められないため）。 */
+function uniqueIdByName<T extends { id: string; name: string }>(all: T[]): Map<string, string> {
+  const ids = new Map<string, string | null>();
+  for (const m of all) {
+    const key = m.name.trim();
+    ids.set(key, ids.has(key) ? null : m.id);
   }
-  const extra: T[] = [];
-  for (const id of usedIds) {
-    const m = byId.get(id);
-    if (m && !seen.has(id)) {
-      extra.push(m);
-      seen.add(id);
-    }
-  }
-  extra.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-  return [...out, ...extra];
+  const out = new Map<string, string>();
+  for (const [k, id] of ids) if (id !== null) out.set(k, id);
+  return out;
+}
+
+/** 出力対象の中で 2 件以上ある名前（前後空白を除く）と件数。 */
+function duplicateNames(items: { name: string }[]): Map<string, number> {
+  const count = new Map<string, number>();
+  for (const m of items) count.set(m.name.trim(), (count.get(m.name.trim()) ?? 0) + 1);
+  return new Map([...count].filter(([, n]) => n >= 2));
 }
 
 function linesOf<K extends ReportLine['kind']>(reports: ExportReport[], kind: K): Extract<ReportLine, { kind: K }>[] {
@@ -102,18 +118,15 @@ function nonNull(ids: (string | null)[]): string[] {
 }
 
 /**
- * 明細の単価の「雛形のマスター値」。雛形は名前で VLOOKUP するので、参照先（id）→ 同じ名前の出力対象 → 行の保存値 の順に探す。
- * 参照も同名も無い手入力行は保存値（＝上書きしない）。
+ * 明細の単価の「雛形のマスター値」＝ 雛形の VLOOKUP（名前の完全一致）が実際に引く値。
+ * 出力対象に無い名前（VLOOKUP は 0）と、同じ名前が 2 件以上ある名前（先頭が引かれる）は null にする。
+ * null なら Python は保存値を必ず書くので、各行の金額は保存値と一致する。
  */
-function masterRate<T extends { id: string; name: string }>(
-  refId: string | null,
-  name: string,
-  picked: T[],
-  rateOf: (m: T) => number | null,
-  own: number | null,
-): number | null {
-  const m = (refId !== null ? picked.find((x) => x.id === refId) : undefined) ?? picked.find((x) => x.name === name);
-  return m ? rateOf(m) : own;
+function masterRate<T extends { name: string }>(name: string, picked: T[], duplicates: Map<string, number>, rateOf: (m: T) => number | null): number | null {
+  const key = name.trim();
+  if (duplicates.has(key)) return null;
+  const m = picked.find((x) => x.name.trim() === key);
+  return m ? rateOf(m) : null;
 }
 
 // ─── 明細 ───
@@ -126,7 +139,7 @@ function laborTime(t: TimeSpec, common: TimeSpec): { start: string | null; end: 
   return { start: t.start, end: t.end };
 }
 
-function laborRow(l: LaborLine, common: TimeSpec, workers: Worker[], rateOf: (w: Worker) => number | null): ExportLaborRow {
+function laborRow(l: LaborLine, common: TimeSpec, workers: Worker[], duplicates: Map<string, number>, rateOf: (w: Worker) => number | null): ExportLaborRow {
   const { start, end } = laborTime(l.time, common);
   return {
     name: l.workerName,
@@ -136,11 +149,11 @@ function laborRow(l: LaborLine, common: TimeSpec, workers: Worker[], rateOf: (w:
     gap_min: l.time.gapMin,
     note: text(l.note),
     daily_rate: l.dailyRate,
-    master_daily_rate: masterRate(l.workerId, l.workerName, workers, rateOf, l.dailyRate),
+    master_daily_rate: masterRate(l.workerName, workers, duplicates, rateOf),
   };
 }
 
-function leaseRow(l: LeaseLine, items: LeaseItem[], rateOf: (m: LeaseItem) => number | null): ExportLeaseRow {
+function leaseRow(l: LeaseLine, items: LeaseItem[], duplicates: Map<string, number>, rateOf: (m: LeaseItem) => number | null): ExportLeaseRow {
   return {
     name: l.itemName,
     spec: text(l.spec),
@@ -148,7 +161,7 @@ function leaseRow(l: LeaseLine, items: LeaseItem[], rateOf: (m: LeaseItem) => nu
     qty: l.qty,
     note: text(l.note),
     unit_price: l.unitPrice,
-    master_unit_price: masterRate(l.itemId, l.itemName, items, rateOf, l.unitPrice),
+    master_unit_price: masterRate(l.itemName, items, duplicates, rateOf),
   };
 }
 
@@ -169,11 +182,33 @@ export function buildExportPayload(input: ExportInput): ExportResult {
   const workerRate = (w: Worker) => rateAt(w.rates, rateDate);
   const leaseRate = (m: LeaseItem) => rateAt(m.rates, rateDate);
 
-  // マスター（選択順 → その月に使った未選択を名前順）
-  const workers = pickMasters(input.workers, input.selected.workerIds, nonNull(linesOf(reports, 'labor').map((l) => l.workerId)));
+  // 参照の無い手入力行は、名前（前後空白を除く）が 1 件だけ一致するマスターのものとみなす（雛形は名前で引くため）。
+  const workerIdByName = uniqueIdByName(input.workers);
+  const leaseIdByName = uniqueIdByName(input.leaseItems);
+  const workerIdOf = (id: string | null, name: string) => id ?? workerIdByName.get(name.trim()) ?? null;
+  const leaseIdOf = (id: string | null, name: string) => id ?? leaseIdByName.get(name.trim()) ?? null;
+
+  // 前月繰越：workerCumulative と同じ規則（繰越の基準日より前の日報は初期値に含まれているとみなして除く）。
+  // 名前だけの行も上の規則で作業員に寄せてから数える（寄せた作業員の基準日より前の分も除かれる）。
+  const [y, m] = input.month.split('-').map(Number);
+  const monthStart = `${input.month}-01`;
+  const monthEnd = `${input.month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
+  const names: Record<string, string> = {};
+  for (const w of input.workers) names[w.id] = w.name;
+  const entries = input.laborEntries.map((e) => ({ ...e, workerId: workerIdOf(e.workerId, e.workerName) }));
+  const cumulative = workerCumulative(entries, input.carryovers, names, { from: monthStart, to: monthEnd });
+  const hasCarry = (r: { carryManDays: number; carryCost: number }) => r.carryManDays !== 0 || r.carryCost !== 0;
+
+  // マスター（選択順 → その月に使った未選択を名前順 → 繰越だけの未選択を名前順）
+  const workers = pickMasters(
+    input.workers,
+    input.selected.workerIds,
+    nonNull(linesOf(reports, 'labor').map((l) => workerIdOf(l.workerId, l.workerName))),
+    nonNull(cumulative.filter(hasCarry).map((r) => r.workerId)),
+  );
   const suppliers = pickMasters<Supplier>(input.suppliers, input.selected.supplierIds, nonNull(linesOf(reports, 'credit').map((l) => l.supplierId)));
   const vehicles = pickMasters<Vehicle>(input.vehicles, input.selected.vehicleIds, nonNull(linesOf(reports, 'fuel').map((l) => l.vehicleId)));
-  const leaseItems = pickMasters(input.leaseItems, input.selected.leaseItemIds, nonNull(linesOf(reports, 'lease').map((l) => l.itemId)));
+  const leaseItems = pickMasters(input.leaseItems, input.selected.leaseItemIds, nonNull(linesOf(reports, 'lease').map((l) => leaseIdOf(l.itemId, l.itemName))));
 
   if (workers.length > MASTER_LIMITS.workers)
     warn('too_many_workers', `作業員が ${workers.length} 人います。雛形に書けるのは ${MASTER_LIMITS.workers} 人までです`);
@@ -186,17 +221,23 @@ export function buildExportPayload(input: ExportInput): ExportResult {
   if (reports.length > MAX_DAYS)
     warn('too_many_days', `この月の日報が ${reports.length} 件あります。雛形に書けるのは ${MAX_DAYS} 件までです`);
 
-  // 前月繰越：workerCumulative と同じ規則（繰越の基準日より前の日報は初期値に含まれているとみなして除く）。
-  const [y, m] = input.month.split('-').map(Number);
-  const monthStart = `${input.month}-01`;
-  const monthEnd = `${input.month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`;
-  const names: Record<string, string> = {};
-  for (const w of input.workers) names[w.id] = w.name;
-  const cumulative = workerCumulative(input.laborEntries, input.carryovers, names, { from: monthStart, to: monthEnd });
+  // 同じ名前が出力対象に 2 件以上：雛形は先頭の行の値を引くので、その名前の明細は master を null にして保存値を書かせる。
+  const dupWorkers = duplicateNames(workers);
+  const dupLease = duplicateNames(leaseItems);
+  // 寄せ先が決まらなかった名前だけの繰越（マスターに同名が 2 件以上）。出力対象に 1 件だけならそこへ足す。
+  const nameOnlyCarry = cumulative.filter((r) => r.workerId === null && hasCarry(r));
+  for (const [name, n] of dupWorkers) {
+    const dropped = nameOnlyCarry.some((r) => r.workerName.trim() === name);
+    warn('duplicate_name', `作業員名『${name}』が ${n} 件あります。Excel では先頭の行の日当が使われます${dropped ? '（名前だけの前月繰越は入れていません）' : ''}`);
+  }
+  for (const [name, n] of dupLease) warn('duplicate_name', `リース品名『${name}』が ${n} 件あります。Excel では先頭の行の単価が使われます`);
 
   const exportWorkers: ExportWorker[] = workers.map((w) => {
-    // 雛形は名前で集計するので、参照の無い手入力行のうち同じ名前のものもこの作業員に入れる。
-    const rows = cumulative.filter((r) => r.workerId === w.id || (r.workerId === null && r.workerName === w.name));
+    const key = w.name.trim();
+    const rows = [
+      ...cumulative.filter((r) => r.workerId === w.id),
+      ...(dupWorkers.has(key) ? [] : nameOnlyCarry.filter((r) => r.workerName.trim() === key)),
+    ];
     return {
       name: w.name,
       trade: w.trade,
@@ -215,21 +256,21 @@ export function buildExportPayload(input: ExportInput): ExportResult {
 
   // 名前がマスター（出力対象）に無い行：雛形の VLOOKUP が外れる。同じ名前は最初の日に 1 回だけ知らせる。
   const known = {
-    labor: new Set(workers.map((w) => w.name)),
-    fuel: new Set(vehicles.map((v) => v.name)),
-    lease: new Set(leaseItems.map((l) => l.name)),
+    labor: new Set(workers.map((w) => w.name.trim())),
+    fuel: new Set(vehicles.map((v) => v.name.trim())),
+    lease: new Set(leaseItems.map((l) => l.name.trim())),
   };
-  const nameLabels = {
-    labor: ['作業員名', '日当'],
-    fuel: ['車両名', '燃費'],
-    lease: ['リース品名', '単価'],
-  } as const;
+  const nameMessages = {
+    labor: (n: string) => `作業員名『${n}』がマスターに無いため、日当は日報の保存値を書きます`,
+    fuel: (n: string) => `車両名『${n}』がマスターに無いため、Excel の燃費が引けません`,
+    lease: (n: string) => `リース品名『${n}』がマスターに無いため、単価は日報の保存値を書きます`,
+  };
   const warnedNames = new Set<string>();
   const checkName = (kind: keyof typeof known, name: string, date: string) => {
-    if (name.trim() === '' || known[kind].has(name) || warnedNames.has(`${kind}:${name}`)) return;
-    warnedNames.add(`${kind}:${name}`);
-    const [label, what] = nameLabels[kind];
-    warn('name_not_in_master', `${label}『${name}』がマスターに無いため、Excel の${what}が引けません`, date);
+    const key = name.trim();
+    if (key === '' || known[kind].has(key) || warnedNames.has(`${kind}:${key}`)) return;
+    warnedNames.add(`${kind}:${key}`);
+    warn('name_not_in_master', nameMessages[kind](key), date);
   };
 
   const days: ExportDay[] = reports.map((r, i) => {
@@ -259,9 +300,9 @@ export function buildExportPayload(input: ExportInput): ExportResult {
       weather: text(r.weather),
       supervisor: text(r.supervisor),
       common: { start: r.common.start, end: r.common.end, break_min: r.common.breakMin, gap_min: r.common.gapMin },
-      labor: labor.map((l) => laborRow(l, r.common, workers, workerRate)),
+      labor: labor.map((l) => laborRow(l, r.common, workers, dupWorkers, workerRate)),
       fuel: fuel.map((l) => ({ name: l.vehicleName, distance_km: l.distanceKm, price_per_l: l.pricePerL, note: text(l.note) })),
-      lease: lease.map((l) => leaseRow(l, leaseItems, leaseRate)),
+      lease: lease.map((l) => leaseRow(l, leaseItems, dupLease, leaseRate)),
       cash: cash.map(purchaseRow),
       credit: credit.map(purchaseRow),
       work: work.map((l) => ({

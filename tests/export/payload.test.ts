@@ -167,8 +167,8 @@ describe('buildExportPayload: マスターの並びと上限', () => {
     }));
     expect(payload.days[0].labor.map((l) => l.name)).toEqual(['山田 太郎', '応援 一郎', '応援 一郎']);
     expect(warnings).toEqual([
-      { code: 'name_not_in_master', message: '作業員名『応援 一郎』がマスターに無いため、Excel の日当が引けません', date: '2026-11-02' },
-      { code: 'name_not_in_master', message: 'リース品名『投光器』がマスターに無いため、Excel の単価が引けません', date: '2026-11-03' },
+      { code: 'name_not_in_master', message: '作業員名『応援 一郎』がマスターに無いため、日当は日報の保存値を書きます', date: '2026-11-02' },
+      { code: 'name_not_in_master', message: 'リース品名『投光器』がマスターに無いため、単価は日報の保存値を書きます', date: '2026-11-03' },
     ]);
   });
 
@@ -211,11 +211,46 @@ describe('buildExportPayload: 日当・リース単価', () => {
     expect([d2.lease[0].unit_price, d2.lease[0].master_unit_price]).toEqual([3500, 3000]);
   });
 
-  it('作業員参照の無い手入力行は日当・マスターとも保存値', () => {
+  it('マスターに無い名前の手入力行は master が null（Python が保存値を必ず書く）', () => {
     const reports = [report('2026-11-05', [labor(null, '応援', { dailyRate: 25000 }), lease(null, '投光器', 800)])];
     const { payload } = buildExportPayload(input({ reports }));
-    expect(payload.days[0].labor[0]).toMatchObject({ daily_rate: 25000, master_daily_rate: 25000 });
-    expect(payload.days[0].lease[0]).toMatchObject({ unit_price: 800, master_unit_price: 800 });
+    expect(payload.days[0].labor[0]).toMatchObject({ daily_rate: 25000, master_daily_rate: null });
+    expect(payload.days[0].lease[0]).toMatchObject({ unit_price: 800, master_unit_price: null });
+  });
+
+  it('手入力行の名前がマスターの作業員（未選択）と 1 件だけ一致すれば、その作業員を出力対象に入れ、master はそのマスター値', () => {
+    const reports = [report('2026-11-05', [labor(null, '山田 太郎', { dailyRate: 25000 }), lease(null, '発電機', 800)])];
+    const { payload, warnings } = buildExportPayload(input({
+      reports, workers: [worker('w1', '山田 太郎', [[18000, '2026-01-01']])], leaseItems: [leaseItem('l1', '発電機')],
+    }));
+    expect(payload.workers.map((w) => w.name)).toEqual(['山田 太郎']);
+    expect(payload.lease_items.map((l) => l.name)).toEqual(['発電機']);
+    expect(payload.days[0].labor[0]).toMatchObject({ daily_rate: 25000, master_daily_rate: 18000 });
+    expect(payload.days[0].lease[0]).toMatchObject({ unit_price: 800, master_unit_price: 3000 });
+    expect(warnings).toEqual([]);
+  });
+
+  it('同じ名前の作業員・リース品が 2 件あれば duplicate_name を出し、その名前の行は master が null', () => {
+    const workers = [worker('w1', '山田 太郎', [[18000, '2026-01-01']]), worker('w2', '山田 太郎 ', [[22000, '2026-01-01']])];
+    const items = [leaseItem('l1', '発電機', [[3000, '2026-01-01']]), leaseItem('l2', '発電機', [[3500, '2026-01-01']])];
+    const reports = [report('2026-11-05', [
+      labor('w1', '山田 太郎', { dailyRate: 18000 }),
+      labor('w2', '山田 太郎', { dailyRate: 22000 }),
+      lease('l2', '発電機', 3500),
+    ])];
+    const laborEntries = [{ reportDate: '2026-10-10', workerId: null, workerName: '山田 太郎', manDays: 1, cost: 20000 }];
+    const { payload, warnings } = buildExportPayload(input({
+      reports, workers, leaseItems: items, laborEntries,
+      selected: { workerIds: ['w1', 'w2'], supplierIds: [], vehicleIds: [], leaseItemIds: ['l1'] },
+    }));
+    expect(payload.days[0].labor.map((l) => [l.daily_rate, l.master_daily_rate])).toEqual([[18000, null], [22000, null]]);
+    expect(payload.days[0].lease[0]).toMatchObject({ unit_price: 3500, master_unit_price: null });
+    // 名前だけの繰越はどちらにも足さない
+    expect(payload.workers.map((w) => [w.carry_man_days, w.carry_cost])).toEqual([[0, 0], [0, 0]]);
+    expect(warnings).toEqual([
+      { code: 'duplicate_name', message: '作業員名『山田 太郎』が 2 件あります。Excel では先頭の行の日当が使われます（名前だけの前月繰越は入れていません）' },
+      { code: 'duplicate_name', message: 'リース品名『発電機』が 2 件あります。Excel では先頭の行の単価が使われます' },
+    ]);
   });
 
   it('同じ作業員の 2 行（午前・午後）はそのまま 2 行で出す', () => {
@@ -252,6 +287,42 @@ describe('buildExportPayload: 前月繰越', () => {
       ['山田 太郎', 14.07, 253260],
       ['鈴木 一郎', 0.53, 8480],
     ]);
+  });
+
+  it('未選択でその月に使っていなくても、繰越がある作業員は末尾に入れる（選択 → 使用を名前順 → 繰越だけを名前順）', () => {
+    const workers = [
+      worker('w1', '選択'), worker('w2', 'つかった'), worker('w3', 'あさく'),
+      worker('w4', 'くりこし初期値'), worker('w5', 'いぜんの日報'), worker('w6', '繰越なし'),
+    ];
+    const reports = [report('2026-11-05', [labor('w2', 'つかった'), labor('w3', 'あさく')])];
+    const { payload } = buildExportPayload(input({
+      workers, reports,
+      selected: { workerIds: ['w1'], supplierIds: [], vehicleIds: [], leaseItemIds: [] },
+      carryovers: [{ workerId: 'w4', manDays: 3, laborCost: 54000, beforeDate: '2026-10-01' }],
+      laborEntries: [
+        { reportDate: '2026-10-20', workerId: 'w5', workerName: 'いぜんの日報', manDays: 1, cost: 18000 },
+        { reportDate: '2026-12-01', workerId: 'w6', workerName: '繰越なし', manDays: 1, cost: 18000 }, // 出力月より後は繰越ではない
+      ],
+    }));
+    expect(payload.workers.map((w) => [w.name, w.carry_man_days, w.carry_cost])).toEqual([
+      ['選択', 0, 0],
+      ['あさく', 0, 0],
+      ['つかった', 0, 0],
+      ['いぜんの日報', 1, 18000],
+      ['くりこし初期値', 3, 54000],
+    ]);
+  });
+
+  it('名前だけの行は同名の作業員の繰越に入れ、その作業員の基準日より前の分は除く', () => {
+    const { payload } = buildExportPayload(input({
+      workers: [worker('w1', '山田 太郎')],
+      carryovers: [{ workerId: 'w1', manDays: 10, laborCost: 180000, beforeDate: '2026-10-01' }],
+      laborEntries: [
+        { reportDate: '2026-09-25', workerId: null, workerName: '山田 太郎', manDays: 1, cost: 18000 }, // 初期値に含まれる
+        { reportDate: '2026-10-15', workerId: null, workerName: '山田 太郎', manDays: 0.5, cost: 9000 },
+      ],
+    }));
+    expect(payload.workers.map((w) => [w.name, w.carry_man_days, w.carry_cost])).toEqual([['山田 太郎', 10.5, 189000]]);
   });
 
   it('前月までの分が無い作業員は 0', () => {

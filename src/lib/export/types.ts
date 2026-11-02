@@ -55,7 +55,10 @@ export interface ExportLaborRow {
   note: string | null;
   /** 保存値（スナップショット）。 */
   daily_rate: number | null;
-  /** 雛形のマスターに書く値（Python はこれと daily_rate が違う行だけ J 列を上書きする）。 */
+  /**
+   * 雛形の VLOOKUP が引くマスター値（Python はこれと daily_rate が違う行だけ J 列を上書きする）。
+   * 出力対象に無い名前・同じ名前が 2 件以上ある名前は null（＝保存値を必ず書く）。
+   */
   master_daily_rate: number | null;
 }
 export interface ExportFuelRow { name: string; distance_km: number | null; price_per_l: number | null; note: string | null; }
@@ -120,7 +123,8 @@ export type ExportWarningCode =
   | 'too_many_lease_items'
   | 'too_many_days'
   | 'rows_overflow'
-  | 'name_not_in_master';
+  | 'name_not_in_master'
+  | 'duplicate_name';
 
 export interface ExportWarning { code: ExportWarningCode; message: string; date?: string; }
 

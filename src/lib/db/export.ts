@@ -1,13 +1,14 @@
 import 'server-only';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
+import { toStatus } from '@/lib/db/reports';
 import { getSettings } from '@/lib/db/settings';
 import { getSite, getSiteMasters, listCarryovers } from '@/lib/db/sites';
 import { loadSummaryData } from '@/lib/db/summary';
 import type { ExportInput, ExportReport } from '@/lib/export/types';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
 import { createServerSupabase } from '@/lib/supabase/server';
-import type { ReportLine, ReportStatus } from '@/lib/types';
+import type { ReportLine } from '@/lib/types';
 
 // Excel 出力用の読み取り（RLS 前提）。payload の組み立ては src/lib/export/payload.ts（純関数）。
 
@@ -37,9 +38,6 @@ interface MonthReportRow {
 const MONTH_REPORT_COLUMNS =
   'id, report_date, status, weather, supervisor, common_start, common_end, common_break_min, common_gap_min, output_total, cost_total, issues_text, notes_text, created_by, reviewed_by, approved_by, approved_at';
 
-function toStatus(s: string): ReportStatus {
-  return s === 'submitted' || s === 'approved' || s === 'rejected' ? s : 'draft';
-}
 function numOrNull(v: number | string | null): number | null {
   if (v === null || v === '') return null;
   const n = Number(v);
@@ -53,7 +51,10 @@ function monthRange(month: string): { from: string; toExclusive: string } {
   return { from: `${month}-01`, toExclusive: next };
 }
 
-/** 必要な id だけ profiles から氏名を引く。RLS で読めない人は含まれない（呼び出し側で null にする）。失敗しても落とさない。 */
+/**
+ * 指定した id の氏名（無ければメール）。profiles は本人と管理者しか読めない（RLS）ので、DB 関数 gn_profile_names
+ * （security definer。supabase/update_2026-11-03d_profile_names.sql）を使う。関数が無い・失敗したときは全員分を空にして続ける。
+ */
 export async function loadProfileNames(ids: string[]): Promise<Record<string, string>> {
   const unique = [...new Set(ids)];
   const out: Record<string, string> = {};
@@ -61,15 +62,13 @@ export async function loadProfileNames(ids: string[]): Promise<Record<string, st
   try {
     const supabase = await createServerSupabase();
     for (const part of chunk(unique, ID_CHUNK)) {
-      const { data, error } = await supabase.from('profiles').select('id, name').in('id', part);
-      if (error) {
-        console.error('[loadProfileNames]', error.message);
-        continue;
-      }
-      for (const r of (data ?? []) as { id: string; name: string | null }[]) if (r.name) out[r.id] = r.name;
+      const { data, error } = await supabase.rpc('gn_profile_names', { p_ids: part });
+      if (error) throw new Error(error.message);
+      for (const r of (data ?? []) as { id: string; display_name: string | null }[]) if (r.display_name) out[r.id] = r.display_name;
     }
   } catch (e) {
     console.error('[loadProfileNames]', e);
+    return {};
   }
   return out;
 }
@@ -154,7 +153,8 @@ export async function loadMonthReports(siteId: string, month: string): Promise<E
     notesText: r.notes_text,
     lines: linesById.get(r.id) ?? [],
     issues: issuesById.get(r.id) ?? [],
-    createdByName: nameOf(r.created_by),
+    // 作成者の氏名が引けないときは作業責任者で代える（承認画面と同じ）。
+    createdByName: nameOf(r.created_by) ?? r.supervisor,
     reviewedByName: nameOf(r.reviewed_by),
     approvedByName: nameOf(r.approved_by),
     approvedAt: r.approved_at,
@@ -167,6 +167,7 @@ export async function loadMonthReports(siteId: string, month: string): Promise<E
  * 現場が見つからない（RLS で見えない）ときは例外。権限・削除済みの判定は呼び出し側（Route Handler）で行う。
  */
 export async function loadExportInput(siteId: string, month: string): Promise<ExportInput> {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) throw new Error('年月の形式が正しくありません');
   const site = await getSite(siteId);
   if (!site) throw new Error('現場が見つかりません');
   const [settings, selected, workers, suppliers, vehicles, leaseItems, carryovers, summary, reports] = await Promise.all([

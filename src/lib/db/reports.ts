@@ -41,7 +41,7 @@ interface ReportHeadRow {
 const HEAD_COLUMNS =
   'id, site_id, report_date, weather, supervisor, status, rejected_reason, output_total, cost_total, man_days_total, updated_at, created_by';
 
-function toStatus(s: string): ReportStatus {
+export function toStatus(s: string): ReportStatus {
   return s === 'submitted' || s === 'approved' || s === 'rejected' ? s : 'draft';
 }
 
