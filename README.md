@@ -35,7 +35,7 @@ src/components/     画面部品（report, site, sites, approval, summary, maste
 src/lib/            calc=計算, db=Supabase 読み書き, report=日報フォーム, supabase=クライアント
 src/content/        アプリ内ガイドの本文
 src/proxy.ts        ログイン状態の確認（未ログインは /login へ）
-supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、update_2026-11-02_site_archive.sql（現場の削除・削除ログ・完了現場の書き込み禁止）、update_2026-11-02b_lines_guard_fix.sql（その修正）、verify_rls.md（権限の確認手順）、verify_rls_auto.sql（手順をまとめた自動検証。実行後は全件取り消される）
+supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、update_2026-11-02_site_archive.sql（現場の削除・削除ログ・完了現場の書き込み禁止）、update_2026-11-02b_lines_guard_fix.sql（その修正）、update_2026-11-03_labor_rule.sql（人工・残業ルール［V34］・労務の設定・作業員の残業単価・現場の共通時間の既定）、verify_rls.md（権限の確認手順）、verify_rls_auto.sql（手順をまとめた自動検証。実行後は全件取り消される）
 tests/              Vitest
 scripts/            check-sql.mjs（SQL の構文検査）
 templates/          Excel 雛形（第2計画で使用）
@@ -66,7 +66,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 | `npm test` | Vitest（単体テスト） |
 | `npm run lint` | ESLint |
 | `npm run build` | 本番ビルド（型検査を含む） |
-| `npm run check:sql` | `supabase/*.sql`（`schema_genba.sql`・`add_profile_account_type.sql`・`fix_profiles_guard.sql`・`update_2026-10-31_employee_access.sql`・`update_2026-11-02_site_archive.sql`）の構文検査（DB には接続しない） |
+| `npm run check:sql` | `supabase/*.sql`（`schema_genba.sql`・`add_profile_account_type.sql`・`fix_profiles_guard.sql`・`update_2026-10-31_employee_access.sql`・`update_2026-11-02_site_archive.sql`・`update_2026-11-03_labor_rule.sql` など `supabase/` の全 SQL）の構文検査（DB には接続しない） |
 
 ## Supabase の準備
 
@@ -74,7 +74,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 
 1. `supabase/add_profile_account_type.sql` を実行する（`profiles` に区分 `account_type`［社員 `employee`／協力会社 `partner`］と会社名 `company_name` の列を追加する。協力会社の職長は現場日報専用のアカウントで、業務日報アプリ側は別途修正する。何度実行しても安全。`schema_genba.sql` の権限関数と `fix_profiles_guard.sql` がこの列を参照するので、必ず先に実行する）。
 2. SQL Editor → New query に `supabase/schema_genba.sql` を全部貼り付けて Run。何度実行しても安全で、既存アプリのテーブルは変更されない。`gn_` テーブル、RLS、Storage バケット（`gn-estimates` `gn-photos` `gn-exports`）が作られる。権限は「社員と管理者は全現場、協力会社は割り当て現場だけ」。既に全体を適用済みなら、権限関数だけを差し替える `supabase/update_2026-10-31_employee_access.sql` を実行すれば足りる（`schema_genba.sql` を再実行しても同じ結果）。
-   - **既存環境（2026-11-02 より前に `schema_genba.sql` を適用済み）**：続けて `supabase/update_2026-11-02_site_archive.sql` を実行する（現場の削除［`deleted_at`］・削除ログ［`gn_site_audit_log`］・削除／復元の関数・完了現場の書き込み禁止。何度実行しても安全）。続けて `supabase/update_2026-11-02b_lines_guard_fix.sql` も実行する（明細のある日報の削除が拒否される不具合の修正）。新規環境では `schema_genba.sql` に含まれているので不要。確認は `supabase/verify_rls.md` の「9. 現場の削除と完了現場」、または `supabase/verify_rls_auto.sql` を SQL Editor で実行して FAIL 0 件を確認する。
+   - **既存環境（2026-11-02 より前に `schema_genba.sql` を適用済み）**：続けて `supabase/update_2026-11-02_site_archive.sql` を実行する（現場の削除［`deleted_at`］・削除ログ［`gn_site_audit_log`］・削除／復元の関数・完了現場の書き込み禁止。何度実行しても安全）。続けて `supabase/update_2026-11-02b_lines_guard_fix.sql` も実行する（明細のある日報の削除が拒否される不具合の修正）。新規環境では `schema_genba.sql` に含まれているので不要。
+   - **既存環境（2026-11-03 より前に `schema_genba.sql` を適用済み）**：`supabase/update_2026-11-03_labor_rule.sql` を実行する（人工・残業ルール［V34］：全社の設定 `gn_settings`、作業員の残業単価、明細の残業列、現場ごとの共通時間の既定、明細の再計算トリガーと `gn_save_report` の差し替え。何度実行しても安全）。**アプリ（2026-11-03 以降の版）をデプロイする前に実行すること**（アプリは新しい列を読むため、未適用だと作業員・現場の一覧が読めない）。新規環境では `schema_genba.sql` に含まれているので不要。確認は `supabase/verify_rls.md` の「9. 現場の削除と完了現場」、または `supabase/verify_rls_auto.sql` を SQL Editor で実行して FAIL 0 件を確認する。
 3. 次章「既存アプリの profiles 保護（必須）」の `supabase/fix_profiles_guard.sql` を実行する。
 4. 最初の管理者：SQL Editor で `update public.profiles set is_admin = true where email = '<管理者のメール>';` を実行する（SQL Editor からの変更は手順3の保護の対象外なので通る）。以降の担当者の割り当ては管理画面から行う。
 5. `supabase/verify_rls.md` の手順で権限を確認し、結果をチェックボックスに記録する（協力会社が担当外の現場を見られないこと、社員は全現場に入力できるが承認はできないこと、承認権限など。管理者アカウントが必要なので手順4の後に行う）。共用プロジェクトに検証用の現場（検証現場X／Y）などのテスト行を作るため、最後の「7. 後片付け」で必ず削除する。
