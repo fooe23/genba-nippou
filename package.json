@@ -12,7 +12,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "check:sql": "node scripts/check-sql.mjs"
+    "check:sql": "node scripts/check-sql.mjs",
+    "test:py": "python3 -m unittest discover -s python/tests -t ."
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
