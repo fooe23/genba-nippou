@@ -98,7 +98,8 @@ begin
     -- 残業単価：作業員の単価（0 は空欄扱い）、無ければ 日当 ÷ 基準時間 × 割増率（円未満四捨五入）
     v_rate := nullif(new.overtime_rate, 0);
     if v_rate is null then
-      v_rate := round(coalesce(new.unit_price, 0) / coalesce(s.overtime_base_hours, 8) * coalesce(s.overtime_multiplier, 1.25), 0);
+      -- 先に掛けてから割る（先に割ると numeric の途中桁が打ち切られ、ちょうど .5 円の値が切り捨てになる）
+      v_rate := round(coalesce(new.unit_price, 0) * coalesce(s.overtime_multiplier, 1.25) / coalesce(s.overtime_base_hours, 8), 0);
     end if;
     new.amount       := coalesce(new.unit_price, 0) * new.man_days + new.overtime_hours * v_rate;
     new.productivity := null;
