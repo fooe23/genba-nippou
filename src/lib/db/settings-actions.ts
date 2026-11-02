@@ -10,6 +10,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 export type SettingsResult = { ok: true } | { ok: false; error: string };
 
 const FAILED = '設定の保存に失敗しました。もう一度お試しください。';
+const NO_ROW = '設定の行が見つかりません。データベースの更新（update_2026-11-03_labor_rule.sql）が済んでいるか確認してください。';
 
 /** 設定の変更は、この後に保存した日報から効く（保存済みの日報は保存し直すまで変わらない）。 */
 export async function updateSettings(input: SettingsInput): Promise<SettingsResult> {
@@ -33,13 +34,10 @@ export async function updateSettings(input: SettingsInput): Promise<SettingsResu
       })
       .eq('id', 1)
       .select('id');
-    if (error) {
-      console.error('[updateSettings]', error.message);
-      return { ok: false, error: FAILED };
-    }
-    if (!data || data.length === 0) {
-      return { ok: false, error: '設定の行が見つかりません。データベースの更新（update_2026-11-03_labor_rule.sql）が済んでいるか確認してください。' };
-    }
+    if (error) console.error('[updateSettings]', error.message);
+    // テーブルが無い（42P01）・行が無いときは、SQL の適用を案内する。
+    if ((error && error.code === '42P01') || (!error && (!data || data.length === 0))) return { ok: false, error: NO_ROW };
+    if (error) return { ok: false, error: FAILED };
     revalidatePath('/admin/masters');
     return { ok: true };
   } catch (e) {

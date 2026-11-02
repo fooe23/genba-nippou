@@ -72,7 +72,7 @@ export function MastersTabs({ data }: { data: MastersData }) {
         ))}
       </div>
       <div role="tabpanel" id={`panel-${active}`} aria-labelledby={`tab-${active}`}>
-        {active === 'workers' && <WorkersPanel workers={data.workers} today={data.today} />}
+        {active === 'workers' && <WorkersPanel workers={data.workers} today={data.today} rule={data.settings.rule} />}
         {active === 'suppliers' && <SuppliersPanel suppliers={data.suppliers} />}
         {active === 'vehicles' && <VehiclesPanel vehicles={data.vehicles} />}
         {active === 'lease' && <LeaseItemsPanel items={data.leaseItems} today={data.today} />}

@@ -5,6 +5,7 @@ import { yen } from '@/lib/calc/format';
 import { rateAt } from '@/lib/calc/rates';
 import { addWorkerRate, createWorkerWithRate, upsertWorker } from '@/lib/db/masters-actions';
 import type { Worker } from '@/lib/db/masters';
+import type { LaborRule } from '@/lib/types';
 import { amountSchema, dateSchema, firstError, workerInputSchema } from '@/lib/db/masters-schemas';
 import {
   ActiveBadge, ActiveToggle, EmptyText, ErrorText, Field, ListHeader, Row,
@@ -13,7 +14,7 @@ import {
 import { EditDialog } from './EditDialog';
 import { RateHistoryEditor } from './RateHistoryEditor';
 
-export function WorkersPanel({ workers, today }: { workers: Worker[]; today: string }) {
+export function WorkersPanel({ workers, today, rule }: { workers: Worker[]; today: string; rule: LaborRule }) {
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
   // 保存後に最新の props から引き直すため、オブジェクトではなく id を保持する
   const editing = editingId && editingId !== 'new' ? (workers.find((w) => w.id === editingId) ?? null) : null;
@@ -50,13 +51,13 @@ export function WorkersPanel({ workers, today }: { workers: Worker[]; today: str
         </ul>
       )}
       <EditDialog open={editingId !== null} title={editing ? '作業員を編集' : '作業員を追加'} onClose={close}>
-        <WorkerForm key={editingId ?? 'none'} worker={editing} onDone={close} />
+        <WorkerForm key={editingId ?? 'none'} worker={editing} rule={rule} onDone={close} />
       </EditDialog>
     </div>
   );
 }
 
-function WorkerForm({ worker, onDone }: { worker: Worker | null; onDone: () => void }) {
+function WorkerForm({ worker, rule, onDone }: { worker: Worker | null; rule: LaborRule; onDone: () => void }) {
   const { pending, error, setError, run } = useRunner();
 
   function submit(e: FormEvent<HTMLFormElement>) {
@@ -114,7 +115,7 @@ function WorkerForm({ worker, onDone }: { worker: Worker | null; onDone: () => v
               className={inputClass}
             />
           </Field>
-          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">空欄なら 日当 ÷ 8 × 1.25（設定で変更可）</p>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">空欄なら 日当 ÷ {rule.overtimeBaseHours} × {rule.overtimeMultiplier}（設定で変更可）</p>
         </div>
         {!worker && (
           <div className="space-y-3 rounded-lg bg-gray-100 p-3 dark:bg-gray-900">
