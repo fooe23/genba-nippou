@@ -195,13 +195,13 @@ function rTime(v: unknown): string | null {
   return typeof v === 'string' && v !== '' ? v : null;
 }
 
-/** 労務行の DB の計算値（保存時の設定で計算済み）。どれかが null なら付けない（画面で計算する）。 */
+/** 労務行の DB の計算値（保存時の設定で計算済み）。残業列が無い移行前の行は残業 0 とみなす。実働・人工・金額のどれかが null なら付けない（画面で計算する）。 */
 function savedValues(r: LineRowRead): { saved?: LaborSaved } {
   const hours = rNum(r.hours);
   const manDays = rNum(r.man_days);
-  const overtimeHours = rNum(r.overtime_hours);
+  const overtimeHours = rNum(r.overtime_hours) ?? 0;
   const cost = rNum(r.amount);
-  if (hours === null || manDays === null || overtimeHours === null || cost === null) return {};
+  if (hours === null || manDays === null || cost === null) return {};
   return { saved: { hours, manDays, overtimeHours, cost } };
 }
 

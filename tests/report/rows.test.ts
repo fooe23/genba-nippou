@@ -58,10 +58,11 @@ describe('toLineRows', () => {
     expect(fromLineRow({ kind: 'labor', overtime_rate: '3000' })).toMatchObject({ overtimeRate: 3000 });
     expect(fromLineRow({ kind: 'labor', overtime_rate: null })).toMatchObject({ overtimeRate: null });
   });
-  it('労務の saved は DB の文字列の数値から作り、どれかが null なら付けない。保存の列には送らない', () => {
+  it('労務の saved は DB の文字列の数値から作り、実働・人工・金額のどれかが null なら付けない。保存の列には送らない', () => {
     const r = { kind: 'labor' as const, hours: '8.5', man_days: '1', overtime_hours: '0.5', amount: '19406.5' };
     expect(fromLineRow(r)).toMatchObject({ saved: { hours: 8.5, manDays: 1, overtimeHours: 0.5, cost: 19406.5 } });
-    expect(fromLineRow({ ...r, overtime_hours: null })).not.toHaveProperty('saved'); // 移行前に保存された行
+    // 移行前に保存された行（残業列が無い）は残業 0 とみなして saved を付ける
+    expect(fromLineRow({ ...r, overtime_hours: null })).toMatchObject({ saved: { hours: 8.5, manDays: 1, overtimeHours: 0, cost: 19406.5 } });
     expect(fromLineRow({ ...r, amount: null })).not.toHaveProperty('saved');
     const withSaved = fromLineRow(r) as LaborLine;
     expect(Object.keys(toLineRow(withSaved, common, 0, DEFAULT_LABOR_RULE))).not.toContain('saved');
