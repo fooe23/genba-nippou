@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { copyableLines, fromLineRow, saveErrorMessage, toLineRows, toReportRow } from '@/lib/report/rows';
-import type { ReportLine, TimeSpec } from '@/lib/types';
+import { DEFAULT_LABOR_RULE } from '@/lib/calc/report';
+import { copyableLines, fromLineRow, saveErrorMessage, toLineRow, toLineRows, toReportRow } from '@/lib/report/rows';
+import type { LaborLine, ReportLine, TimeSpec } from '@/lib/types';
 
 const common: TimeSpec = { start: '08:00', end: '17:00', breakMin: 60, gapMin: 0 };
 const W = '11111111-1111-4111-8111-111111111111';
 const lines: ReportLine[] = [
-  { kind: 'labor', workerId: W, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 19000, note: '' },
+  { kind: 'labor', workerId: W, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 19000, note: '', overtimeRate: null },
   { kind: 'fuel', vehicleId: W, vehicleName: 'ハイエース', kmPerL: 10, distanceKm: 40, pricePerL: 170, note: '給油' },
   { kind: 'lease', itemId: W, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '' },
   { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'ホームセンター' },
@@ -14,10 +15,10 @@ const lines: ReportLine[] = [
 ];
 
 describe('toLineRows', () => {
-  const rows = toLineRows(lines, common);
-  it('全行が24列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
+  const rows = toLineRows(lines, common, DEFAULT_LABOR_RULE);
+  it('全行が26列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
     for (const r of rows) {
-      expect(Object.keys(r)).toHaveLength(24);
+      expect(Object.keys(r)).toHaveLength(26);
       expect(Object.values(r)).not.toContain('');
     }
     expect(rows.map((r) => r.sort_order)).toEqual([0, 1, 2, 3, 4, 5]);
@@ -25,8 +26,19 @@ describe('toLineRows', () => {
   it('労務: ref_id=作業員、unit_price=日当、計算値をサーバーで入れる', () => {
     expect(rows[0]).toMatchObject({
       kind: 'labor', ref_id: W, name: '田中', start_time: null, end_time: null, break_min: null, gap_min: null,
-      hours: 8, man_days: 1.07, unit_price: 19000, amount: 20330, note: null,
+      hours: 8, man_days: 1, unit_price: 19000, amount: 19000, note: null, overtime_hours: 0, overtime_rate: null,
     });
+  });
+  it('労務: 残業時間と残業単価（0 は null で送る）。労務以外は null', () => {
+    const labor = lines[0] as LaborLine;
+    const nine = { ...labor, time: { start: '08:00', end: '18:00', breakMin: null, gapMin: null } }; // 共通の休憩60 → 9H
+    expect(toLineRow({ ...nine, overtimeRate: 3000 }, common, 0, DEFAULT_LABOR_RULE)).toMatchObject({
+      hours: 9, man_days: 1, overtime_hours: 1, overtime_rate: 3000, amount: 19000 + 3000,
+    });
+    expect(toLineRow({ ...nine, overtimeRate: 0 }, common, 0, DEFAULT_LABOR_RULE)).toMatchObject({
+      overtime_hours: 1, overtime_rate: null, amount: 19000 + 2969, // ROUND(19000 ÷ 8 × 1.25) = 2969
+    });
+    for (const r of rows.slice(1)) expect(r).toMatchObject({ overtime_hours: null, overtime_rate: null });
   });
   it('燃料・リース・現金・買掛・作業内容の列対応', () => {
     expect(rows[1]).toMatchObject({ ref_id: W, name: 'ハイエース', km_per_l: 10, distance_km: 40, price_per_l: 170, amount: 680, note: '給油' });
@@ -41,6 +53,8 @@ describe('toLineRows', () => {
   it('読み戻すと元の明細になる（空文字は "" に戻る）', () => {
     expect(rows.map((r) => fromLineRow(r))).toEqual(lines);
     expect(fromLineRow({ kind: 'lease', qty: '2', unit_price: '3500.00' })).toMatchObject({ qty: 2, unitPrice: 3500 });
+    expect(fromLineRow({ kind: 'labor', overtime_rate: '3000' })).toMatchObject({ overtimeRate: 3000 });
+    expect(fromLineRow({ kind: 'labor', overtime_rate: null })).toMatchObject({ overtimeRate: null });
   });
 });
 
@@ -56,14 +70,14 @@ describe('toReportRow', () => {
 });
 
 describe('copyableLines', () => {
-  it('作業員・車両・リースのみ。個別時間と走行距離は空、リース数量は残す', () => {
+  it('作業員・車両・リースのみ。個別時間と走行距離は空、リース数量と残業単価は残す', () => {
     const withTime: ReportLine[] = [
-      { ...(lines[0] as Extract<ReportLine, { kind: 'labor' }>), time: { start: '08:00', end: '12:00', breakMin: 0, gapMin: 0 } },
+      { ...(lines[0] as LaborLine), time: { start: '08:00', end: '12:00', breakMin: 0, gapMin: 0 }, overtimeRate: 3000 },
       ...lines.slice(1),
     ];
     const c = copyableLines(withTime);
     expect(c.map((l) => l.kind)).toEqual(['labor', 'fuel', 'lease']);
-    expect(c[0]).toMatchObject({ time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 19000 });
+    expect(c[0]).toMatchObject({ time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 19000, overtimeRate: 3000 });
     expect(c[1]).toMatchObject({ distanceKm: null, kmPerL: 10, pricePerL: 170 });
     expect(c[2]).toMatchObject({ qty: 1 });
   });

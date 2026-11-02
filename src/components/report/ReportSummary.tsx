@@ -28,7 +28,10 @@ export function ReportSummary({
       <div className="rounded-lg border border-gray-300 p-3 dark:border-gray-700">
         <h2 className="mb-1 text-lg font-bold">本日原価集計</h2>
         <dl>
-          <Line label={`労務費（${totals.workerCount}人・${decimal(totals.manDays)}人工）`} value={money(totals.labor)} />
+          <Line
+            label={`労務費（${totals.workerCount}人・${decimal(totals.manDays)}人工${totals.overtimeHours > 0 ? `・残業 ${decimal(totals.overtimeHours)} H` : ''}）`}
+            value={money(totals.labor)}
+          />
           <Line label="燃料費" value={money(totals.fuel)} />
           <Line label="リース費" value={money(totals.lease)} />
           <Line label="現金購入" value={money(totals.cash)} />

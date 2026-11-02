@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isServerNewer, isValidDraft } from '@/lib/report/draft';
+import { isServerNewer, isValidDraft, upgradeDraft } from '@/lib/report/draft';
+import type { SaveInput } from '@/lib/report/schema';
 
 const siteId = '11111111-1111-4111-8111-111111111111';
 const date = '2026-11-05';
@@ -30,6 +31,15 @@ describe('isValidDraft', () => {
     expect(isValidDraft({ ...draft, lines: [null] }, siteId, date)).toBe(false);
     expect(isValidDraft(draft, siteId, '2026-11-06')).toBe(false);
     expect(isValidDraft({ ...draft, lines: 'x' }, siteId, date)).toBe(false);
+  });
+  it('残業単価（overtimeRate）の無い古い下書きも受け付け、読み込み時に null を末尾に足す', () => {
+    expect(isValidDraft(draft, siteId, date)).toBe(true); // draft の作業員行には overtimeRate が無い
+    const up = upgradeDraft(draft as unknown as SaveInput);
+    expect(up.lines[0]).toMatchObject({ kind: 'labor', overtimeRate: null });
+    expect(Object.keys(up.lines[0]).at(-1)).toBe('overtimeRate');
+    expect(up.lines[1]).toBe(draft.lines[1]);
+    const withRate = upgradeDraft({ ...draft, lines: [{ ...draft.lines[0], overtimeRate: 3000 }] } as unknown as SaveInput);
+    expect(withRate.lines[0]).toMatchObject({ overtimeRate: 3000 });
   });
 });
 

@@ -7,6 +7,7 @@ import { todayJst } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
 import { listLeaseItems, listVehicles, listWorkers } from '@/lib/db/masters';
 import { getPreviousReport } from '@/lib/db/reports';
+import { getSettings } from '@/lib/db/settings';
 import { copyableLines, saveErrorMessage, SITE_CLOSED_MESSAGE, STALE_REPORT_MESSAGE, toLineRows, toReportRow } from '@/lib/report/rows';
 import { applyMasterSnapshots, needsMasterSnapshots } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
@@ -46,16 +47,18 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
   }
 
   try {
-    // マスターを参照している行の単価（日当・リース単価・燃費）はサーバーで決め直す。保存した値が
+    // マスターを参照している行の単価（日当・残業単価・リース単価・燃費）はサーバーで決め直す。保存した値が
     // その日の単価の複写（スナップショット）になり、集計はこの値を使う。画面のプレビューは従来どおり。
-    const lines = needsMasterSnapshots(v.lines)
-      ? applyMasterSnapshots(v.lines, v.date, await loadSnapshotMasters())
-      : v.lines;
+    const [lines, settings] = await Promise.all([
+      needsMasterSnapshots(v.lines) ? loadSnapshotMasters().then((m) => applyMasterSnapshots(v.lines, v.date, m)) : v.lines,
+      getSettings(),
+    ]);
 
     const supabase = await createServerSupabase();
     const { data, error } = await supabase.rpc('gn_save_report', {
       p_report: { ...toReportRow(v), expected_updated_at: expected },
-      p_lines: toLineRows(lines, v.common),
+      // 人工・残業・労務費は DB のトリガーが gn_settings で計算し直す（ここで送る値は同じ式の参考値）。
+      p_lines: toLineRows(lines, v.common, settings.rule),
     });
     if (error) {
       console.error('[gn_save_report]', error.message);

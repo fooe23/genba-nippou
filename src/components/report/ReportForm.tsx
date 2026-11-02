@@ -17,7 +17,7 @@ import {
 } from '@/lib/db/reports-actions';
 import type { Issue } from '@/lib/db/reports';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
-import type { TimeSpec } from '@/lib/types';
+import type { LaborRule, TimeSpec } from '@/lib/types';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
 import { fieldClass, NumInput, Select, TimeInput } from './inputs';
@@ -56,6 +56,8 @@ export interface ReportFormProps {
   hasPrevious: boolean;
   initial: SaveInput;
   masters: ReportMasters;
+  /** 人工・残業の計算設定（gn_settings）。画面のプレビューに使う（保存値は DB のトリガーが同じ式で計算する）。 */
+  rule: LaborRule;
   /** 保存済みの日報のID。未保存なら null（件の追加は保存後）。 */
   reportId: string | null;
   /** この日報の重要事項の件（対応中・完了とも）。 */
@@ -263,7 +265,7 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
 
   const input = useMemo(() => toInput(p.siteId, p.date, state), [p.siteId, p.date, state]);
   const json = useMemo(() => JSON.stringify(input), [input]);
-  const totals = useMemo(() => reportTotals(calcLines(input.lines), input.common), [input]);
+  const totals = useMemo(() => reportTotals(calcLines(input.lines), input.common, p.rule), [input, p.rule]);
   const warnings = useMemo(
     () => reportWarnings(input, { siteStartDate: p.siteStartDate, today: p.today }),
     [input, p.siteStartDate, p.today],
@@ -584,7 +586,7 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
           </div>
         </section>
 
-        <LaborTable rows={state.rows.labor} onChange={setRows('labor')} common={state.common} date={p.date} workers={p.masters.workers} />
+        <LaborTable rows={state.rows.labor} onChange={setRows('labor')} common={state.common} rule={p.rule} date={p.date} workers={p.masters.workers} />
         <FuelTable rows={state.rows.fuel} onChange={setRows('fuel')} vehicles={p.masters.vehicles} />
         <LeaseTable rows={state.rows.lease} onChange={setRows('lease')} date={p.date} items={p.masters.leaseItems} units={p.masters.units} />
         <CashTable rows={state.rows.cash} onChange={setRows('cash')} units={p.masters.units} />

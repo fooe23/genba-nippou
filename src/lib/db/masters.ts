@@ -2,14 +2,15 @@ import 'server-only';
 import type { RateHistory } from '@/lib/calc/rates';
 import { createServerSupabase } from '@/lib/supabase/server';
 
-export interface Worker { id: string; name: string; trade: string | null; note: string | null; active: boolean; rates: RateHistory[]; }
+/** overtimeRate は残業単価（円/H）。null なら標準の計算式（日当 ÷ 基準時間 × 割増率）。0 も null として返す。 */
+export interface Worker { id: string; name: string; trade: string | null; note: string | null; active: boolean; rates: RateHistory[]; overtimeRate: number | null; }
 export interface Supplier { id: string; name: string; category: string | null; contact: string | null; note: string | null; active: boolean; }
 export interface Vehicle { id: string; name: string; kind: string | null; kmPerL: number | null; note: string | null; active: boolean; }
 export interface LeaseItem { id: string; name: string; spec: string | null; note: string | null; active: boolean; rates: RateHistory[]; }
 export interface MasterOption { name: string; sortOrder: number; }
 
 interface RateRow { amount: number | string; effective_from: string; }
-interface WorkerRow { id: string; name: string; trade: string | null; note: string | null; active: boolean | null; gn_worker_rates: RateRow[] | null; }
+interface WorkerRow { id: string; name: string; trade: string | null; note: string | null; active: boolean | null; overtime_rate: number | string | null; gn_worker_rates: RateRow[] | null; }
 interface SupplierRow { id: string; name: string; category: string | null; contact: string | null; note: string | null; active: boolean | null; }
 interface VehicleRow { id: string; name: string; kind: string | null; km_per_l: number | string | null; note: string | null; active: boolean | null; }
 interface LeaseItemRow { id: string; name: string; spec: string | null; note: string | null; active: boolean | null; gn_lease_item_rates: RateRow[] | null; }
@@ -26,6 +27,13 @@ function mapRates(rows: RateRow[] | null): RateHistory[] {
     .sort((a, b) => (a.effectiveFrom < b.effectiveFrom ? -1 : a.effectiveFrom > b.effectiveFrom ? 1 : 0));
 }
 
+// 残業単価: 空欄・0 は「標準の計算式」（DB のトリガーと同じ扱い）なので null にそろえる。
+function toOvertimeRate(v: number | string | null): number | null {
+  if (v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 // 有効なものを先に、その中は名前順。
 function byActiveThenName<T extends { name: string; active: boolean }>(a: T, b: T): number {
   if (a.active !== b.active) return a.active ? -1 : 1;
@@ -36,7 +44,7 @@ export async function listWorkers(): Promise<Worker[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from('gn_workers')
-    .select('id, name, trade, note, active, gn_worker_rates(amount, effective_from)');
+    .select('id, name, trade, note, active, overtime_rate, gn_worker_rates(amount, effective_from)');
   if (error) throw new Error(error.message);
   return ((data ?? []) as WorkerRow[])
     .map((r) => ({
@@ -46,6 +54,7 @@ export async function listWorkers(): Promise<Worker[]> {
       note: r.note,
       active: isActive(r.active),
       rates: mapRates(r.gn_worker_rates),
+      overtimeRate: toOvertimeRate(r.overtime_rate),
     }))
     .sort(byActiveThenName);
 }

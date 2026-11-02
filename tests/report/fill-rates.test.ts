@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fillMissingRates, type ReportMasters } from '@/components/report/form-state';
+import { fillMissingRates, newReportCommon, refreshFromMasters, type ReportMasters } from '@/components/report/form-state';
 import type { ReportLine } from '@/lib/types';
 
 const W1 = '11111111-1111-4111-8111-111111111111';
@@ -11,8 +11,8 @@ const t = { start: null, end: null, breakMin: null, gapMin: null };
 
 const masters: ReportMasters = {
   workers: [
-    { id: W1, name: '田中', active: true, rates: [{ amount: 18000, effectiveFrom: '2026-01-01' }, { amount: 19000, effectiveFrom: '2026-11-01' }] },
-    { id: W2, name: '佐藤', active: true, rates: [{ amount: 20000, effectiveFrom: '2026-12-01' }] },
+    { id: W1, name: '田中', active: true, rates: [{ amount: 18000, effectiveFrom: '2026-01-01' }, { amount: 19000, effectiveFrom: '2026-11-01' }], overtimeRate: 3000 },
+    { id: W2, name: '佐藤', active: true, rates: [{ amount: 20000, effectiveFrom: '2026-12-01' }], overtimeRate: null },
   ],
   vehicles: [
     { id: V1, name: 'ハイエース', active: true, kmPerL: 10 },
@@ -24,7 +24,7 @@ const masters: ReportMasters = {
   weather: [],
 };
 
-const labor = (workerId: string | null, dailyRate: number | null): ReportLine => ({ kind: 'labor', workerId, workerName: '', time: t, dailyRate, note: '' });
+const labor = (workerId: string | null, dailyRate: number | null): ReportLine => ({ kind: 'labor', workerId, workerName: '', time: t, dailyRate, note: '', overtimeRate: null });
 const fuel = (vehicleId: string | null, kmPerL: number | null): ReportLine => ({ kind: 'fuel', vehicleId, vehicleName: '', kmPerL, distanceKm: null, pricePerL: null, note: '' });
 const lease = (itemId: string | null, unitPrice: number | null): ReportLine => ({ kind: 'lease', itemId, itemName: '', spec: '', unit: '', qty: 1, unitPrice, note: '' });
 
@@ -65,5 +65,32 @@ describe('fillMissingRates（日報を開いたときの補完）', () => {
     const r = fillMissingRates(input, masters, '2026-10-31');
     expect(r.lines[1]).toBe(cash);
     expect(input[0]).toMatchObject({ dailyRate: null });
+  });
+
+  it('残業単価は補わない（作業員を選んだとき・保存時にマスターから入る）', () => {
+    const r = fillMissingRates([labor(W1, null)], masters, '2026-10-31');
+    expect(r.lines[0]).toMatchObject({ dailyRate: 18000, overtimeRate: null });
+  });
+});
+
+describe('refreshFromMasters（前回コピー）', () => {
+  it('日当と残業単価をこの日付時点のマスターで取り直す', () => {
+    const copied = [{ ...labor(W1, 15000), overtimeRate: 2000 }, { ...labor(W2, 15000), overtimeRate: 2000 }];
+    const out = refreshFromMasters(copied, masters, '2026-11-01');
+    expect(out[0]).toMatchObject({ dailyRate: 19000, overtimeRate: 3000 });
+    expect(out[1]).toMatchObject({ dailyRate: 15000, overtimeRate: null }); // 有効な日当が無ければ複写元のまま
+  });
+});
+
+describe('newReportCommon（新しい日報の共通時間の初期値）', () => {
+  const company = { start: '08:00', end: '17:30', breakMin: 90, gapMin: 0 };
+  it('現場に開始・終了の両方があれば現場の4項目', () => {
+    expect(newReportCommon({ start: '07:30', end: '17:00', breakMin: 60, gapMin: null }, company)).toEqual({
+      start: '07:30', end: '17:00', breakMin: 60, gapMin: null,
+    });
+  });
+  it('現場が空・片方だけなら全社の設定の4項目', () => {
+    expect(newReportCommon({ start: null, end: null, breakMin: null, gapMin: null }, company)).toEqual(company);
+    expect(newReportCommon({ start: '07:30', end: null, breakMin: 60, gapMin: 0 }, company)).toEqual(company);
   });
 });

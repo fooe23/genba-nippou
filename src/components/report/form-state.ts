@@ -5,7 +5,8 @@ import type { FuelLine, LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } f
 
 // 日報入力フォームの状態と変換（純関数）。表ごとに行を持ち、保存時に SaveInput へ並べ直す。
 
-export interface WorkerOption { id: string; name: string; active: boolean; rates: RateHistory[]; }
+/** overtimeRate は作業員マスターの残業単価（円/H）。null なら標準の計算式（日当 ÷ 基準時間 × 割増率）。 */
+export interface WorkerOption { id: string; name: string; active: boolean; rates: RateHistory[]; overtimeRate: number | null; }
 export interface VehicleOption { id: string; name: string; active: boolean; kmPerL: number | null; }
 export interface LeaseItemOption { id: string; name: string; spec: string | null; active: boolean; rates: RateHistory[]; }
 export interface SupplierOption { id: string; name: string; active: boolean; }
@@ -45,8 +46,17 @@ export function newKey(): string {
 
 export const EMPTY_TIME: TimeSpec = { start: null, end: null, breakMin: null, gapMin: null };
 
+/**
+ * まだ保存されていない日報の共通時間の初期値。現場の既定に開始・終了の両方が入っていれば現場の 4 項目を、
+ * そうでなければ全社の設定の既定（4 項目まとめて）を使う。
+ */
+export function newReportCommon(site: TimeSpec, company: TimeSpec): TimeSpec {
+  if (site.start && site.end) return { ...site };
+  return { ...company };
+}
+
 export const newLine = {
-  labor: (): LaborLine => ({ kind: 'labor', workerId: null, workerName: '', time: { ...EMPTY_TIME }, dailyRate: null, note: '' }),
+  labor: (): LaborLine => ({ kind: 'labor', workerId: null, workerName: '', time: { ...EMPTY_TIME }, dailyRate: null, note: '', overtimeRate: null }),
   fuel: (): FuelLine => ({ kind: 'fuel', vehicleId: null, vehicleName: '', kmPerL: null, distanceKm: null, pricePerL: null, note: '' }),
   lease: (): LeaseLine => ({ kind: 'lease', itemId: null, itemName: '', spec: '', unit: '', qty: null, unitPrice: null, note: '' }),
   cash: (): CashLineInput => ({ kind: 'cash', itemName: '', spec: '', unit: '', qty: null, unitPrice: null, vendor: '' }),
@@ -149,12 +159,14 @@ export function decimal(n: number | null, digits = 2): string {
   return String(Math.round(n * f) / f);
 }
 
-/** 前回コピーした行の単価・燃費を、この日報の日付時点のマスターで取り直す（マスターに無ければ複写元のまま）。 */
+/** 前回コピーした行の単価・燃費・残業単価を、この日報の日付時点のマスターで取り直す（マスターに無ければ複写元のまま）。 */
 export function refreshFromMasters(lines: ReportLine[], masters: ReportMasters, date: string): ReportLine[] {
   return lines.map((l) => {
     if (l.kind === 'labor') {
       const w = masters.workers.find((x) => x.id === l.workerId);
-      return w ? { ...l, workerName: w.name, dailyRate: rateAt(w.rates, date) ?? l.dailyRate } : l;
+      return w
+        ? { ...l, workerName: w.name, dailyRate: rateAt(w.rates, date) ?? l.dailyRate, overtimeRate: w.overtimeRate }
+        : l;
     }
     if (l.kind === 'fuel') {
       const v = masters.vehicles.find((x) => x.id === l.vehicleId);

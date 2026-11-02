@@ -46,6 +46,19 @@ export function isValidDraft(v: unknown, siteId: string, date: string): v is Sav
   });
 }
 
+/**
+ * 古い形式の下書きを今の形にそろえる。作業員の行に残業単価（overtimeRate）が無ければ null（標準の計算式）を入れる。
+ * 項目は末尾に足す（サーバーから読んだ行と JSON の並びをそろえ、同じ内容なら復元を促さないため）。
+ */
+export function upgradeDraft(data: SaveInput): SaveInput {
+  return {
+    ...data,
+    lines: data.lines.map((l) =>
+      l.kind === 'labor' && (l as { overtimeRate?: unknown }).overtimeRate === undefined ? { ...l, overtimeRate: null } : l,
+    ),
+  };
+}
+
 export interface LoadedDraft {
   data: SaveInput;
   /** 下書きのもとになったサーバーの updated_at。古い形式の下書き・未保存の日報なら null。 */
@@ -80,7 +93,7 @@ export function loadDraft(siteId: string, date: string): LoadedDraft | null {
     // savedAt・serverUpdatedAt はメタ情報なので取り除く。
     const { savedAt: _savedAt, serverUpdatedAt, ...data } = parsed as SaveInput & { savedAt?: string; serverUpdatedAt?: unknown };
     void _savedAt;
-    return { data, serverUpdatedAt: typeof serverUpdatedAt === 'string' ? serverUpdatedAt : null };
+    return { data: upgradeDraft(data), serverUpdatedAt: typeof serverUpdatedAt === 'string' ? serverUpdatedAt : null };
   } catch {
     return null;
   }

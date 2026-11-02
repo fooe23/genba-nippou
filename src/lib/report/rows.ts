@@ -1,9 +1,9 @@
 import { amount, fuelCost, laborLineValues, productivity } from '@/lib/calc/report';
-import type { ReportLine, TimeSpec } from '@/lib/types';
+import type { LaborRule, ReportLine, TimeSpec } from '@/lib/types';
 import type { SaveInput } from '@/lib/report/schema';
 
 // 日報の明細と gn_report_lines の列の相互変換（純関数。サーバーの読み書きから使う）。
-// 計算値（hours・man_days・amount・productivity）はここでも計算して送るが、DB のトリガー
+// 計算値（hours・man_days・overtime_hours・amount・productivity）はここでも計算して送るが、DB のトリガー
 // （gn_report_lines_compute）が入力値から同じ式で計算し直すので、保存される値は DB 側の計算になる。
 // jsonb_populate_record は数値・uuid 列に "" を渡すとエラーになるため、空値は必ず null で送る。
 
@@ -33,6 +33,10 @@ export interface LineRow {
   productivity: number | null;
   source: 'estimate' | 'extra' | null;
   note: string | null;
+  /** 労務の残業時間（H。計算値）。労務以外は null。 */
+  overtime_hours: number | null;
+  /** 労務の残業単価の上書き（作業員の残業単価。無ければ null で、DB が標準の計算式を使う）。 */
+  overtime_rate: number | null;
 }
 
 /** gn_save_report の p_report。 */
@@ -55,7 +59,7 @@ const EMPTY_ROW: Omit<LineRow, 'kind' | 'sort_order'> = {
   ref_id: null, name: null, spec: null, unit: null, qty: null, unit_price: null, amount: null,
   start_time: null, end_time: null, break_min: null, gap_min: null, hours: null, man_days: null,
   km_per_l: null, distance_km: null, price_per_l: null, vendor: null, trade: null, description: null,
-  productivity: null, source: null, note: null,
+  productivity: null, source: null, note: null, overtime_hours: null, overtime_rate: null,
 };
 
 function text(v: string | null | undefined): string | null {
@@ -73,11 +77,12 @@ function clean(n: number): number {
   return Math.round(n * 1e6) / 1e6;
 }
 
-export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number): LineRow {
+export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number, rule: LaborRule): LineRow {
   const base = { ...EMPTY_ROW, kind: line.kind, sort_order: sortOrder };
   switch (line.kind) {
     case 'labor': {
-      const v = laborLineValues(line, common);
+      const v = laborLineValues(line, common, rule);
+      const otRate = num(line.overtimeRate);
       return {
         ...base,
         ref_id: text(line.workerId),
@@ -91,6 +96,9 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number)
         unit_price: num(line.dailyRate),
         amount: clean(v.cost),
         note: text(line.note),
+        overtime_hours: clean(v.overtimeHours),
+        // 0 は「標準の計算式」と同じ意味なので null で送る。
+        overtime_rate: otRate === null || otRate === 0 ? null : otRate,
       };
     }
     case 'fuel':
@@ -148,8 +156,8 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number)
   }
 }
 
-export function toLineRows(lines: ReportLine[], common: TimeSpec): LineRow[] {
-  return lines.map((l, i) => toLineRow(l, common, i));
+export function toLineRows(lines: ReportLine[], common: TimeSpec, rule: LaborRule): LineRow[] {
+  return lines.map((l, i) => toLineRow(l, common, i, rule));
 }
 
 export function toReportRow(v: SaveInput): ReportRow {
@@ -198,6 +206,7 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         time: { start: rTime(r.start_time), end: rTime(r.end_time), breakMin: rNum(r.break_min), gapMin: rNum(r.gap_min) },
         dailyRate: rNum(r.unit_price),
         note: rStr(r.note),
+        overtimeRate: rNum(r.overtime_rate),
       };
     case 'fuel':
       return {
@@ -258,7 +267,7 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
   }
 }
 
-/** 前回コピー: 作業員・車両・リースだけを複写。作業員の個別時間と車両の走行距離は空にする（リースの数量はそのまま）。 */
+/** 前回コピー: 作業員・車両・リースだけを複写。作業員の個別時間と車両の走行距離は空にする（リースの数量・残業単価はそのまま）。 */
 export function copyableLines(lines: ReportLine[]): ReportLine[] {
   const out: ReportLine[] = [];
   for (const l of lines) {

@@ -15,7 +15,7 @@ describe('validateReport', () => {
 describe('reportWarnings', () => {
   it('終了が開始より前・燃費未設定・日当未設定・作業員0行を警告する', () => {
     const w = reportWarnings({ ...base, lines: [
-      { kind: 'labor', workerId: 'w', workerName: '田中', time: { start: '17:00', end: '08:00', breakMin: 0, gapMin: 0 }, dailyRate: null, note: '' },
+      { kind: 'labor', workerId: 'w', workerName: '田中', time: { start: '17:00', end: '08:00', breakMin: 0, gapMin: 0 }, dailyRate: null, note: '', overtimeRate: null },
       { kind: 'fuel', vehicleId: 'v', vehicleName: 'ダンプ', kmPerL: null, distanceKm: 20, pricePerL: 170, note: '' },
     ] });
     expect(w.some(s => s.includes('終了が開始より前'))).toBe(true);

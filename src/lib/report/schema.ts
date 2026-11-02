@@ -93,6 +93,8 @@ const laborSchema = z.object({
   time: timeSpecSchema,
   dailyRate: numSchema('日当'),
   note: noteSchema,
+  // 作業員の残業単価（円/H）の上書き。古い下書きには無い項目なので、省略時は null（標準の計算式）。
+  overtimeRate: numSchema('残業単価').default(null),
 });
 
 const fuelSchema = z.object({

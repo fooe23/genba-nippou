@@ -5,14 +5,14 @@ import type { ReportLine } from '@/lib/types';
 // クライアントから届いた単価は信用しない。保存された値はその日の単価の「複写（スナップショット）」で、
 // 集計（労務費・リース費・燃料費）はこの保存値を使う。後でマスターの単価履歴を直しても、
 // その日報を保存し直すまで保存済みの値は変わらない。
-// - 作業員（workerId あり）：日当 = 作業員の単価履歴のうち日報の日付に有効なもの
+// - 作業員（workerId あり）：日当 = 作業員の単価履歴のうち日報の日付に有効なもの、残業単価 = 作業員の残業単価（無ければ null）
 // - リース（itemId あり）：単価 = リース品の単価履歴のうち日報の日付に有効なもの
 // - 車両（vehicleId あり）：燃費 = 車両マスターの燃費
 // - 参照の無い行（手入力の行）はクライアントの値のまま
 // - 参照先がマスターに無い（形式は正しいが存在しない ID）行は単価を null にする（0円として計算される）
 
 export interface SnapshotMasters {
-  workers: { id: string; rates: RateHistory[] }[];
+  workers: { id: string; rates: RateHistory[]; overtimeRate: number | null }[];
   vehicles: { id: string; kmPerL: number | null }[];
   leaseItems: { id: string; rates: RateHistory[] }[];
 }
@@ -30,7 +30,7 @@ export function applyMasterSnapshots(lines: ReportLine[], date: string, masters:
   return lines.map((l) => {
     if (l.kind === 'labor' && l.workerId) {
       const w = workers.get(l.workerId);
-      return { ...l, dailyRate: w ? rateAt(w.rates, date) : null };
+      return { ...l, dailyRate: w ? rateAt(w.rates, date) : null, overtimeRate: w ? w.overtimeRate : null };
     }
     if (l.kind === 'lease' && l.itemId) {
       const item = items.get(l.itemId);

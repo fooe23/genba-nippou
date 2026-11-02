@@ -1,4 +1,4 @@
-import type { TimeSpec, LaborLine, ReportLine, ReportTotals } from '@/lib/types';
+import type { TimeSpec, LaborLine, LaborRule, ReportLine, ReportTotals } from '@/lib/types';
 
 function toMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
@@ -30,12 +30,44 @@ export function effectiveHours(line: TimeSpec, common: TimeSpec): number {
   );
 }
 
-export function manDays(hours: number): number {
-  return Math.round((hours / 7.5) * 100) / 100;
+// 人工・残業・労務費（Excel 雛形 V34 と DB のトリガー gn_report_lines_compute と同じルール）。
+//   人工     = 実働 ≤ 所定 なら ROUND(実働 ÷ 所定, 2)、超えたら 1.0
+//   残業時間 = MAX(実働 − 固定残業の上限, 0)（小数 2 桁）
+//   残業単価 = 作業員の残業単価（空欄・0 は無し扱い）、無ければ ROUND(日当 ÷ 基準時間 × 割増率, 0)
+//   労務費   = 日当 × 人工 ＋ 残業時間 × 残業単価
+// 設定値は gn_settings から読み、呼び出し側が渡す（この関数群は Supabase に依存しない）。
+
+/** gn_settings が読めないとき（SQL 未適用など）の既定値。DB の列の既定と同じ。 */
+export const DEFAULT_LABOR_RULE: LaborRule = { shoteiHours: 7.5, fixedOvertimeLimit: 8, overtimeMultiplier: 1.25, overtimeBaseHours: 8 };
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
-export function laborCost(dailyRate: number | null, manDays: number): number {
-  return (dailyRate ?? 0) * manDays;
+// 浮動小数の誤差（2812.4999999 など）を落としてから円未満を四捨五入する。
+function roundYen(n: number): number {
+  return Math.round(Math.round(n * 1e6) / 1e6);
+}
+
+export function manDays(hours: number, rule: LaborRule): number {
+  if (!(rule.shoteiHours > 0)) return 0;
+  if (hours <= rule.shoteiHours) return round2(hours / rule.shoteiHours);
+  return 1;
+}
+
+export function overtimeHours(hours: number, rule: LaborRule): number {
+  return round2(Math.max(hours - rule.fixedOvertimeLimit, 0));
+}
+
+/** 残業単価（円/H）。override（作業員の残業単価）が null・0 なら 日当 ÷ 基準時間 × 割増率（円未満四捨五入）。 */
+export function overtimeRate(dailyRate: number | null, override: number | null, rule: LaborRule): number {
+  if (override !== null && override !== undefined && Number.isFinite(override) && override > 0) return override;
+  if (!(rule.overtimeBaseHours > 0)) return 0;
+  return roundYen(((dailyRate ?? 0) / rule.overtimeBaseHours) * rule.overtimeMultiplier);
+}
+
+export function laborCost(dailyRate: number | null, manDays: number, overtimeHours: number, overtimeRate: number): number {
+  return (dailyRate ?? 0) * manDays + overtimeHours * overtimeRate;
 }
 
 export function fuelCost(distanceKm: number | null, kmPerL: number | null, pricePerL: number | null): number {
@@ -53,16 +85,20 @@ export function productivity(qty: number | null, manDays: number | null): number
   return qty / manDays;
 }
 
-export function laborLineValues(line: LaborLine, common: TimeSpec): { hours: number; manDays: number; cost: number } {
+export interface LaborValues { hours: number; manDays: number; overtimeHours: number; overtimeRate: number; cost: number; }
+
+export function laborLineValues(line: LaborLine, common: TimeSpec, rule: LaborRule): LaborValues {
   const hours = effectiveHours(line.time, common);
-  const days = manDays(hours);
-  return { hours, manDays: days, cost: laborCost(line.dailyRate, days) };
+  const days = manDays(hours, rule);
+  const otHours = overtimeHours(hours, rule);
+  const otRate = overtimeRate(line.dailyRate, line.overtimeRate, rule);
+  return { hours, manDays: days, overtimeHours: otHours, overtimeRate: otRate, cost: laborCost(line.dailyRate, days, otHours, otRate) };
 }
 
-export function lineAmount(line: ReportLine, common: TimeSpec): number {
+export function lineAmount(line: ReportLine, common: TimeSpec, rule: LaborRule): number {
   switch (line.kind) {
     case 'labor':
-      return laborLineValues(line, common).cost;
+      return laborLineValues(line, common, rule).cost;
     case 'fuel':
       return fuelCost(line.distanceKm, line.kmPerL, line.pricePerL);
     case 'lease':
@@ -73,40 +109,42 @@ export function lineAmount(line: ReportLine, common: TimeSpec): number {
   }
 }
 
-export function reportTotals(lines: ReportLine[], common: TimeSpec): ReportTotals {
+export function reportTotals(lines: ReportLine[], common: TimeSpec, rule: LaborRule): ReportTotals {
   const t: ReportTotals = {
-    laborHours: 0, manDays: 0, workerCount: 0,
+    laborHours: 0, manDays: 0, overtimeHours: 0, workerCount: 0,
     labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, cost: 0, output: 0,
   };
   for (const line of lines) {
     switch (line.kind) {
       case 'labor': {
-        const v = laborLineValues(line, common);
+        const v = laborLineValues(line, common, rule);
         t.laborHours += v.hours;
         t.manDays += v.manDays;
+        t.overtimeHours += v.overtimeHours;
         t.workerCount += 1;
         t.labor += v.cost;
         break;
       }
       case 'fuel':
-        t.fuel += lineAmount(line, common);
+        t.fuel += lineAmount(line, common, rule);
         break;
       case 'lease':
-        t.lease += lineAmount(line, common);
+        t.lease += lineAmount(line, common, rule);
         break;
       case 'cash':
-        t.cash += lineAmount(line, common);
+        t.cash += lineAmount(line, common, rule);
         break;
       case 'credit':
-        t.credit += lineAmount(line, common);
+        t.credit += lineAmount(line, common, rule);
         break;
       case 'work':
-        t.output += lineAmount(line, common);
+        t.output += lineAmount(line, common, rule);
         break;
     }
   }
-  t.laborHours = Math.round(t.laborHours * 100) / 100;
-  t.manDays = Math.round(t.manDays * 100) / 100;
+  t.laborHours = round2(t.laborHours);
+  t.manDays = round2(t.manDays);
+  t.overtimeHours = round2(t.overtimeHours);
   t.cost = t.labor + t.fuel + t.lease + t.cash + t.credit;
   return t;
 }

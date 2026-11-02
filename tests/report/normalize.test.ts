@@ -60,7 +60,18 @@ describe('validateReport の正規化', () => {
     expect(r.value.common).toEqual({ start: null, end: null, breakMin: null, gapMin: null });
     expect(r.value.lines[0]).toEqual({
       kind: 'labor', workerId: null, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: null, note: '',
+      overtimeRate: null, // 省略（古い下書き）は null ＝ 標準の計算式
     });
+  });
+
+  it('作業員の残業単価：空文字は null、数値はそのまま、負の数は不可', () => {
+    const labor = { kind: 'labor', workerId: null, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 18000, note: '' };
+    const ok = validateReport({ ...base, lines: [{ ...labor, overtimeRate: '' }, { ...labor, overtimeRate: 3000 }] });
+    expect(ok.ok).toBe(true);
+    if (ok.ok) expect(ok.value.lines.map((l) => (l.kind === 'labor' ? l.overtimeRate : undefined))).toEqual([null, 3000]);
+    const ng = validateReport({ ...base, lines: [{ ...labor, overtimeRate: -1 }] });
+    expect(ng.ok).toBe(false);
+    if (!ng.ok) expect(ng.errors).toEqual(['作業員の1行目：残業単価は0以上の数値で入力してください']);
   });
 
   it('負の数量・燃費・休憩、不正な時刻は不可', () => {
@@ -89,7 +100,7 @@ describe('reportWarnings（追加）', () => {
       ...base,
       lines: [
         { kind: 'lease', itemId: null, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: null, note: '' },
-        { kind: 'labor', workerId: null, workerName: '', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: null, note: '' },
+        { kind: 'labor', workerId: null, workerName: '', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: null, note: '', overtimeRate: null },
         { kind: 'fuel', vehicleId: null, vehicleName: '', kmPerL: null, distanceKm: null, pricePerL: null, note: '' },
       ],
     });

@@ -17,6 +17,11 @@ export interface Site {
   endDate: string | null;
   contractType: '元請け' | '下請' | '常用' | null;
   status: 'active' | 'done';
+  /** 新しい日報の共通時間の既定（null なら全社の設定 gn_settings の既定を使う）。 */
+  commonStart: string | null;
+  commonEnd: string | null;
+  commonBreakMin: number | null;
+  commonGapMin: number | null;
   /** 削除（アーカイブ）した日時。null なら削除されていない。管理者には削除済みも返るので、呼び出し側で判断する。 */
   deletedAt: string | null;
 }
@@ -38,8 +43,10 @@ export interface ProfileListItem {
 export interface SiteMasters { workerIds: string[]; supplierIds: string[]; vehicleIds: string[]; leaseItemIds: string[]; }
 export interface Carryover { workerId: string; manDays: number; laborCost: number; beforeDate: string; }
 
-/** upsertSite に渡す入力（sites-actions.ts）。 */
-export type SiteInput = Omit<Site, 'id' | 'status' | 'deletedAt'> & { id?: string; status?: Site['status'] };
+type SiteCommonKey = 'commonStart' | 'commonEnd' | 'commonBreakMin' | 'commonGapMin';
+/** upsertSite に渡す入力（sites-actions.ts）。共通時間の既定は省略すると変更しない。 */
+export type SiteInput = Omit<Site, 'id' | 'status' | 'deletedAt' | SiteCommonKey> &
+  Partial<Pick<Site, SiteCommonKey>> & { id?: string; status?: Site['status'] };
 
 /** 現場の削除・復元の記録（gn_site_audit_log。管理者だけ読める）。 */
 export interface SiteAuditEntry {
@@ -65,6 +72,10 @@ interface SiteRow {
   end_date: string | null;
   contract_type: string | null;
   status: string;
+  common_start: string | null;
+  common_end: string | null;
+  common_break_min: number | string | null;
+  common_gap_min: number | string | null;
   deleted_at: string | null;
 }
 interface ProfileRef { name: string | null; email: string | null; account_type: string | null; company_name: string | null; }
@@ -72,7 +83,7 @@ interface MemberRow { user_id: string; role: SiteRole; profiles: ProfileRef | Pr
 interface CarryoverRow { worker_id: string; man_days: number | string; labor_cost: number | string; before_date: string; }
 
 const SITE_COLUMNS =
-  'id, name, client_name, project_name, project_no, overview, contract_amount, start_date, end_date, contract_type, status, deleted_at';
+  'id, name, client_name, project_name, project_no, overview, contract_amount, start_date, end_date, contract_type, status, common_start, common_end, common_break_min, common_gap_min, deleted_at';
 
 function toSite(r: SiteRow): Site {
   return {
@@ -87,6 +98,10 @@ function toSite(r: SiteRow): Site {
     endDate: r.end_date,
     contractType: r.contract_type === '元請け' || r.contract_type === '下請' || r.contract_type === '常用' ? r.contract_type : null,
     status: r.status === 'done' ? 'done' : 'active',
+    commonStart: r.common_start || null,
+    commonEnd: r.common_end || null,
+    commonBreakMin: r.common_break_min === null || r.common_break_min === undefined ? null : Number(r.common_break_min),
+    commonGapMin: r.common_gap_min === null || r.common_gap_min === undefined ? null : Number(r.common_gap_min),
     deletedAt: r.deleted_at ?? null,
   };
 }

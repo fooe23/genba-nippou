@@ -4,10 +4,11 @@ import { visitLabel, visitNumbers } from '@/lib/calc/visit';
 import { listLeaseItems, listSuppliers, listUnits, listVehicles, listWeather, listWorkers } from '@/lib/db/masters';
 import type { Profile } from '@/lib/db/profile';
 import { listIssuesForReport, listOpenIssues, listReportHeads, type ReportDetail } from '@/lib/db/reports';
+import { getSettings } from '@/lib/db/settings';
 import { getSiteMasters, type Site } from '@/lib/db/sites';
 import type { SaveInput } from '@/lib/report/schema';
 import type { ReportFormProps } from '@/components/report/ReportForm';
-import type { ReportMasters } from '@/components/report/form-state';
+import { newReportCommon, type ReportMasters } from '@/components/report/form-state';
 
 // 日報入力画面と承認画面で共通の、ReportForm に渡す props の組み立て。
 
@@ -53,7 +54,7 @@ export async function loadReportFormProps(
   report: ReportDetail,
 ): Promise<Omit<ReportFormProps, 'readOnly' | 'review'>> {
   const siteId = site.id;
-  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues] = await Promise.all([
+  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings] = await Promise.all([
     listReportHeads(siteId),
     getSiteMasters(siteId),
     listWorkers(),
@@ -64,6 +65,7 @@ export async function loadReportFormProps(
     listWeather(),
     listOpenIssues(siteId),
     report.head ? listIssuesForReport(report.head.id) : Promise.resolve([]),
+    getSettings(),
   ]);
   const used = { workers: new Set<string>(), suppliers: new Set<string>(), vehicles: new Set<string>(), leaseItems: new Set<string>() };
   for (const l of report.lines) {
@@ -74,7 +76,13 @@ export async function loadReportFormProps(
   }
 
   const masters: ReportMasters = {
-    workers: forSite(workers, selected.workerIds, used.workers).map((w) => ({ id: w.id, name: w.name, active: w.active, rates: w.rates })),
+    workers: forSite(workers, selected.workerIds, used.workers).map((w) => ({
+      id: w.id,
+      name: w.name,
+      active: w.active,
+      rates: w.rates,
+      overtimeRate: w.overtimeRate,
+    })),
     vehicles: forSite(vehicles, selected.vehicleIds, used.vehicles).map((v) => ({ id: v.id, name: v.name, active: v.active, kmPerL: v.kmPerL })),
     leaseItems: forSite(leaseItems, selected.leaseItemIds, used.leaseItems).map((x) => ({
       id: x.id,
@@ -95,7 +103,14 @@ export async function loadReportFormProps(
     weather: head ? head.weather : null,
     // 新しい日報の作業責任者は自分（書き換え可）。
     supervisor: head ? head.supervisor : profile.name || null,
-    common: report.common,
+    // 新しい日報（未保存）の共通時間は、現場の既定 → 全社の設定の既定。保存済みの日報はそのまま。
+    // 端末の下書きの復元・前回コピーはこの後にクライアントで行うので、ここでは影響しない。
+    common: head
+      ? report.common
+      : newReportCommon(
+          { start: site.commonStart, end: site.commonEnd, breakMin: site.commonBreakMin, gapMin: site.commonGapMin },
+          settings.defaultCommon,
+        ),
     issuesText: report.issuesText,
     notesText: report.notesText,
     lines: report.lines,
@@ -121,6 +136,7 @@ export async function loadReportFormProps(
     hasPrevious: allDates.some((d) => d < date),
     initial,
     masters,
+    rule: settings.rule,
     reportId: head ? head.id : null,
     issues,
     openIssues,
