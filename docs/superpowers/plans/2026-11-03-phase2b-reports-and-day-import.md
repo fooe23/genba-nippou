@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 現場の「出力」画面から、(1) 現場全体（着工〜竣工、または月）の工事原価集計表を PDF・Excel・CSV で、(2) 日報を 1 日分または 1 か月分の PDF と CSV で出せる。(3) 原本 V34 を埋めた月次 Excel（第2計画 Task 1〜4 の成果）も同じ画面からダウンロードできる。(4) PC で入力した「1 日分の追加用雛形」をアプリに取り込める。(5) 日報でマスターに無い作業員・取引先を手入力できる。
+**Goal:** 現場の「出力」画面から、(1) 現場全体（着工〜竣工、または月）の工事原価集計表を PDF・Excel・CSV で、(2) 日報を 1 日分または 1 か月分の PDF と CSV で出せる。(3) 原本 V34 を埋めた月次 Excel（第2計画 Task 1〜4 の成果）も同じ画面からダウンロードできる。(4) PC で入力した「1 日分の追加用雛形」をアプリに取り込める。(5) 日報でマスターに無い作業員・取引先を手入力できる。(6) 追加・変更・減を作業内容の行に区分と根拠（指示者・方法・日付・件）付きで記録し、実績原価の積み上げから提案金額を出す「変更増減 精算資料（案）」を PDF・Excel で出せる。契約金額が未確定の現場（概算）も扱え、日報 PDF に客先確認欄を持つ。
 
 **Architecture:** 帳票のデータは純関数 `src/lib/reports/*.ts` が既存の集計（`src/lib/calc/aggregate.ts`）から組み立てる（`ReportModel`）。PDF は `@react-pdf/renderer`（Node、フォントは Noto Sans JP を同梱）、Excel は `exceljs`（数式なしの xlsx。書式あり）、CSV は UTF-8（BOM 付き）。配信は Route Handler `/api/reports/*`。原本 Excel は既存の `python/genba_export` を Vercel の Python 関数で呼ぶ（第2計画 Task 5 の最小版。行挿入は行わず、超過時は案内）。取り込みはマスター取り込みと同じ「端末で読む → 確認画面 → 保存」で、保存は既存の `saveReport`（`gn_save_report`）を使う。
 
@@ -130,9 +130,68 @@ CSV は「1 ファイルに全部」ではなく、セクションごとに空�
 - [ ] `docs/superpowers/plans/2026-10-30-phase1-record.md` に第2計画（改）の記録。README に `GN_EXPORT_SECRET`・`supabase/update_2026-11-03d_profile_names.sql`・フォントのライセンス。
 - [ ] 本番で利用者が確認：原価集計表 3 形式、日報 PDF/CSV、原本 Excel（11 月）、雛形の取り込み（1 日分）、手入力の作業員。
 
+### Task 9: 追加・変更・減の記録（DB と型）
+
+利用者の要望（2026-11-03）：契約金額が固まらない現場や下請け現場で、追加・変更・減を日報から判断して客先と交渉できるようにする。
+
+**Files:**
+- Create: `supabase/update_2026-11-04_change_tracking.sql`（差分。`schema_genba.sql` にも反映。`npm run check:sql`）
+- Modify: `src/lib/types.ts`, `src/lib/report/{schema,rows}.ts`, `src/lib/db/{reports,reports-actions,sites,sites-actions,sites-schemas,settings,settings-schemas,settings-actions}.ts`, `tests/report/*.test.ts`, `tests/db/*.test.ts`
+
+**DB の変更（すべて `add column if not exists`）：**
+- `gn_report_lines`（作業内容行 `kind='work'` で使う）：`change_kind text check (change_kind in ('contract','extra','change','minus'))`（既定 `'contract'`。既存の `source='extra'` は `'extra'` に移行）、`instructed_by text`（指示者）、`instruction_method text check (… in ('oral','phone','email','document','other'))`、`instructed_on date`、`issue_id uuid references public.gn_report_issues(id) on delete set null`（根拠の件）。
+- `gn_report_issues`：`kind text check (kind in ('extra','change','minus','client_delay','rework','other'))`（既定 `'other'`）、`instructed_by text`、`instruction_method text`（同じ選択肢）、`amount_estimate numeric`（金額見込み）。
+- `gn_sites`：`contract_status text check (… in ('fixed','tentative'))` 既定 `'fixed'`、`estimated_amount numeric`（概算・見積提示額。未確定のとき使う）。
+- `gn_settings`：`overhead_rate numeric not null default 0.15`（追加分の提案金額に掛ける経費率）、`profit_rate numeric not null default 0.10`（利益率）。
+- `gn_daily_reports`：`client_confirmed_by text`（客先確認者名）、`client_confirmed_at timestamptz`、`client_confirmed_note text`。確認の記録は現場メンバーなら誰でも入れられる（ガードは既存どおり）。
+- `gn_save_report` の明細 insert に新列を追加。`gn_report_lines_compute` は変更なし。
+
+**型・保存：** `WorkLine` に `changeKind`, `instructedBy`, `instructionMethod`, `instructedOn`, `issueId`；`Issue` に `kind`, `instructedBy`, `instructionMethod`, `amountEstimate`；`Site` に `contractStatus`, `estimatedAmount`；`Settings.rule` と並べて `rates: { overheadRate, profitRate }`；日報の見出しに `clientConfirmedBy/At/Note`。ラベル：区分＝契約内／追加／変更／減、指示方法＝口頭／電話／メール／書面／その他、件の種別＝追加指示／仕様変更／減／客先都合（手待ち・待機）／やり直し／その他。
+
+- [ ] **Step 1: テスト（Zod：区分と指示方法の値、金額 ≥ 0、既存の下書きに項目が無くても通る）→ Step 2: SQL と型・保存 → Step 3: `npm run check:sql`・`npm test`・tsc → Step 4: コミット** `feat(db): 追加・変更・減の記録（区分・指示者・根拠）と契約状態・経費率・客先確認の列`
+
+### Task 10: 入力画面（作業内容の区分と根拠、件の種別、契約状態、経費率）
+
+**Files:**
+- Modify: `src/components/report/tables/WorkTable.tsx`（各行に「区分」セレクト。追加／変更／減のときだけ 指示者・指示方法・指示日・根拠の件（その現場の対応中＋この日報の件から選ぶ）が同じ行の下に開く）, `src/components/report/IssueBanner.tsx` と件の追加フォーム（種別・指示者・指示方法・金額見込み）, `src/components/sites/SiteForm.tsx`（契約状態：確定／未確定、未確定のとき概算金額）, `src/components/masters/SettingsPanel.tsx`（経費率・利益率）, `src/components/report/ReportSummary.tsx`（本日の追加・変更・減の金額を 1 行表示）, `src/content/guide/input.md`
+
+- [ ] **Step 1: テスト（行の正規化・保存行に新列が入る）→ Step 2: 実装 → Step 3: `npm test`・tsc・lint・build → Step 4: コミット** `feat(report): 作業内容の区分と指示の根拠、件の種別、契約状態、経費率を入力できるようにする`
+
+### Task 11: 変更増減のデータ組み立て（純関数）と採算の扱い
+
+**Files:**
+- Create: `src/lib/reports/change-model.ts`, `tests/reports/change-model.test.ts`
+- Modify: `src/lib/reports/cost-model.ts`（契約未確定の現場：進捗率＝累計原価 ÷ 概算金額、採算欄は「概算に対する見込み」と注記。② に「追加・変更・減の提案額」を 1 行追加）, `src/lib/calc/aggregate.ts`（必要なら）
+
+**Interfaces:**
+- Produces: `buildChangeLedger(input, settings): ChangeLedgerModel`：
+  - 一覧：追加・変更・減の作業内容行を日付順に。各行＝日付・回目・工種・施工内容・数量・単位・単価・金額（入力の施工単価×数量）・投入人工・指示者・指示方法・指示日・根拠の件（番号・種別・本文の先頭 40 字）・客先確認（あり／なし）。
+  - 実績原価の積み上げ：その行の投入人工 × その日の平均日当（その日の労務費 ÷ その日の人工）＋ その日の材料・リース・燃料のうち、作業内容行の人工比で按分した額（按分の規則は 1 か所に書き、テストで固定）。提案金額＝実績原価 ×（1＋経費率）×（1＋利益率）、円未満切り上げ。入力の施工単価×数量 があればそれも並記（「申告額」）。
+  - 集計：追加の件数・申告額合計・実績原価合計・提案額合計、変更、減（減は数量・金額を負で）、精算提案額＝当初見積（概算）＋追加＋変更−減。
+
+- [ ] **Step 1: テスト（区分ごとの集計、按分、丸め、根拠の件の紐づけ、客先確認の有無）→ Step 2: 実装 → Step 3: `npm test` → Step 4: コミット** `feat(reports): 追加・変更・減の一覧と実績原価の積み上げ`
+
+### Task 12: 帳票「変更増減 精算資料（案）」PDF・Excel
+
+**Files:**
+- Create: `src/lib/pdf/change-ledger.tsx`, `src/lib/reports/change-xlsx.ts`, `src/app/api/reports/changes/route.ts`（`?site=&period=all|YYYY-MM&format=pdf|xlsx`）, `tests/reports/change-pdf.test.ts`
+- Modify: `src/components/export/ExportPanel.tsx`（「変更増減 精算資料」ボタン）
+
+**構成：** 1 ページ目：宛先（客先名 ＋「御中」）、件名「追加・変更工事 精算のご提案（案）」、現場名・工事番号・期間、サマリー表（当初見積／契約内出来高／追加（件数・申告額・提案額）／変更／減／精算提案額）、注記（提案額の計算式＝実績原価×(1＋経費率)×(1＋利益率)）。2 ページ目以降：明細一覧（Task 11 の一覧）。末尾：会社名・担当者・連絡先（設定に `company_name`, `company_contact` を持たせる。無ければ空欄）、客先確認欄。ロゴは `public/logo.png` を左上に。
+
+- [ ] **Step 1: テスト → Step 2: 実装 → Step 3: `npm test`・build → Step 4: コミット** `feat(reports): 変更増減 精算資料（案）の PDF・Excel`
+
+### Task 13: 日報 PDF の客先確認欄とアプリの確認記録
+
+**Files:**
+- Modify: `src/lib/pdf/daily-report.tsx`（末尾に「客先確認」欄：確認者名・日付・サイン欄。追加・変更・減の行がある日は、その行を太字にし「本日の追加・変更」小計を出す）, `src/components/report/ReportForm.tsx`（提出後・承認後でも入れられる「客先確認を記録」ダイアログ：確認者名・日時（既定＝今）・メモ。Server Action `recordClientConfirmation(reportId, …)`）, `src/lib/db/reports-actions.ts`, `src/content/guide/approval.md`
+
+- [ ] **Step 1: テスト（Action の検証）→ Step 2: 実装 → Step 3: `npm test`・tsc・lint・build → Step 4: コミット** `feat(report): 日報 PDF の客先確認欄と確認の記録`
+
 ---
 
 ## 自己点検
 - §7・§8.1・§10・§13 の該当範囲を Task 1〜7 で覆う。§8.4（行挿入）は中止し、超過は案内（Task 1）。§14 の PDF テストは「バッファが PDF であること」までで、見た目は利用者確認（Task 8）。
 - 型の整合：`CostReportModel`／`DailyReportModel`（Task 2・4）を PDF・Excel・CSV（Task 3・5）が消費。`DAY_LAYOUT`（Task 7）は Python の `layout.py` と同じ値（テストで `python/genba_export/layout.py` から抜いた数字と突き合わせる）。
+- Task 9〜13（追加・変更・減）は Task 1〜8 の後に行う。Task 9 の SQL は Task 1 より前に適用しても害はない。
 - 既知の制限：原本 Excel は 31 件超・行数超過の月は出せない。PDF の見た目はデザイン案に合わせるが、フォントの行間などは実機で微調整。
