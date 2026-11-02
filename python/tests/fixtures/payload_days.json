@@ -1,0 +1,74 @@
+{
+  "file_name": "検証現場_2026年11月.xlsm",
+  "site": {
+    "name": "検証現場",
+    "client_name": "検証客先",
+    "project_name": "検証工事",
+    "project_no": "K-001",
+    "overview": "検証用の工事概要",
+    "contract_amount": 12000000,
+    "start_date": "2026-10-01",
+    "end_date": "2027-03-31",
+    "contract_type": "元請け"
+  },
+  "settings": {
+    "shotei_hours": 7.5,
+    "fixed_overtime_limit": 8,
+    "overtime_multiplier": 1.25,
+    "overtime_base_hours": 8
+  },
+  "workers": [
+    { "name": "山田 太郎", "trade": "大工", "daily_rate": 18000, "overtime_rate": null, "note": null, "carry_man_days": 12.5, "carry_cost": 225000 },
+    { "name": "鈴木 一郎", "trade": "解体", "daily_rate": 16000, "overtime_rate": null, "note": null, "carry_man_days": 0, "carry_cost": 0 }
+  ],
+  "suppliers": [
+    { "name": "○○建材", "category": "材料", "contact": "鈴木", "note": null }
+  ],
+  "vehicles": [
+    { "name": "ハイエース", "kind": "バン", "km_per_l": 8.5, "note": null }
+  ],
+  "lease_items": [
+    { "name": "発電機", "spec": "2.8kVA", "unit_price": 3000, "note": null }
+  ],
+  "days": [
+    {
+      "index": 1, "date": "2026-11-01", "total_index": 12, "weather": "晴れ", "supervisor": "検証太郎",
+      "common": { "start": "08:00", "end": "17:30", "break_min": 90, "gap_min": 0 },
+      "labor": [
+        { "name": "山田 太郎", "start": null, "end": null, "break_min": null, "gap_min": null, "note": "大工", "daily_rate": 18000, "master_daily_rate": 18000 },
+        { "name": "鈴木 一郎", "start": "08:00", "end": "12:00", "break_min": 0, "gap_min": null, "note": null, "daily_rate": 16000, "master_daily_rate": 16000 }
+      ],
+      "fuel": [
+        { "name": "ハイエース", "distance_km": 40, "price_per_l": 170, "note": null }
+      ],
+      "lease": [
+        { "name": "発電機", "spec": "2.8kVA", "unit": "日", "qty": 2, "note": null, "unit_price": 3000, "master_unit_price": 3000 }
+      ],
+      "cash": [
+        { "name": "ビス", "spec": "50mm", "unit": "箱", "qty": 1, "unit_price": 500, "vendor": "ホームセンター" }
+      ],
+      "credit": [
+        { "name": "合板", "spec": "12mm", "unit": "枚", "qty": 2, "unit_price": 1500, "vendor": "○○建材" }
+      ],
+      "work": [
+        { "trade": "解体", "description": "外壁撤去", "qty": 10, "unit": "m2", "man_days": 1.5, "unit_price": 5000 }
+      ],
+      "cumulative_cost": 10600, "output_total": 50000,
+      "issues_text": "追加工事の指示あり", "issues": ["サッシ追加 2 か所"], "notes_text": "雨天のため午後中止",
+      "created_by": "検証太郎", "reviewed_by": "確認花子", "approved_by": "承認次郎", "approved_at": "2026-11-02T10:15:00+09:00"
+    },
+    {
+      "index": 2, "date": "2026-11-02", "total_index": 13, "weather": null, "supervisor": null,
+      "common": { "start": null, "end": null, "break_min": null, "gap_min": null },
+      "labor": [],
+      "fuel": [],
+      "lease": [],
+      "cash": [],
+      "credit": [],
+      "work": [],
+      "cumulative_cost": 10600, "output_total": 0,
+      "issues_text": null, "issues": [], "notes_text": null,
+      "created_by": "検証太郎", "reviewed_by": null, "approved_by": null, "approved_at": null
+    }
+  ]
+}
