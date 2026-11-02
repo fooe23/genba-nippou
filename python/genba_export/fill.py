@@ -225,16 +225,21 @@ def _day_sheet_name(day: dict) -> str:
     return layout.DAY_SHEETS[index - 1]
 
 
+def _one_newline(text: Any) -> str:
+    """セル内改行は \\n にそろえる（\\r\\n・\\r が来ても Excel で同じに見えるように）。"""
+    return str(text).replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _issues_text(day: dict) -> Optional[str]:
     """重要事項：文章のあとに、件を「・」付きで 1 行ずつ。"""
     lines = []
     text = _text(day.get("issues_text"))
     if text is not None:
-        lines.append(str(text))
+        lines.append(_one_newline(text))
     for issue in day.get("issues") or []:
         issue = _text(issue)
         if issue is not None:
-            lines.append("・%s" % issue)
+            lines.append("・%s" % _one_newline(issue))
     return "\n".join(lines) if lines else None
 
 
@@ -245,7 +250,7 @@ def _notes_text(day: dict) -> Optional[str]:
         lines.append("【通算%s回目】" % day["total_index"])
     text = _text(day.get("notes_text"))
     if text is not None:
-        lines.append(str(text))
+        lines.append(_one_newline(text))
     return "\n".join(lines) if lines else None
 
 
@@ -261,10 +266,10 @@ def _write_day(ws, day: dict) -> None:
         "supervisor": _text(day.get("supervisor")),
         "common_start": to_time(common.get("start"), "%s の共通の開始時刻" % where),
         "common_end": to_time(common.get("end"), "%s の共通の終了時刻" % where),
-        "common_break_min": common.get("break_min"),
-        "common_gap_min": common.get("gap_min"),
-        "cumulative_cost": day.get("cumulative_cost"),
-        "output_total": day.get("output_total"),
+        "common_break_min": _text(common.get("break_min")),
+        "common_gap_min": _text(common.get("gap_min")),
+        "cumulative_cost": _text(day.get("cumulative_cost")),
+        "output_total": _text(day.get("output_total")),
         "issues": _issues_text(day),
         "notes": _notes_text(day),
         "created_by": _text(day.get("created_by")),

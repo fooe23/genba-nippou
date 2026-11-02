@@ -133,15 +133,15 @@ DAY_TABLES = {
 }
 
 # 原本の 2回目 だけは作業内容の表が 8 行（63〜70 行）あり、その下が 2 行ずれている
-# （V34_変更点.md：「2回目は K82」「印刷範囲 A1:L82」）。合計行 71 の数式は SUM(G63:G68) /
-# SUM(J63:J68) のままなので、書く明細は他のシートと同じ 63〜68 行（6 行）に留める。
+# （V34_変更点.md：「2回目は K82」「印刷範囲 A1:L82」）。合計行 71 は 600f258 で
+# SUM(G63:G70) / SUM(J63:J70) に直したので、明細は 63〜70 行（8 行）まで書ける。
 DAY_SHEET_OVERRIDES = {
     "2回目": {
         "cells": {
             "issues": "A73", "notes": "A78",
             "created_by": "B82", "reviewed_by": "E82", "approved_by": "H82", "approved_at": "K82",
         },
-        "tables": {"work": {"total_row": 71}},
+        "tables": {"work": {"last_row": 70, "total_row": 71}},
     },
 }
 
