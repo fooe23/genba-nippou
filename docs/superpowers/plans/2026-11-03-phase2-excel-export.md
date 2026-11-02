@@ -219,6 +219,8 @@ def test_excel_opens(self):  # openpyxl で再読込できる（壊れていな�
 - [ ] **Step 1: 失敗するテスト（`tests/export/payload.test.ts`）** — 上の規則それぞれに 1 件（日付順と index、作業員の並びと上限警告、月途中の日当変更（master と line が違う）、繰越の計算、cumulative_cost、休憩だけの行、ファイル名の禁止文字置換、日報 0 件の月は `days: []`）。
 - [ ] **Step 2: 失敗を確認** → **Step 3: 実装** → **Step 4: 通過確認** → **Step 5: コミット** `feat(export): 月次データから Excel 出力用 payload を組み立てる`
 
+> **2026-11-03 変更（利用者の方針転換）**：Task 1〜4 は完了。Task 5 は最小版（原本 Excel のダウンロードのみ）として `2026-11-03-phase2b-reports-and-day-import.md` の Task 1 に移した。**Task 6（行挿入）は中止**（超過する月は案内して PDF／CSV に誘導）。Task 7 は同計画の Task 8 に統合。以下の Task 5〜7 の記述は参考として残す。
+
 ### Task 5: Vercel の Python 関数、Node からの呼び出し、Route Handler、画面、Storage 保存
 
 **Files:**
