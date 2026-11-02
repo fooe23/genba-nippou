@@ -21,12 +21,20 @@ create table if not exists public.gn_sites (
   status          text not null default 'active' check (status in ('active','done')),
   deleted_at      timestamptz,
   deleted_by      uuid,
+  common_start     text,
+  common_end       text,
+  common_break_min int,
+  common_gap_min   int,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
 -- 既存環境向け（2026-11-02 追加列）
 alter table public.gn_sites add column if not exists deleted_at timestamptz;
 alter table public.gn_sites add column if not exists deleted_by uuid;
+alter table public.gn_sites add column if not exists common_start     text;
+alter table public.gn_sites add column if not exists common_end       text;
+alter table public.gn_sites add column if not exists common_break_min int;
+alter table public.gn_sites add column if not exists common_gap_min   int;
 
 
 create table if not exists public.gn_site_members (
@@ -45,10 +53,12 @@ create table if not exists public.gn_workers (
   trade      text,
   note       text,
   profile_id uuid references public.profiles(id),
+  overtime_rate numeric check (overtime_rate is null or overtime_rate >= 0),
   active     boolean default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+alter table public.gn_workers add column if not exists overtime_rate numeric check (overtime_rate is null or overtime_rate >= 0);
 
 create table if not exists public.gn_worker_rates (
   id             uuid primary key default gen_random_uuid(),
@@ -216,8 +226,12 @@ create table if not exists public.gn_report_lines (
   productivity  numeric,
   source        text check (source in ('estimate','extra')),
   note          text,
+  overtime_hours numeric,
+  overtime_rate  numeric,
   created_at    timestamptz not null default now()
 );
+alter table public.gn_report_lines add column if not exists overtime_hours numeric;
+alter table public.gn_report_lines add column if not exists overtime_rate  numeric;
 create index if not exists gn_report_lines_report_idx on public.gn_report_lines (report_id, sort_order);
 
 create table if not exists public.gn_report_issues (
@@ -483,18 +497,52 @@ returns int language sql immutable set search_path = public as $$
          end;
 $$;
 
+-- =====================================================================
+-- 労務の計算設定（2026-11-03）
+-- =====================================================================
+-- 1. 設定（1 行だけ） ------------------------------------------------------
+create table if not exists public.gn_settings (
+  id                       int primary key check (id = 1),
+  shotei_hours             numeric not null default 7.5 check (shotei_hours > 0),
+  fixed_overtime_limit     numeric not null default 8   check (fixed_overtime_limit >= 0),
+  overtime_multiplier      numeric not null default 1.25 check (overtime_multiplier >= 0),
+  overtime_base_hours      numeric not null default 8   check (overtime_base_hours > 0),
+  default_common_start     text default '08:00',
+  default_common_end       text default '17:30',
+  default_common_break_min int  default 90,
+  default_common_gap_min   int  default 0,
+  updated_at               timestamptz not null default now()
+);
+insert into public.gn_settings (id) values (1) on conflict (id) do nothing;
+
+drop trigger if exists gn_settings_touch on public.gn_settings;
+create trigger gn_settings_touch before update on public.gn_settings
+  for each row execute function public.touch_updated_at();
+
+alter table public.gn_settings enable row level security;
+drop policy if exists gn_settings_select on public.gn_settings;
+create policy gn_settings_select on public.gn_settings for select to authenticated using (true);
+drop policy if exists gn_settings_admin_update on public.gn_settings;
+create policy gn_settings_admin_update on public.gn_settings for update to authenticated
+  using (public.is_admin()) with check (public.is_admin());
+-- insert / delete のポリシーは作らない（行は 1 つだけ）
+
 create or replace function public.gn_report_lines_compute()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
   r         public.gn_daily_reports%rowtype;
+  s         public.gn_settings%rowtype;
   v_start   int;
   v_end     int;
   v_break   int;
   v_gap     int;
   v_minutes int;
+  v_hours   numeric;
+  v_rate    numeric;
 begin
   if new.kind = 'labor' then
     select * into r from public.gn_daily_reports where id = new.report_id;
+    select * into s from public.gn_settings where id = 1;
     if public.gn_hhmm_minutes(new.start_time) is not null
        and public.gn_hhmm_minutes(new.end_time) is not null then
       v_start := public.gn_hhmm_minutes(new.start_time);
@@ -512,10 +560,24 @@ begin
     else
       v_minutes := greatest(v_end - v_start - v_break - v_gap, 0);
     end if;
-    -- 実働 = 分 / 60、人工 = round(実働 / 7.5, 2) = round(分 / 450, 2)
-    new.hours        := round(v_minutes / 60.0, 6);
-    new.man_days     := round(v_minutes / 450.0, 2);
-    new.amount       := coalesce(new.unit_price, 0) * new.man_days;
+    v_hours := round(v_minutes / 60.0, 6);
+    new.hours := v_hours;
+    -- 人工：所定以下は比例（小数2桁）、所定を超えたら 1.0
+    if coalesce(s.shotei_hours, 7.5) <= 0 then
+      new.man_days := 0;
+    elsif v_hours <= coalesce(s.shotei_hours, 7.5) then
+      new.man_days := round(v_hours / coalesce(s.shotei_hours, 7.5), 2);
+    else
+      new.man_days := 1;
+    end if;
+    -- 残業時間：固定残業の上限を超えた分
+    new.overtime_hours := round(greatest(v_hours - coalesce(s.fixed_overtime_limit, 8), 0), 2);
+    -- 残業単価：作業員の単価（0 は空欄扱い）、無ければ 日当 ÷ 基準時間 × 割増率（円未満四捨五入）
+    v_rate := nullif(new.overtime_rate, 0);
+    if v_rate is null then
+      v_rate := round(coalesce(new.unit_price, 0) / coalesce(s.overtime_base_hours, 8) * coalesce(s.overtime_multiplier, 1.25), 0);
+    end if;
+    new.amount       := coalesce(new.unit_price, 0) * new.man_days + new.overtime_hours * v_rate;
     new.productivity := null;
   elsif new.kind = 'fuel' then
     new.amount := case
@@ -523,14 +585,17 @@ begin
                     else coalesce(new.distance_km, 0) / new.km_per_l * coalesce(new.price_per_l, 0)
                   end;
     new.hours := null; new.man_days := null; new.productivity := null;
+    new.overtime_hours := null; new.overtime_rate := null;
   elsif new.kind in ('lease', 'cash', 'credit') then
     new.amount := coalesce(new.qty, 0) * coalesce(new.unit_price, 0);
     new.hours := null; new.man_days := null; new.productivity := null;
+    new.overtime_hours := null; new.overtime_rate := null;
   elsif new.kind = 'work' then
     -- 作業内容の man_days は入力値（投入人工）
     new.amount       := coalesce(new.qty, 0) * coalesce(new.unit_price, 0);
     new.productivity := case when coalesce(new.man_days, 0) = 0 then null else new.qty / new.man_days end;
     new.hours        := null;
+    new.overtime_hours := null; new.overtime_rate := null;
   end if;
   return new;
 end;
@@ -627,13 +692,15 @@ begin
   insert into public.gn_report_lines (
     report_id, kind, sort_order, ref_id, name, spec, unit, qty, unit_price, amount,
     start_time, end_time, break_min, gap_min, hours, man_days, km_per_l, distance_km,
-    price_per_l, vendor, trade, description, productivity, source, note
+    price_per_l, vendor, trade, description, productivity, source, note,
+    overtime_hours, overtime_rate
   )
   select
     v_id, t.kind, coalesce(t.sort_order, e.ord::int), t.ref_id, t.name, t.spec, t.unit,
     t.qty, t.unit_price, t.amount, t.start_time, t.end_time, t.break_min, t.gap_min,
     t.hours, t.man_days, t.km_per_l, t.distance_km, t.price_per_l, t.vendor, t.trade,
-    t.description, t.productivity, t.source, t.note
+    t.description, t.productivity, t.source, t.note,
+    t.overtime_hours, t.overtime_rate
   from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) with ordinality as e(elem, ord),
        lateral jsonb_populate_record(null::public.gn_report_lines, e.elem) as t
   order by coalesce(t.sort_order, e.ord::int), e.ord;
