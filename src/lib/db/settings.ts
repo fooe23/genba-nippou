@@ -12,12 +12,14 @@ export interface Settings {
   /** 新しい日報の共通時間の初期値（現場の既定が無いときに使う）。 */
   defaultCommon: TimeSpec;
   updatedAt: string | null;
+  /** 最後に更新した人（profiles.id）。DB のトリガーが入れる。 */
+  updatedBy: string | null;
 }
 
 /** gn_settings の列の既定と同じ。行が無い（SQL 未適用）・読めないときに使う。 */
 export const DEFAULT_COMMON: TimeSpec = { start: '08:00', end: '17:30', breakMin: 90, gapMin: 0 };
 
-export const DEFAULT_SETTINGS: Settings = { rule: { ...DEFAULT_LABOR_RULE }, defaultCommon: { ...DEFAULT_COMMON }, updatedAt: null };
+export const DEFAULT_SETTINGS: Settings = { rule: { ...DEFAULT_LABOR_RULE }, defaultCommon: { ...DEFAULT_COMMON }, updatedAt: null, updatedBy: null };
 
 interface SettingsRow {
   shotei_hours: number | string | null;
@@ -29,10 +31,13 @@ interface SettingsRow {
   default_common_break_min: number | string | null;
   default_common_gap_min: number | string | null;
   updated_at: string | null;
+  updated_by?: string | null;
 }
 
-const COLUMNS =
+const LEGACY_COLUMNS =
   'shotei_hours, fixed_overtime_limit, overtime_multiplier, overtime_base_hours, default_common_start, default_common_end, default_common_break_min, default_common_gap_min, updated_at';
+// updated_by は update_2026-11-03c_master_import.sql で追加。未適用（列が無い＝42703）なら LEGACY_COLUMNS で読み直す。
+const COLUMNS = `${LEGACY_COLUMNS}, updated_by`;
 
 function numOr(v: number | string | null, fallback: number): number {
   if (v === null || v === '') return fallback;
@@ -62,6 +67,7 @@ function toSettings(r: SettingsRow): Settings {
       gapMin: intOrNull(r.default_common_gap_min),
     },
     updatedAt: r.updated_at ?? null,
+    updatedBy: r.updated_by ?? null,
   };
 }
 
@@ -69,7 +75,10 @@ function toSettings(r: SettingsRow): Settings {
 export const getSettings = cache(async function getSettings(): Promise<Settings> {
   try {
     const supabase = await createServerSupabase();
-    const { data, error } = await supabase.from('gn_settings').select(COLUMNS).eq('id', 1).maybeSingle();
+    let { data, error } = await supabase.from('gn_settings').select(COLUMNS).eq('id', 1).maybeSingle();
+    if (error && error.code === '42703') {
+      ({ data, error } = await supabase.from('gn_settings').select(LEGACY_COLUMNS).eq('id', 1).maybeSingle());
+    }
     if (error) {
       console.error('[gn_settings]', error.message);
       return structuredClone(DEFAULT_SETTINGS);
