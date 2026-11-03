@@ -2,8 +2,11 @@ import { buildChangeLedger } from '@/lib/reports/change-model';
 import type { ChangeReportMeta } from '@/lib/reports/change-sections';
 import { buildCostReport } from '@/lib/reports/cost-model';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
+import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import type { ChangeLedgerModel, CostReportInput, CostReportModel, CostReportPeriod, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
+
+type WorkLineSaved = Extract<SavedReportLine, { kind: 'work' }>;
 
 // 帳票のレンダラー（CSV・Excel・PDF）のテスト用：小さな入力から buildCostReport でモデルを作る。
 
@@ -97,6 +100,45 @@ export const changeInput = (): CostReportInput => ({
     },
   ],
 });
+
+/**
+ * 件ごとの精算（Task 4）用：11/05 の日報の追加（1.5 人工）は未定の件 i1、変更（0.5 人工）は常用の件 iD（30,000 円／人工）、
+ * 減は一式の件 iM（確定額 20,000 → −20,000）に紐づけ、件なしの追加（手すり 0.5 人工）を 1 行足す。
+ * 行の無い一式の件 iL（追加 100,000）と、やり直しの件 iR（一式 8,000。参考）も載せる。
+ */
+export const settledInput = (): CostReportInput => {
+  const base = changeInput();
+  const [extra, change, minus] = changeLines.slice(lines.length) as WorkLineSaved[];
+  const settledLines: SavedReportLine[] = [
+    ...lines,
+    extra,
+    { ...change, issueId: 'iD' },
+    { ...minus, issueId: 'iM' },
+    {
+      kind: 'work', estimateItemId: null, trade: '大工', description: '手すり追加', qty: 1, unit: '式', manDays: 0.5, unitPrice: 6000,
+      source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'extra', stored: stored(6000, 0.5),
+    },
+  ];
+  const issue = (o: Partial<Issue> & Pick<Issue, 'id' | 'body' | 'kind'>): Issue => ({
+    siteId: 's1', reportId: 'r-2026-11-05', reportDate: '2026-11-05', status: 'open', doneAt: null,
+    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, ...o,
+  });
+  return {
+    ...base,
+    reports: [base.reports[0], { ...base.reports[1], lines: settledLines }],
+    issues: [
+      ...base.issues,
+      issue({ id: 'iL', body: '玄関収納の追加', kind: 'extra', amountEstimate: 90000, settlementMethod: 'lump_sum', fixedAmount: 100000, fixedOn: '2026-11-08' }),
+      issue({ id: 'iD', body: '棚の位置変更（常用）', kind: 'change', settlementMethod: 'daily_rate', dailyRate: 30000 }),
+      issue({ id: 'iM', body: '外壁塗装の一部取りやめ', kind: 'minus', settlementMethod: 'lump_sum', fixedAmount: 20000, fixedOn: '2026-11-06' }),
+      issue({ id: 'iR', body: '巾木の手直し', kind: 'rework', settlementMethod: 'lump_sum', fixedAmount: 8000 }),
+    ],
+  };
+};
+
+export function settledChangeModel(period: CostReportPeriod = { kind: 'all' }): ChangeLedgerModel {
+  return buildChangeLedger(settledInput(), RATES, period);
+}
 
 export function sampleChangeModel(period: CostReportPeriod = { kind: 'all' }): ChangeLedgerModel {
   return buildChangeLedger(changeInput(), RATES, period);

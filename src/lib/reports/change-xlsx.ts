@@ -6,8 +6,11 @@ import {
   changeDetail,
   changeFooterText,
   changeInfoRows,
+  changeIssues,
+  changeIssuesNote,
   changeSummary,
   CLIENT_CHECK_BOXES,
+  ISSUES_TITLE,
   NO_CHANGES,
   senderRows,
   type ChangeReportMeta,
@@ -15,16 +18,20 @@ import {
 import { BAND, box, fill, NAVY, writeTable } from '@/lib/reports/cost-xlsx';
 import type { ChangeLedgerModel } from '@/lib/reports/types';
 
-// 変更増減 精算資料（案）の Excel（数式なしの xlsx）。1 シートに件名・宛先・見出し、サマリー表と率・注記、明細一覧（16 列を
-// 1 行に）、末尾（発行者・客先確認欄）を縦に並べる。金額は #,##0、率は 0.0%。列幅は固定、A4 縦で横 1 ページに収める。
+// 変更増減 精算資料（案）の Excel（数式なしの xlsx）。1 シートに件名・宛先・見出し、サマリー表と率・注記、件ごとの精算、
+// 明細一覧（15 列を 1 行に）、末尾（発行者・客先確認欄）を縦に並べる。金額は #,##0、率は 0.0%。列幅は固定、A4 縦で横 1 ページに
+// 収める。客先向けなので実績原価は出さない。
 
-/** 明細の 16 列（A 列は見出し・サマリーの項目名も兼ねる）。 */
-const COLUMN_WIDTHS = [22, 6, 11, 26, 8, 6, 10, 12, 8, 12, 12, 12, 8, 11, 36, 8];
-const LAST_COL = 'P';
+/** 明細の 15 列（A 列は見出し・サマリーの項目名・件ごとの精算の件も兼ねる。B〜I 列は件ごとの精算の見込み額〜精算額にも使う）。 */
+const COLUMN_WIDTHS = [26, 9, 11, 22, 10, 6, 10, 12, 12, 12, 12, 8, 11, 36, 8];
+const LAST_COL = 'O';
 
-function section(ws: ExcelJS.Worksheet, title: string): void {
+/** 欄の見出し（A 列、濃紺の太字）。note は B 列に小さく（集計の範囲など）。 */
+function section(ws: ExcelJS.Worksheet, title: string, note?: string): void {
   ws.addRow([]);
-  ws.addRow([title]).getCell(1).font = { bold: true, size: 11, color: { argb: NAVY } };
+  const row = ws.addRow(note ? [title, note] : [title]);
+  row.getCell(1).font = { bold: true, size: 11, color: { argb: NAVY } };
+  if (note) row.getCell(2).font = { size: 9, color: { argb: 'FF555555' } };
 }
 
 /** ラベル（太字・帯）と値の 2 列。 */
@@ -76,6 +83,12 @@ export async function buildChangeXlsx(model: ChangeLedgerModel, meta: ChangeRepo
       c.border = box;
     }
     for (const note of notes) ws.addRow([`※ ${note}`]).getCell(1).font = { size: 9, color: { argb: 'FF555555' } };
+
+    const issues = changeIssues(model);
+    if (issues) {
+      section(ws, ISSUES_TITLE, changeIssuesNote(model));
+      writeTable(ws, issues);
+    }
 
     section(ws, '明細一覧');
     writeTable(ws, changeDetail(model));

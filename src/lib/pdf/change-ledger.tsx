@@ -9,8 +9,11 @@ import {
   changeDetail,
   changeFooterText,
   changeInfoRows,
+  changeIssues,
+  changeIssuesNote,
   changeSummary,
   CLIENT_CHECK_BOXES,
+  ISSUES_TITLE,
   NO_CHANGES,
   senderRows,
   type ChangeReportMeta,
@@ -19,14 +22,15 @@ import { formatCell, type Cell, type Column, type SectionTable } from '@/lib/rep
 import type { ChangeLedgerModel } from '@/lib/reports/types';
 
 // 変更増減 精算資料（案）の PDF（A4 縦・余白 15mm・本文 9pt・明細 8pt）。見た目と部品は common.tsx。
-// 1 ページ目：ロゴ・宛先・件名・見出し・サマリー表・注記。2 ページ目から：明細一覧（1 件を 2 段で表示）・末尾。
+// 1 ページ目：ロゴ・宛先・件名・見出し・サマリー表・注記、続けて件ごとの精算（入りきらない行は次のページへ）。
+// 次のページから：明細一覧（1 件を 2 段で表示）・末尾。客先向けなので実績原価は出さない。
 
 const LOGO = path.join(process.cwd(), 'public/logo.png');
 
-/** 明細の段組み（changeDetail の列番号）：日付は 2 段をまたぎ、上段は区分〜提案額、下段は指示者〜客先確認。 */
+/** 明細の段組み（changeDetail の列番号）：日付は 2 段をまたぎ、上段は区分〜提案額（9 列）、下段は指示者〜客先確認（5 列）。 */
 const LEAD = 0;
-const UPPER = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-const LOWER = [11, 12, 13, 14, 15];
+const UPPER = [1, 2, 3, 4, 5, 6, 7, 8, 9];
+const LOWER = [10, 11, 12, 13, 14];
 const DETAIL_FONT = 8;
 
 const c = StyleSheet.create({
@@ -123,6 +127,7 @@ function Tail({ meta }: { meta: ChangeReportMeta }) {
 function ChangeLedgerDocument({ model, meta }: { model: ChangeLedgerModel; meta: ChangeReportMeta }) {
   const info = changeInfoRows(model, meta);
   const { table, notes } = changeSummary(model);
+  const issues = changeIssues(model);
   const detail = changeDetail(model);
   return (
     <Document
@@ -160,6 +165,13 @@ function ChangeLedgerDocument({ model, meta }: { model: ChangeLedgerModel; meta:
                 ※ {n}
               </Text>
             ))}
+
+            {issues ? (
+              <>
+                <SectionHead title={ISSUES_TITLE} note={changeIssuesNote(model)} />
+                <Table table={issues} fontSize={DETAIL_FONT} />
+              </>
+            ) : null}
 
             <View break>
               <SectionHead title="明細一覧" note={`${detail.rows.length} 件`} marginTop={0} />
