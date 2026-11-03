@@ -16,10 +16,12 @@ import {
   type SaveReportResult,
 } from '@/lib/db/reports-actions';
 import type { Issue } from '@/lib/db/reports';
+import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import type { LaborRule, TimeSpec } from '@/lib/types';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
+import { ImportDaySheet } from './ImportDaySheet';
 import { fieldClass, NumInput, Select, TimeInput } from './inputs';
 import { IssueBanner } from './IssueBanner';
 import { ReportSummary } from './ReportSummary';
@@ -319,6 +321,25 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
     }
   }
 
+  /** Excel（1 日分の雛形）から取り込んだ内容でフォームを置き換える（保存はしない）。共通時間の空欄の項目は画面の値のまま。 */
+  function applyImport(imported: SaveInput) {
+    setErrors([]);
+    setStale(false);
+    setMessage(null);
+    setState((s) => {
+      const c = imported.common;
+      return {
+        ...fromInput(imported),
+        common: {
+          start: c.start ?? s.common.start,
+          end: c.end ?? s.common.end,
+          breakMin: c.breakMin ?? s.common.breakMin,
+          gapMin: c.gapMin ?? s.common.gapMin,
+        },
+      };
+    });
+  }
+
   function copyPrevious() {
     const r = state.rows;
     if (r.labor.length + r.fuel.length + r.lease.length > 0 && !window.confirm('作業員・車両・リースの入力を前回の日報の内容で置き換えます。よろしいですか？')) {
@@ -523,7 +544,7 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
 
       {p.readOnly && p.status === 'approved' && (
         <p role="status" className="mb-4 rounded-lg border border-green-500 bg-green-50 p-3 font-bold text-green-900 dark:bg-green-950 dark:text-green-50">
-          承認済みのため編集できません
+          {APPROVED_LOCKED_MESSAGE}
         </p>
       )}
       {p.readOnly && p.readOnlyNotice && (
@@ -593,6 +614,18 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
             {p.hasPrevious ? '前回の日報の作業員・車両・リースを入れます。' : 'この日より前の日報がありません。'}
           </p>
         </div>
+
+        {!p.readOnly && !p.siteClosed && (
+          <ImportDaySheet
+            masters={p.masters}
+            siteId={p.siteId}
+            date={p.date}
+            hasExisting={p.reportId !== null}
+            status={p.status}
+            siteClosed={p.siteClosed}
+            onApply={applyImport}
+          />
+        )}
 
         <section aria-label="共通時間" className="mb-8">
           <h2 className="mb-2 border-b border-gray-300 pb-1 text-lg font-bold dark:border-gray-700">共通時間</h2>

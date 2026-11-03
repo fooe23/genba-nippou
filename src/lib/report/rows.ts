@@ -301,6 +301,8 @@ export function copyableLines(lines: ReportLine[]): ReportLine[] {
 /** 完了（status='done'）または削除済みの現場で日報・明細・重要事項を変えようとしたとき（DB の site_closed）。 */
 export const SITE_CLOSED_MESSAGE =
   'この現場は完了（または削除）されているため変更できません。管理者が進行中に戻すと入力できます。';
+/** 承認済みの日報を変えようとしたとき（DB の approved_report_locked）。画面の帯と取り込みでも同じ文言を出す。 */
+export const APPROVED_LOCKED_MESSAGE = '承認済みのため編集できません';
 export const STALE_REPORT_MESSAGE = '他の端末で更新されています。画面を再読み込みしてから保存してください。';
 
 /** gn_save_report / ガードトリガーのエラーを利用者向けの文言に変換する。 */
@@ -308,7 +310,7 @@ export function saveErrorMessage(dbMessage: string | null | undefined): string {
   const m = dbMessage ?? '';
   if (m.includes('site_closed')) return SITE_CLOSED_MESSAGE;
   if (m.includes('stale_report')) return STALE_REPORT_MESSAGE;
-  if (m.includes('approved_report_locked')) return '承認済みのため編集できません';
+  if (m.includes('approved_report_locked')) return APPROVED_LOCKED_MESSAGE;
   if (m.includes('not_reviewer')) return 'この現場の確認者・承認者ではありません';
   return '保存に失敗しました。通信状況を確認してもう一度お試しください。';
 }

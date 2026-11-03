@@ -86,6 +86,14 @@ describe('ガイド', () => {
     expect(html).toContain('J 列');
   });
 
+  it('入力の章が 1 日分の雛形の取り込みと、上書きの確認に触れている', async () => {
+    const html = await loadChapter('input');
+    expect(html).toContain('Excel（1 日分の雛形）から取り込む');
+    expect(html).toContain('「1回目」シート');
+    expect(html).toContain('上書きする');
+    expect(html).toContain('承認済みの日報と完了した現場には取り込めません');
+  });
+
   it('未掲載の slug は GuideNotFound', async () => {
     await expect(loadChapter('nothing')).rejects.toBeInstanceOf(GuideNotFound);
     await expect(loadChapter('../../package')).rejects.toBeInstanceOf(GuideNotFound);
