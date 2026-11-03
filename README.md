@@ -18,8 +18,10 @@
 **第2計画（改）で追加**
 
 - 出力画面（現場 → 出力）と原本 Excel（V34 雛形の .xlsm）のダウンロード
+- 工事原価集計表（PDF・Excel・CSV）と日報（PDF・CSV）の出力
+- 作業員・買掛の仕入先の「（手入力）」、1 日分の雛形（Excel）からの日報の取り込み
 
-**第2〜4計画の残りは未実装**（工事原価集計表・日報の出力、積算連携、PDF・写真・マスターExcel取り込み）。計画の全体像は `docs/superpowers/plans/README.md`、設計は `docs/superpowers/specs/2026-10-30-genba-nippou-design.md`。
+**第2〜4計画の残りは未実装**（積算連携、写真の添付など）。計画の全体像は `docs/superpowers/plans/README.md`、設計は `docs/superpowers/specs/2026-10-30-genba-nippou-design.md`。
 
 ## 構成
 
@@ -42,7 +44,7 @@ src/content/        アプリ内ガイドの本文
 src/proxy.ts        ログイン状態の確認（未ログインは /login へ。api/export/fill は対象外）
 api/export/fill.py  Vercel の Python 関数（原本 Excel を作る。vercel.json で雛形と python/ を同梱）
 python/             Excel 出力の本体（genba_export）、ローカル用の run_fill.py、unittest
-supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、update_2026-11-02_site_archive.sql（現場の削除・削除ログ・完了現場の書き込み禁止）、update_2026-11-02b_lines_guard_fix.sql（その修正）、update_2026-11-03_labor_rule.sql（人工・残業ルール［V34］・労務の設定・作業員の残業単価・現場の共通時間の既定）、update_2026-11-03c_master_import.sql（マスターの更新者の記録・Excel／CSV 取り込みの RPC・取り込み履歴）、verify_rls.md（権限の確認手順）、verify_rls_auto.sql（手順をまとめた自動検証。実行後は全件取り消される）
+supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、update_2026-11-02_site_archive.sql（現場の削除・削除ログ・完了現場の書き込み禁止）、update_2026-11-02b_lines_guard_fix.sql（その修正）、update_2026-11-03_labor_rule.sql（人工・残業ルール［V34］・労務の設定・作業員の残業単価・現場の共通時間の既定）、update_2026-11-03c_master_import.sql（マスターの更新者の記録・Excel／CSV 取り込みの RPC・取り込み履歴）、update_2026-11-03d_profile_names.sql（帳票・Excel の作成者・確認者・承認者の氏名を返す関数 gn_profile_names）、verify_rls.md（権限の確認手順）、verify_rls_auto.sql（手順をまとめた自動検証。実行後は全件取り消される）
 tests/              Vitest
 scripts/            check-sql.mjs（SQL の構文検査）
 templates/          Excel 雛形（第2計画で使用）
@@ -84,7 +86,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 
 1. `supabase/add_profile_account_type.sql` を実行する（`profiles` に区分 `account_type`［社員 `employee`／協力会社 `partner`］と会社名 `company_name` の列を追加する。協力会社の職長は現場日報専用のアカウントで、業務日報アプリ側は別途修正する。何度実行しても安全。`schema_genba.sql` の権限関数と `fix_profiles_guard.sql` がこの列を参照するので、必ず先に実行する）。
 2. SQL Editor → New query に `supabase/schema_genba.sql` を全部貼り付けて Run。何度実行しても安全で、既存アプリのテーブルは変更されない。`gn_` テーブル、RLS、Storage バケット（`gn-estimates` `gn-photos` `gn-exports`）が作られる。権限は「社員と管理者は全現場、協力会社は割り当て現場だけ」。既に全体を適用済みなら、権限関数だけを差し替える `supabase/update_2026-10-31_employee_access.sql` を実行すれば足りる（`schema_genba.sql` を再実行しても同じ結果）。
-   - **既存環境（2026-11-02 より前に `schema_genba.sql` を適用済み）**：続けて `supabase/update_2026-11-02_site_archive.sql` を実行する（現場の削除［`deleted_at`］・削除ログ［`gn_site_audit_log`］・削除／復元の関数・完了現場の書き込み禁止。何度実行しても安全）。続けて `supabase/update_2026-11-02b_lines_guard_fix.sql` も実行する（明細のある日報の削除が拒否される不具合の修正）。 さらに `supabase/update_2026-11-03_labor_rule.sql`（人工・残業ルールと労務の設定）→ `supabase/update_2026-11-03b_overtime_rate_round.sql`（残業単価の丸めの修正）の順に実行する。 マスター取り込みを使うなら `supabase/update_2026-11-03c_master_import.sql`、Excel 出力を使うなら `supabase/update_2026-11-03d_profile_names.sql` も実行する。旧ルールで保存した日報を新ルールにそろえたいときは、最後に `supabase/recalc_2026-11-03_labor.sql`（任意・1 回）を実行する。新規環境では `schema_genba.sql` に含まれているので不要。確認は `supabase/verify_rls.md` の「9. 現場の削除と完了現場」、または `supabase/verify_rls_auto.sql` を SQL Editor で実行して FAIL 0 件を確認する。
+   - **既存環境（2026-11-02 より前に `schema_genba.sql` を適用済み）**：続けて `supabase/update_2026-11-02_site_archive.sql` を実行する（現場の削除［`deleted_at`］・削除ログ［`gn_site_audit_log`］・削除／復元の関数・完了現場の書き込み禁止。何度実行しても安全）。続けて `supabase/update_2026-11-02b_lines_guard_fix.sql` も実行する（明細のある日報の削除が拒否される不具合の修正）。 さらに `supabase/update_2026-11-03_labor_rule.sql`（人工・残業ルールと労務の設定）→ `supabase/update_2026-11-03b_overtime_rate_round.sql`（残業単価の丸めの修正）の順に実行する。 マスター取り込みを使うなら `supabase/update_2026-11-03c_master_import.sql`、出力（原本 Excel・工事原価集計表・日報の PDF／CSV）の作成者・確認者・承認者の氏名を出すために `supabase/update_2026-11-03d_profile_names.sql`（氏名を返す関数 `gn_profile_names`）も実行する。旧ルールで保存した日報を新ルールにそろえたいときは、最後に `supabase/recalc_2026-11-03_labor.sql`（任意・1 回）を実行する。新規環境では `schema_genba.sql` に含まれているので不要。確認は `supabase/verify_rls.md` の「9. 現場の削除と完了現場」、または `supabase/verify_rls_auto.sql` を SQL Editor で実行して FAIL 0 件を確認する。
    - **既存環境（2026-11-03 より前に `schema_genba.sql` を適用済み）**：`supabase/update_2026-11-03_labor_rule.sql` を実行する（人工・残業ルール［V34］：全社の設定 `gn_settings`、作業員の残業単価、明細の残業列、現場ごとの共通時間の既定、明細の再計算トリガーと `gn_save_report` の差し替え。何度実行しても安全）。**アプリ（2026-11-03 以降の版）をデプロイする前に実行すること**（アプリは新しい列を読むため、未適用だと作業員・現場の一覧が読めない）。新規環境では `schema_genba.sql` に含まれているので不要。確認は `supabase/verify_rls_auto.sql`（3-2 の 4H → 0.53 人工・10,600 円は新しいルールでも同じ値）で FAIL 0 件を確認する。
    - **既存環境（2026-11-03 の取り込み機能より前に `schema_genba.sql` を適用済み）**：`supabase/update_2026-11-03c_master_import.sql` を実行する（作業員・取引先・車両・リース品・単価履歴・労務の設定に更新者 `updated_by` と自動記録のトリガー、取り込みの RPC `gn_import_masters`、取り込み履歴 `gn_import_log`。何度実行しても安全）。未適用でもマスターの一覧・日報は読めるが（更新者は表示されない）、「取り込み」タブの取り込みは失敗する。新規環境では `schema_genba.sql` に含まれているので不要。
 3. 次章「既存アプリの profiles 保護（必須）」の `supabase/fix_profiles_guard.sql` を実行する。
@@ -126,10 +128,26 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 - **Python 関数**：`api/export/fill.py`（POST のみ）。`vercel.json` で最大 60 秒、雛形と `python/**` を同梱する。openpyxl はリポジトリ直下の `requirements.txt` から入る。Next の Route Handler は Vercel 上では `https://$VERCEL_PROJECT_PRODUCTION_URL/api/export/fill` に `X-Export-Secret` を付けて POST する（プレビュー環境からも本番の関数を呼ぶ）。
 - **Vercel の環境変数**（Settings → Environment Variables）：
   - `GN_EXPORT_SECRET`（必須）：長いランダムな文字列（例：`openssl rand -hex 32`）。Route Handler と Python 関数の両方が読む。未設定だと出力は「設定がありません」で失敗し、Python 関数は 403 を返す。
-  - `GN_EXPORT_FILL_URL`（任意）：Python 関数の送り先を変えるとき（別のデプロイの関数を使うなど）。
+  - `GN_EXPORT_FILL_URL`（任意）：Python 関数の送り先を変えるとき（別のデプロイの関数を使うなど）。通常は設定しない。
+  - `.env.example` にも同じ名前がある。ローカルでは両方とも空でよい。
 - **Storage**：作った xlsm は `gn-exports/<site_id>/<YYYY-MM>/daicho_v34_<YYYY-MM>.xlsm` にも上書き保存する（Storage のキーは ASCII だけなので、ダウンロード時の日本語のファイル名とは別）。バケット `gn-exports`（非公開）とポリシーは `schema_genba.sql` で作られる。バケットが無い・保存に失敗したときはサーバーのログに残してダウンロードは続ける（ほかの人が先に保存した同じ月は、管理者以外は上書きできず保存だけ失敗する）。
 - **出せないとき**：日報の明細が雛形の行数を超える日がある月、マスターが雛形の件数を超える月は、ボタンを押せず「この月は原本 Excel では出せません（…）。PDF／CSV をご利用ください」と出る（`/api/export` も 400）。協力会社のアカウントは出力できない（画面に出さず、`/api/export` は 403）。
 - **ローカル**：`VERCEL` も `GN_EXPORT_FILL_URL` も無いときは `python3 python/run_fill.py` を起動する（stdin に `{"template", "payload"}` の JSON、stdout に xlsm）。単体で試すなら `python3 python/run_fill.py < 入力.json > 出力.xlsm`。
+
+## 帳票（PDF・CSV）
+
+現場 → 「出力」の「工事原価集計表」「日報」が使う。どちらも Next の Route Handler（`runtime = 'nodejs'`）で、ログイン中の社員・管理者だけが使える（未ログインは 401、協力会社は 403、削除済みの現場は 404。完了現場は出せる）。
+
+| 帳票 | ルート | クエリ |
+| --- | --- | --- |
+| 工事原価集計表 | `/api/reports/cost` | `site=<現場ID>&period=all\|YYYY-MM&format=pdf\|xlsx\|csv` |
+| 日報 | `/api/reports/daily` | `site=<現場ID>&date=YYYY-MM-DD`（1 日）または `month=YYYY-MM`（月まとめ）`&format=pdf\|csv` |
+
+- **PDF**：`@react-pdf/renderer`（`src/lib/pdf/`）。A4 縦。日報が無いときは「日報がありません」だけの帳票を返す。
+- **Excel**：`exceljs`（`src/lib/reports/cost-xlsx.ts`）。**CSV**：BOM 付き UTF-8・CRLF（`src/lib/reports/csv.ts`）。文字列が `= + - @` タブ CR で始まるセルには `'` を付けて、Excel の数式として実行されないようにしている。
+- **フォント**：Noto Sans JP（Regular／Bold）を `public/fonts/` に同梱し、実行時にサーバーが読む（CDN は使わない）。**ライセンスは SIL Open Font License 1.1**（`public/fonts/OFL.txt`）。入手元・サイズ・ハッシュは `public/fonts/README.md`。フォントを差し替えるときは同じ名前の 2 ファイルを置き換える。
+- **`next.config.ts` の `outputFileTracingIncludes`**：`"/api/reports/*": ["./public/fonts/**"]`。Vercel の関数にフォントのファイルを含めるための設定で、これが無いと本番でフォントが見つからず PDF が作れない。ビルド後は `.next/server/app/api/reports/*/route.js.nft.json` にフォントが入っていることを確認できる。
+- 環境変数は要らない（原本 Excel の `GN_EXPORT_SECRET` とは無関係）。氏名の表示には `supabase/update_2026-11-03d_profile_names.sql` を使う。
 
 ## 本番確認チェックリスト
 
@@ -145,13 +163,16 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 - [ ] 集計（月次・原価・出面）に反映されている
 - [ ] 協力会社のアカウントでは、担当外の現場が見えない
 - [ ] 社員のアカウントでは、ホームの「その他の現場」から担当外の現場にも入力できる（承認はできない）
+- [ ] 現場 → 「出力」から、工事原価集計表（PDF・Excel・CSV）、日報（PDF・CSV。1 日・月）、原本 Excel がダウンロードできる
+- [ ] 日報画面で、1 日分の雛形（Excel）の取り込みと、作業員・仕入先の「（手入力）」が使える
 
 確認日：____年__月__日　確認者：__________　URL：__________
 
 ## 既知の制約
 
-- 未実装：工事原価集計表・日報の出力（出力画面では「準備中」）、PDF出力、積算書の取り込みと連携、写真の添付（第2〜4計画）。
-- マスターのExcel取り込みは未実装（第4計画）。
+- 未実装：積算書の取り込みと連携、写真の添付（第3〜4計画）。
+- 原本 Excel は、行数・件数が雛形の上限を超える月は出せない（PDF／CSV を使う）。
+- 帳票の PDF の ③ 月別推移（11 列）は 7.5pt、日報 PDF の作業員表は 8pt と小さい。印刷での読みやすさは実機で確認する。
 - 1現場につき1日1枚の日報。
 - Storage のオブジェクトパスは先頭を `<site_id>/…` にする。RLS が先頭要素の現場IDで権限を判定するため、この規約を外れるとアクセスできない。
 - 作業内容の行は手入力のみ（積算内訳からの選択は第3計画）。

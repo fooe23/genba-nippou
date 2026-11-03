@@ -169,3 +169,52 @@
 ## 第2計画（改）2026-11-03
 - 利用者の方針：原本 Excel にこだわらず、現場全体の工事原価集計表（PDF・Excel・CSV）と日報の PDF・CSV を優先。原本 Excel 出力はダウンロードまで最小で残し、行挿入は中止。1 日分雛形（templates/現場管理日報_1日追加用_雛形.xlsm）の取り込みと、飛び込み作業員・取引先の手入力を同じ計画に含める。計画書：docs/superpowers/plans/2026-11-03-phase2b-reports-and-day-import.md。帳票デザインは claude.ai のデザイン案を利用者が了承。
 - 2026-11-03 深夜：追加・変更・減の記録と交渉用資料（区分・指示者・根拠の件／件の種別／実績原価の積み上げと提案額／変更増減 精算資料 PDF・Excel／日報 PDF の客先確認欄／契約未確定（概算）の扱い）を第2計画（改）Task 9〜13 として追加。利用者「1〜6 すべて欲しい」。
+
+## 第2計画（改）実装記録 2026-11-03
+計画書：`docs/superpowers/plans/2026-11-03-phase2b-reports-and-day-import.md`。Task 1〜8 を main 直で実装（BASE ab8260f〜、push は未実施）。Task 9〜13（追加・変更・減の記録と交渉用資料）はこの記録の範囲外。
+
+### 実装（Task ごと）
+- Task 1：`825b5e7 feat(export): 出力画面と原本 Excel のダウンロード（Vercel Python 関数）` — 現場 →「出力」、`/api/export`、`api/export/fill.py`、`vercel.json`、`src/proxy.ts` の matcher から `api/export/fill` を除外。Storage `gn-exports` へ best-effort で控え
+- Task 2：`150af47 feat(reports): 工事原価集計表のデータ組み立て`、`86775a2 fix(reports): 数量の集計規則を見直し、出勤日数・残業 H を workerCumulative に一本化`
+- Task 3：`4f88334 feat(reports): 工事原価集計表の PDF・Excel・CSV`、`c0a7a38 fix(reports): CSV の数式の注入を防ぐ（= + - @ タブ CR で始まる文字列に ' を付ける）` — `/api/reports/cost`、Noto Sans JP を `public/fonts/` に同梱
+- Task 4：`06e1f37 feat(reports): 日報のデータ組み立てと CSV`
+- Task 5：`6f1a515 feat(reports): 日報の PDF と CSV の出力`、`367dd93 fix(reports): 日報の無い日・月の CSV に「日報がありません」の 1 行を出す` — `/api/reports/daily`、日報画面の「PDF」「CSV」、出力画面の日報欄
+- Task 6：`78c8c4f feat(report): マスターに無い作業員・仕入先を手入力できるようにする`
+- Task 7：`0cd7970 feat(import): 1 日分の雛形（Excel）から日報を取り込む`、`a48cadd fix(import): 取り込みのファイル選択を毎回空にし、同じ注記は 1 回だけ出す`
+- Task 8：ガイド（Excel 出力と帳票、PDF の見方）、この記録、README
+
+### 裁定（Ruling）
+- 作業は main 直（worktree なし）。iCloud 同期下の worktree は `.next` が重複するため。push は利用者の指示があるまで行わない
+- 会社名・連絡先（`gn_settings.company_name / company_contact`）は Task 9 の SQL に含めて 1 回の移行で済ませる
+- Task 1 の Storage 控えは best-effort（バケットが無くても console.error で続行）。バケット作成は利用者作業として README に記載
+- 施工数量は qty が null でない行だけ数え、単位がすべて同じときだけ合計、混在なら null（「—」）。歩掛は数量 null または人工 0 で null。印刷物に誤って「0」を出さないため
+- `workerCumulative` を拡張（残業時間、出勤日数、残業 H）して 1 か所の規則にし、集計画面と帳票のズレを防ぐ
+- フォント（Noto Sans JP Regular／Bold）は公式配布元（notofonts/noto-cjk の SubsetOTF/JP）から取得して `public/fonts/` に同梱（SIL OFL 1.1、`OFL.txt`）
+- CSV の数式の注入対策：文字列が `= + - @ タブ CR` で始まり、数値として読めないときだけ先頭に `'` を付ける
+- ③ 月別推移だけ 7.5pt（11 列を A4 縦に収めるため）。実機の印刷で読めるかは利用者が判断
+- 原価集計表の CSV に脚注行は付けない（見出し行に日報件数・承認件数・出力日時がある）
+- 日報モデルの入力は `ReportWithLines`（保存値つき）。帳票の金額は保存値だけから出す
+- 日報 CSV でレコードが 0 件のときは、見出しの次に「日報がありません」の 1 行を出す
+- 本日原価集計の注記「合計は保存された原価合計」は残す（要否は利用者が判断）。作業員表 8pt は ③ と同じ扱いで利用者確認
+- 取り込みの日付は常に画面の日付（Excel の日付が違うときは注記だけ）
+
+### 据え置き（minor / deferred）
+- Task 1：`/api/export` の 401 JSON は proxy の 307 に先を越され届かない／秘密不一致の文言／fetch・spawn のタイムアウト（60s）が無い／`overflowNotice` が日本語のメッセージを解析している（warning に table・count を持たせる）／ダウンロード失敗時に生の JSON が見える（fetch＋Blob にする）／`profiles` 行が無いと employee 扱い（既存）
+- Task 2：数量の単位を trim しない（入力側の trim を最終レビューで確認）／② 総人工が繰越の規則を通していない（④ の累計と差が出得る）／手入力行の空名の表示が集計画面と不一致／⑤ は名前だけでグループ化（同名マスターが合流）／1 日あたり原価の分母は日報日数
+- Task 3：フォント登録ガードを `globalThis` に／1 文字単位の折り返しが数値の桁の途中で折れ得る（①⑤⑦の列幅を実機で確認）／1 桁の丸めが PDF（1 桁）と CSV・Excel（2 桁）で違う／`cost-sections.ts` が `components/sites/labels` を import／`npm audit` moderate（exceljs 経由）／日報 0 件の現場では出力画面にパネルが出ない
+- Task 4：休憩・中抜が null のときの表示と `?? 0` の扱い／`costs.total` と `costs.costTotal` の 2 つ／空 vendor の買掛・順不同の日付のテストが無い
+- Task 5：月を `date` フィールドに通している（7 文字で判定）／10 行超の表のテスト無し／原価 PDF で ⑥ の見出しと列見出しがページ末尾に孤立し得る（既存）
+- Task 6：手入力の日当に小数が入る（schema は `.int()`）／選択＋手入力のセルが LaborTable／PurchaseTable で二重／空名のエラー文言／表 UI のレンダリングテスト無し／名前未入力の手入力行は下書きで通常行に戻る
+- Task 7：時刻セルの整数や 0 < 分 < 1 が黙って変換される／重複名がすべて無効のとき「マスターに無い」と出る／`display()` が `parse-sheet.ts` と二重／「下書き保存」ヒントが保存後も残る／上書き警告が `role=alert`
+
+### 利用者の操作待ち
+- Vercel の環境変数 `GN_EXPORT_SECRET` を設定（Production、プレビューを使うなら Preview も。例 `openssl rand -hex 32`）。任意で `GN_EXPORT_FILL_URL`
+- Supabase Storage のバケット `gn-exports`（非公開）の確認・作成（`schema_genba.sql` で作られる。既存環境で無ければ作る）
+- `supabase/update_2026-11-03d_profile_names.sql` の適用（未適用なら。帳票の作成者・確認者・承認者の氏名に使う）
+- 本番での確認項目：
+  - 工事原価集計表の 3 形式（PDF・Excel・CSV。工期全体と月、③ 7.5pt の読みやすさ、CSV を Excel でそのまま開けること）
+  - 日報 PDF／CSV（1 日・月まとめ、日報画面のリンク、承認済み・完了現場、協力会社に出ないこと）
+  - 原本 Excel（11 月の .xlsm がダウンロードでき Excel で開けること。出せない月の案内）
+  - 1 日分雛形（`templates/現場管理日報_1日追加用_雛形.xlsm`）の取り込み（確認画面、「上書きする」、同じファイルの選び直し［iPad Safari］）
+  - 手入力の作業員・仕入先（集計に「（手入力）」で出ること）
+  - 375px 幅の画面（出力画面、日報画面の PDF／CSV リンク、取り込みの確認画面）
