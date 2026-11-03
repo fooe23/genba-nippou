@@ -8,7 +8,8 @@ import {
   ISSUE_KINDS,
   ISSUE_KIND_LABELS,
 } from '@/lib/report/change-labels';
-import { validateReport } from '@/lib/report/schema';
+import { validateReport, type SaveInput } from '@/lib/report/schema';
+import { fromInput, patchRow, toInput } from '@/components/report/form-state';
 
 // 作業内容の行の「追加・変更・減」の記録（区分・指示者・指示方法・指示日・根拠の件）。
 
@@ -77,5 +78,20 @@ describe('作業内容の区分・指示の検証', () => {
     expect(errorsOf({ ...oldWork, instructedOn: '2026-02-30' })).toEqual(['作業内容の1行目：指示日は YYYY-MM-DD 形式で入力してください']);
     expect(errorsOf({ ...oldWork, issueId: 'abc' })).toEqual(['作業内容の1行目：IDの形式が正しくありません']);
     expect(errorsOf({ ...oldWork, instructedBy: 'あ'.repeat(101) })).toEqual(['作業内容の1行目：指示者は100文字以内で入力してください']);
+  });
+});
+
+describe('入力画面の行 → 保存の入力', () => {
+  it('追加・根拠の件つきの行は、区分を契約内に戻しても値を残したまま検証を通る（指示者は前後の空白を除く）', () => {
+    const saved = { ...base, lines: [{ ...oldWork, changeKind: 'extra', instructedBy: ' 施主 山田様 ', instructionMethod: 'phone', instructedOn: '2026-11-04', issueId: ISSUE }] };
+    const state = fromInput(saved as SaveInput);
+    expect(state.rows.work).toHaveLength(1);
+    const back = toInput(base.siteId, base.date, state);
+    const r = validateReport(back);
+    expect(r.ok && r.value.lines[0]).toMatchObject({ changeKind: 'extra', instructedBy: '施主 山田様', instructionMethod: 'phone', instructedOn: '2026-11-04', issueId: ISSUE });
+
+    const hidden = { ...state, rows: { ...state.rows, work: patchRow(state.rows.work, 0, { changeKind: 'contract' }) } };
+    const r2 = validateReport(toInput(base.siteId, base.date, hidden));
+    expect(r2.ok && r2.value.lines[0]).toMatchObject({ changeKind: 'contract', instructedBy: '施主 山田様', issueId: ISSUE });
   });
 });

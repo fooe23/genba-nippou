@@ -2,9 +2,20 @@
 
 import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
-import { jpDate } from '@/lib/calc/format';
+import { jpDate, yen } from '@/lib/calc/format';
 import type { Issue } from '@/lib/db/reports';
 import { setIssueDone } from '@/lib/db/reports-actions';
+import { ISSUE_KIND_LABELS } from '@/lib/report/change-labels';
+
+/** 件の種別の小さな札（と金額見込み）。件の一覧と対応中のバナーで使う。 */
+export function IssueKindTag({ issue }: { issue: Issue }) {
+  return (
+    <>
+      <span className="mr-1 inline-block rounded border border-current px-1 text-xs font-bold">{ISSUE_KIND_LABELS[issue.kind]}</span>
+      {issue.amountEstimate !== null && <span className="mr-1 text-xs font-bold tabular-nums">見込み {yen(issue.amountEstimate)}</span>}
+    </>
+  );
+}
 
 /** 現場の対応中の重要事項（この日報の件は除く）。日報入力画面の最上部に出す。なければ何も出さない。 */
 export function IssueBanner({
@@ -50,7 +61,8 @@ export function IssueBanner({
         {shown.map((i) => (
           <li key={i.id} className="flex flex-wrap items-center justify-between gap-2">
             <p className="min-w-0 flex-1 basis-48 whitespace-pre-wrap break-words text-sm">
-              <span className="font-bold">{jpDate(i.reportDate)}</span>　{i.body}
+              <span className="font-bold">{jpDate(i.reportDate)}</span>　<IssueKindTag issue={i} />
+              {i.body}
             </p>
             {!readOnly && (
               <button

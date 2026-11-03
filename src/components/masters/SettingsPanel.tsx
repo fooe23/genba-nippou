@@ -7,12 +7,26 @@ import { firstError } from '@/lib/db/masters-schemas';
 import { settingsInputSchema, type SettingsInput } from '@/lib/db/settings-schemas';
 import { ErrorText, Field, UpdatedText, inputClass, numOrNull, primaryButtonClass, str, useRunner, type Updaters } from './common';
 
-/** 労務の計算設定（人工・残業）と、新しい日報の共通時間の既定。管理者だけが変更できる。 */
+/** 率（0〜1）→ 画面の %（小数1桁）。 */
+function toPct(rate: number): number {
+  return Math.round(rate * 1000) / 10;
+}
+
+/** 画面の %（0〜100・小数1桁まで）→ 率（0〜1）。空欄・範囲外・数値でなければ null。 */
+function fromPct(raw: string): number | null {
+  const pct = numOrNull(raw);
+  if (pct === null || !Number.isFinite(pct) || pct < 0 || pct > 100) return null;
+  return Math.round(pct * 10) / 1000;
+}
+
+/** 労務の計算設定（人工・残業）と、新しい日報の共通時間の既定、追加分の提案金額の率と自社名。管理者だけが変更できる。 */
 export function SettingsPanel({ settings, updaters }: { settings: Settings; updaters: Updaters }) {
   const { pending, error, setError, runResult } = useRunner();
   const [saved, setSaved] = useState(false);
   const r = settings.rule;
   const c = settings.defaultCommon;
+  const rates = settings.rates;
+  const company = settings.company;
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -20,6 +34,12 @@ export function SettingsPanel({ settings, updaters }: { settings: Settings; upda
     const fd = new FormData(e.currentTarget);
     // 必須の数値は空欄を NaN にして、検証の文言（「…の数値で入力してください」）を出す。
     const required = (key: string) => numOrNull(str(fd, key)) ?? NaN;
+    const overheadRate = fromPct(str(fd, 'overheadPct'));
+    const profitRate = fromPct(str(fd, 'profitPct'));
+    if (overheadRate === null || profitRate === null) {
+      setError(`${overheadRate === null ? '経費率' : '利益率'}は0〜100の数値（%）で入力してください`);
+      return;
+    }
     const input: SettingsInput = {
       shoteiHours: required('shoteiHours'),
       fixedOvertimeLimit: required('fixedOvertimeLimit'),
@@ -29,6 +49,10 @@ export function SettingsPanel({ settings, updaters }: { settings: Settings; upda
       defaultCommonEnd: str(fd, 'defaultCommonEnd'),
       defaultCommonBreakMin: numOrNull(str(fd, 'defaultCommonBreakMin')),
       defaultCommonGapMin: numOrNull(str(fd, 'defaultCommonGapMin')),
+      overheadRate,
+      profitRate,
+      companyName: str(fd, 'companyName'),
+      companyContact: str(fd, 'companyContact'),
     };
     const message = firstError(settingsInputSchema, input);
     if (message) {
@@ -89,6 +113,27 @@ export function SettingsPanel({ settings, updaters }: { settings: Settings; upda
               <input name="defaultCommonGapMin" type="number" inputMode="numeric" min={0} max={600} step={1} defaultValue={c.gapMin ?? ''} className={decimalInput} />
             </Field>
           </div>
+        </div>
+
+        <div className="space-y-3 rounded-lg bg-gray-100 p-3 dark:bg-gray-900">
+          <p className="text-sm font-bold">追加分の提案金額</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            追加・変更の工事を客先に提案するときの金額の計算と、提案書に載せる自社の名前に使います。
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="経費率（%）">
+              <input name="overheadPct" type="number" inputMode="decimal" step={0.1} min={0} max={100} defaultValue={toPct(rates.overheadRate)} className={decimalInput} />
+            </Field>
+            <Field label="利益率（%）">
+              <input name="profitPct" type="number" inputMode="decimal" step={0.1} min={0} max={100} defaultValue={toPct(rates.profitRate)} className={decimalInput} />
+            </Field>
+          </div>
+          <Field label="会社名">
+            <input name="companyName" defaultValue={company.name ?? ''} maxLength={100} className={inputClass} />
+          </Field>
+          <Field label="担当者・連絡先">
+            <input name="companyContact" defaultValue={company.contact ?? ''} maxLength={200} className={inputClass} />
+          </Field>
         </div>
 
         <p className="rounded-lg border border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-950 dark:border-yellow-600 dark:bg-yellow-950 dark:text-yellow-50">

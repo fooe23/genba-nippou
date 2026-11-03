@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { jpDate } from '@/lib/calc/format';
+import { changeTotals } from '@/lib/calc/change';
 import { commonHours, reportTotals } from '@/lib/calc/report';
 import {
   addIssue,
@@ -18,12 +19,13 @@ import {
 import type { Issue } from '@/lib/db/reports';
 import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
-import type { LaborRule, TimeSpec } from '@/lib/types';
+import { INSTRUCTION_METHODS, INSTRUCTION_METHOD_LABELS, ISSUE_KINDS, ISSUE_KIND_LABELS, isInstructionMethod, isIssueKind } from '@/lib/report/change-labels';
+import type { InstructionMethod, IssueKind, LaborRule, TimeSpec } from '@/lib/types';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
 import { ImportDaySheet } from './ImportDaySheet';
-import { fieldClass, NumInput, Select, TimeInput } from './inputs';
-import { IssueBanner } from './IssueBanner';
+import { fieldClass, NumInput, Select, TextInput, TimeInput } from './inputs';
+import { IssueBanner, IssueKindTag } from './IssueBanner';
 import { ReportSummary } from './ReportSummary';
 import { FuelTable } from './tables/FuelTable';
 import { LaborTable } from './tables/LaborTable';
@@ -126,6 +128,10 @@ function IssueList({
   locked?: boolean;
 }) {
   const [body, setBody] = useState('');
+  const [kind, setKind] = useState<IssueKind>('other');
+  const [instructedBy, setInstructedBy] = useState('');
+  const [method, setMethod] = useState<InstructionMethod | null>(null);
+  const [amountEstimate, setAmountEstimate] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -136,7 +142,7 @@ function IssueList({
     startTransition(async () => {
       let res: Awaited<ReturnType<typeof addIssue>>;
       try {
-        res = await addIssue(reportId, text);
+        res = await addIssue(reportId, text, { kind, instructedBy, instructionMethod: method, amountEstimate });
       } catch {
         res = { ok: false, error: ISSUE_FAILED };
       }
@@ -145,6 +151,10 @@ function IssueList({
         return;
       }
       setBody('');
+      setKind('other');
+      setInstructedBy('');
+      setMethod(null);
+      setAmountEstimate(null);
       onChanged();
     });
   }
@@ -176,7 +186,10 @@ function IssueList({
           {issues.map((i) => (
             <li key={i.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
               <div className="min-w-0 flex-1 basis-48">
-                <p className={`whitespace-pre-wrap break-words ${i.status === 'done' ? 'text-gray-600 line-through dark:text-gray-400' : ''}`}>{i.body}</p>
+                <p className={`whitespace-pre-wrap break-words ${i.status === 'done' ? 'text-gray-600 line-through dark:text-gray-400' : ''}`}>
+                  <IssueKindTag issue={i} />
+                  {i.body}
+                </p>
                 {i.status === 'done' && i.doneAt && <p className="text-sm text-gray-600 dark:text-gray-400">完了 {jpDate(i.doneAt)}</p>}
               </div>
               <button
@@ -198,16 +211,43 @@ function IssueList({
       )}
       {!locked && (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <Labeled label="件の内容（500文字まで）" className="flex-1">
-            <textarea
-              value={body}
-              maxLength={500}
-              rows={2}
-              disabled={!reportId || pending}
-              onChange={(e) => setBody(e.target.value)}
-              className={`${fieldClass} py-2`}
-            />
-          </Labeled>
+          <div className="flex-1 space-y-2">
+            <Labeled label="件の内容（500文字まで）">
+              <textarea
+                value={body}
+                maxLength={500}
+                rows={2}
+                disabled={!reportId || pending}
+                onChange={(e) => setBody(e.target.value)}
+                className={`${fieldClass} py-2`}
+              />
+            </Labeled>
+            <fieldset disabled={!reportId || pending} className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
+              <Labeled label="種別">
+                <select value={kind} onChange={(e) => setKind(isIssueKind(e.target.value) ? e.target.value : 'other')} className={fieldClass}>
+                  {ISSUE_KINDS.map((k) => (
+                    <option key={k} value={k}>
+                      {ISSUE_KIND_LABELS[k]}
+                    </option>
+                  ))}
+                </select>
+              </Labeled>
+              <Labeled label="指示者">
+                <TextInput value={instructedBy} maxLength={100} onChange={setInstructedBy} />
+              </Labeled>
+              <Labeled label="指示方法">
+                <Select
+                  value={method ?? ''}
+                  options={INSTRUCTION_METHODS.map((m) => ({ value: m, label: INSTRUCTION_METHOD_LABELS[m] }))}
+                  placeholder="—"
+                  onChange={(v) => setMethod(isInstructionMethod(v) ? v : null)}
+                />
+              </Labeled>
+              <Labeled label="金額見込み（円）">
+                <NumInput value={amountEstimate} integer onChange={setAmountEstimate} />
+              </Labeled>
+            </fieldset>
+          </div>
           <button
             type="button"
             onClick={add}
@@ -285,6 +325,9 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
     [input, p.siteStartDate, p.today],
   );
   const dirty = json !== baseline;
+  const changes = useMemo(() => changeTotals(state.rows.work.map((r) => r.line)), [state.rows.work]);
+  // 作業内容の根拠の件の候補：この日報の件と、現場の対応中の件（重複は WorkTable で除く）。
+  const issueCandidates = useMemo(() => [...p.issues, ...p.openIssues], [p.issues, p.openIssues]);
 
   const draft = useReportDraft({
     siteId: p.siteId,
@@ -662,9 +705,9 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
         <LeaseTable rows={state.rows.lease} onChange={setRows('lease')} date={p.date} items={p.masters.leaseItems} units={p.masters.units} />
         <CashTable rows={state.rows.cash} onChange={setRows('cash')} units={p.masters.units} />
         <CreditTable rows={state.rows.credit} onChange={setRows('credit')} units={p.masters.units} suppliers={p.masters.suppliers} />
-        <WorkTable rows={state.rows.work} onChange={setRows('work')} units={p.masters.units} />
+        <WorkTable rows={state.rows.work} onChange={setRows('work')} units={p.masters.units} issues={issueCandidates} />
 
-        <ReportSummary totals={totals} outputBefore={p.outputBefore} contractAmount={p.contractAmount} />
+        <ReportSummary totals={totals} changes={changes} outputBefore={p.outputBefore} contractAmount={p.contractAmount} />
 
         <section aria-label="重要事項・連絡事項" className="mb-6 grid gap-4 md:grid-cols-2">
           <Labeled label="重要事項">

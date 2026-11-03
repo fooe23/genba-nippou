@@ -27,6 +27,7 @@ export function LineTable<L>({
   subtotal,
   emptyText,
   hint,
+  rowExtra,
 }: {
   title: string;
   rows: Row<L>[];
@@ -40,6 +41,8 @@ export function LineTable<L>({
   emptyText: string;
   /** 表の下に出す補足（プルダウンに無いときの案内など）。 */
   hint?: string;
+  /** 行の下に横幅いっぱいで出す追加の欄（null なら出さない）。作業内容の区分の指示など。 */
+  rowExtra?: (line: L, index: number, row: Row<L>) => ReactNode;
 }) {
   return (
     <section aria-label={title} className="mb-8">
@@ -63,43 +66,49 @@ export function LineTable<L>({
               <span />
             </div>
             <ul className="space-y-3 md:space-y-0">
-              {rows.map((row, i) => (
-                <li
-                  key={row.key}
-                  className={`grid grid-cols-2 items-start gap-2 rounded-lg border border-gray-300 p-3 md:items-center md:rounded-none md:border-0 md:border-b md:px-0 md:py-2 dark:border-gray-700 ${gridClass}`}
-                >
-                  <p className="col-span-2 text-sm font-bold text-gray-600 md:hidden dark:text-gray-400">
-                    {i + 1}行目
-                  </p>
-                  {columns.map((c) => {
-                    const span = c.wide ? 'col-span-2 md:col-span-1' : '';
-                    const caption = <span className="mb-0.5 block text-xs text-gray-600 md:sr-only dark:text-gray-400">{c.label}</span>;
-                    return c.input === false ? (
-                      <div key={c.label} className={span}>
-                        {caption}
-                        {c.cell(row.line, i, row)}
-                      </div>
-                    ) : (
-                      <label key={c.label} className={`block ${span}`}>
-                        {caption}
-                        {c.cell(row.line, i, row)}
-                      </label>
-                    );
-                  })}
-                  <div className="col-span-2 flex justify-end md:col-span-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (window.confirm(`${title}の${i + 1}行目を削除しますか？`)) onRemove(i);
-                      }}
-                      aria-label={`${title}の${i + 1}行目を削除`}
-                      className="min-h-11 min-w-11 rounded-lg border border-red-600 px-3 text-sm font-medium text-red-700 disabled:opacity-50 dark:border-red-500 dark:text-red-400"
-                    >
-                      削除
-                    </button>
-                  </div>
-                </li>
-              ))}
+              {rows.map((row, i) => {
+                const extra = rowExtra?.(row.line, i, row) ?? null;
+                return (
+                  <li
+                    key={row.key}
+                    className={`grid grid-cols-2 items-start gap-2 rounded-lg border border-gray-300 p-3 md:items-center md:rounded-none md:border-0 md:border-b md:px-0 md:py-2 dark:border-gray-700 ${gridClass}`}
+                  >
+                    <p className="col-span-2 text-sm font-bold text-gray-600 md:hidden dark:text-gray-400">
+                      {i + 1}行目
+                    </p>
+                    {columns.map((c) => {
+                      const span = c.wide ? 'col-span-2 md:col-span-1' : '';
+                      const caption = <span className="mb-0.5 block text-xs text-gray-600 md:sr-only dark:text-gray-400">{c.label}</span>;
+                      return c.input === false ? (
+                        <div key={c.label} className={span}>
+                          {caption}
+                          {c.cell(row.line, i, row)}
+                        </div>
+                      ) : (
+                        <label key={c.label} className={`block ${span}`}>
+                          {caption}
+                          {c.cell(row.line, i, row)}
+                        </label>
+                      );
+                    })}
+                    <div className="col-span-2 flex justify-end md:col-span-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (window.confirm(`${title}の${i + 1}行目を削除しますか？`)) onRemove(i);
+                        }}
+                        aria-label={`${title}の${i + 1}行目を削除`}
+                        className="min-h-11 min-w-11 rounded-lg border border-red-600 px-3 text-sm font-medium text-red-700 disabled:opacity-50 dark:border-red-500 dark:text-red-400"
+                      >
+                        削除
+                      </button>
+                    </div>
+                    {extra !== null && (
+                      <div className="col-span-2 rounded-lg bg-gray-100 p-2 md:col-span-full md:mb-1 dark:bg-gray-900">{extra}</div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </div>

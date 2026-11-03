@@ -4,9 +4,9 @@ import { useState, type FormEvent } from 'react';
 import { firstError } from '@/lib/db/masters-schemas';
 import { upsertSite } from '@/lib/db/sites-actions';
 import type { Site, SiteInput } from '@/lib/db/sites';
-import { CONTRACT_TYPES, SITE_STATUSES, siteInputSchema } from '@/lib/db/sites-schemas';
+import { CONTRACT_STATUSES, CONTRACT_TYPES, SITE_STATUSES, siteInputSchema } from '@/lib/db/sites-schemas';
 import { ErrorText, Field, inputClass, numOrNull, primaryButtonClass, str, useRunner } from '@/components/masters/common';
-import { STATUS_LABELS } from './labels';
+import { CONTRACT_STATUS_LABELS, STATUS_LABELS } from './labels';
 
 function textOrNull(fd: FormData, key: string): string | null {
   const v = str(fd, key).trim();
@@ -27,6 +27,8 @@ export function SiteForm({
 }) {
   const { pending, error, setError, run } = useRunner();
   const [saved, setSaved] = useState(false);
+  // 未確定のときだけ概算金額の欄を出す（確定に戻しても入力値は残し、そのまま保存する）。
+  const [contractStatus, setContractStatus] = useState<Site['contractStatus']>(site?.contractStatus ?? 'fixed');
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -47,6 +49,8 @@ export function SiteForm({
       startDate: startDate === '' ? null : startDate,
       endDate: endDate === '' ? null : endDate,
       contractType: isContractType(contractType) ? contractType : null,
+      contractStatus,
+      estimatedAmount: numOrNull(str(fd, 'estimatedAmount')),
       status: status === 'done' ? 'done' : status === 'active' ? 'active' : undefined,
       commonStart: textOrNull(fd, 'commonStart'),
       commonEnd: textOrNull(fd, 'commonEnd'),
@@ -103,6 +107,32 @@ export function SiteForm({
           className={inputClass}
         />
       </Field>
+      <Field label="契約の状態">
+        <select
+          name="contractStatus"
+          value={contractStatus}
+          onChange={(e) => setContractStatus(e.target.value === 'tentative' ? 'tentative' : 'fixed')}
+          className={inputClass}
+        >
+          {CONTRACT_STATUSES.map((s) => (
+            <option key={s} value={s}>
+              {CONTRACT_STATUS_LABELS[s]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <div hidden={contractStatus !== 'tentative'}>
+        <Field label="概算金額（見積提示額・円）">
+          <input
+            name="estimatedAmount"
+            type="number"
+            inputMode="decimal"
+            min={0}
+            defaultValue={site?.estimatedAmount ?? ''}
+            className={inputClass}
+          />
+        </Field>
+      </div>
       <Field label="着工予定日">
         <input name="startDate" type="date" defaultValue={site?.startDate ?? ''} className={inputClass} />
       </Field>
