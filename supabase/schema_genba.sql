@@ -41,6 +41,10 @@ alter table public.gn_sites add column if not exists contract_status text not nu
   check (contract_status in ('fixed','tentative'));
 alter table public.gn_sites add column if not exists estimated_amount numeric
   check (estimated_amount is null or estimated_amount >= 0);
+-- 既存環境向け（2026-11-05 追加列。update_2026-11-05_issue_settlement.sql）
+-- 常用単価の既定（客先請求・円／人工）。件を常用で精算するときの単価の初期値
+alter table public.gn_sites add column if not exists default_daily_rate numeric
+  check (default_daily_rate is null or default_daily_rate >= 0);
 
 
 create table if not exists public.gn_site_members (
@@ -276,6 +280,15 @@ alter table public.gn_report_issues add column if not exists instruction_method 
   check (instruction_method in ('oral','phone','email','document','other'));
 alter table public.gn_report_issues add column if not exists amount_estimate numeric
   check (amount_estimate is null or amount_estimate >= 0);
+-- 既存環境向け（2026-11-05 追加列。update_2026-11-05_issue_settlement.sql）：件ごとの精算
+-- 精算の方法（未定・一式・常用）・確定額（一式）・常用単価（常用。客先請求・円／人工）・確定日
+alter table public.gn_report_issues add column if not exists settlement_method text not null default 'undecided'
+  check (settlement_method in ('undecided','lump_sum','daily_rate'));
+alter table public.gn_report_issues add column if not exists fixed_amount numeric
+  check (fixed_amount is null or fixed_amount >= 0);
+alter table public.gn_report_issues add column if not exists daily_rate numeric
+  check (daily_rate is null or daily_rate >= 0);
+alter table public.gn_report_issues add column if not exists fixed_on date;
 
 create table if not exists public.gn_carryovers (
   id          uuid primary key default gen_random_uuid(),

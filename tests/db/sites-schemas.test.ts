@@ -163,3 +163,16 @@ describe('siteInputSchema（契約の状態・概算金額）', () => {
     expect(firstError(siteInputSchema, { ...base, estimatedAmount: NaN })).toBe('概算金額は0以上の数値で入力してください');
   });
 });
+
+describe('siteInputSchema（常用単価の既定）', () => {
+  it('省略は undefined（変更しない）、null でクリア、0以上の数値を受け付ける', () => {
+    expect(siteInputSchema.parse(base).defaultDailyRate).toBeUndefined();
+    expect(siteInputSchema.parse({ ...base, defaultDailyRate: null }).defaultDailyRate).toBeNull();
+    expect(siteInputSchema.parse({ ...base, defaultDailyRate: 0 }).defaultDailyRate).toBe(0);
+    expect(siteInputSchema.parse({ ...base, defaultDailyRate: 30000 }).defaultDailyRate).toBe(30000);
+  });
+  it('負の数・数値でない値は日本語の文言で弾く', () => {
+    expect(firstError(siteInputSchema, { ...base, defaultDailyRate: -1 })).toBe('常用単価の既定は0以上の数値で入力してください');
+    expect(firstError(siteInputSchema, { ...base, defaultDailyRate: NaN })).toBe('常用単価の既定は0以上の数値で入力してください');
+  });
+});

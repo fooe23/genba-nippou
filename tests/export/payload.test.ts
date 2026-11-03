@@ -31,7 +31,7 @@ const lease = (itemId: string | null, itemName: string, unitPrice: number): Leas
 const SITE: Site = {
   id: 's1', name: '検証現場', clientName: '検証客先', projectName: '検証工事', projectNo: 'K-001', overview: '概要',
   contractAmount: 12000000, startDate: '2026-10-01', endDate: '2027-03-31', contractType: '元請け', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null,
 };
 
 const report = (date: string, lines: ReportLine[] = [], o: Partial<ExportReport> = {}): ExportReport => ({

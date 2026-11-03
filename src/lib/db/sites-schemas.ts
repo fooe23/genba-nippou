@@ -16,6 +16,7 @@ const MSG_AMOUNT = '金額は0以上の数値で入力してください';
 const MSG_MAN_DAYS = '人工は0以上の数値で入力してください';
 const MSG_COST = '労務費は0以上の数値で入力してください';
 const MSG_ESTIMATE = '概算金額は0以上の数値で入力してください';
+const MSG_DAILY_RATE = '常用単価の既定は0以上の数値で入力してください';
 
 const idSchema = z.uuid({ error: 'IDの形式が正しくありません' });
 
@@ -48,6 +49,8 @@ export const siteInputSchema = z.object({
   // 契約の状態と概算・見積提示額（任意）。省略時は変更しない（新規は DB の既定：確定・概算なし）。
   contractStatus: z.enum(CONTRACT_STATUSES, { error: '契約の状態が正しくありません' }).optional(),
   estimatedAmount: z.number({ error: MSG_ESTIMATE }).min(0, MSG_ESTIMATE).nullable().optional(),
+  // 常用単価の既定（客先請求・円／人工。任意）。件を常用で精算するときの単価の初期値。省略時は変更しない。
+  defaultDailyRate: z.number({ error: MSG_DAILY_RATE }).min(0, MSG_DAILY_RATE).nullable().optional(),
 });
 export type SiteInputParsed = z.output<typeof siteInputSchema>;
 

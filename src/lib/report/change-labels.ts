@@ -1,10 +1,12 @@
-import type { ChangeKind, InstructionMethod, IssueKind, WorkLine } from '@/lib/types';
+import type { ChangeLedgerKind } from '@/lib/reports/types';
+import type { ChangeKind, InstructionMethod, IssueKind, SettlementMethod, WorkLine } from '@/lib/types';
 
 // 追加・増・変更・減の記録の選択肢と表示名（画面・帳票・検証で共通）。
 
 export const CHANGE_KINDS = ['contract', 'extra', 'increase', 'change', 'minus'] as const satisfies readonly ChangeKind[];
 export const INSTRUCTION_METHODS = ['oral', 'phone', 'email', 'document', 'other'] as const satisfies readonly InstructionMethod[];
 export const ISSUE_KINDS = ['extra', 'increase', 'change', 'minus', 'client_delay', 'rework', 'other'] as const satisfies readonly IssueKind[];
+export const SETTLEMENT_METHODS = ['undecided', 'lump_sum', 'daily_rate'] as const satisfies readonly SettlementMethod[];
 
 /** 作業内容の区分。追加＝新しく別の仕事が増えた、増＝同じ流れの中で数量が増えた（計算・集計は追加と同じ）。 */
 export const CHANGE_KIND_LABELS: Record<ChangeKind, string> = { contract: '契約内', extra: '追加', increase: '増', change: '変更', minus: '減' };
@@ -33,6 +35,25 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   rework: 'やり直し',
   other: 'その他',
 };
+/** 件の精算の方法。 */
+export const SETTLEMENT_METHOD_LABELS: Record<SettlementMethod, string> = { undecided: '未定', lump_sum: '一式', daily_rate: '常用' };
+
+const SETTLEMENT_CATEGORY: Record<IssueKind, ChangeLedgerKind | null> = {
+  extra: 'extra',
+  increase: 'increase',
+  change: 'change',
+  minus: 'minus',
+  client_delay: 'extra',
+  other: 'extra',
+  rework: null,
+};
+/**
+ * 件の種別から精算の区分（追加・増・変更・減）を決める。客先都合・その他は追加として数え、
+ * やり直し（自社の手直し）は客先に請求しないので数えない（null）。
+ */
+export function settlementCategory(kind: IssueKind): ChangeLedgerKind | null {
+  return SETTLEMENT_CATEGORY[kind];
+}
 
 type WorkChangeFields = Pick<WorkLine, 'changeKind' | 'instructedBy' | 'instructionMethod' | 'instructedOn' | 'issueId'>;
 
@@ -53,4 +74,7 @@ export function isInstructionMethod(v: unknown): v is InstructionMethod {
 }
 export function isIssueKind(v: unknown): v is IssueKind {
   return typeof v === 'string' && (ISSUE_KINDS as readonly string[]).includes(v);
+}
+export function isSettlementMethod(v: unknown): v is SettlementMethod {
+  return typeof v === 'string' && (SETTLEMENT_METHODS as readonly string[]).includes(v);
 }

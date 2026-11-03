@@ -51,6 +51,7 @@ export function SiteForm({
       contractType: isContractType(contractType) ? contractType : null,
       contractStatus,
       estimatedAmount: numOrNull(str(fd, 'estimatedAmount')),
+      defaultDailyRate: numOrNull(str(fd, 'defaultDailyRate')),
       status: status === 'done' ? 'done' : status === 'active' ? 'active' : undefined,
       commonStart: textOrNull(fd, 'commonStart'),
       commonEnd: textOrNull(fd, 'commonEnd'),
@@ -133,6 +134,16 @@ export function SiteForm({
           />
         </Field>
       </div>
+      <Field label="常用単価の既定（客先請求・円／人工）">
+        <input
+          name="defaultDailyRate"
+          type="number"
+          inputMode="decimal"
+          min={0}
+          defaultValue={site?.defaultDailyRate ?? ''}
+          className={inputClass}
+        />
+      </Field>
       <Field label="着工予定日">
         <input name="startDate" type="date" defaultValue={site?.startDate ?? ''} className={inputClass} />
       </Field>

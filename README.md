@@ -45,7 +45,7 @@ src/content/        アプリ内ガイドの本文
 src/proxy.ts        ログイン状態の確認（未ログインは /login へ。api/export/fill は対象外）
 api/export/fill.py  Vercel の Python 関数（原本 Excel を作る。vercel.json で雛形と python/ を同梱）
 python/             Excel 出力の本体（genba_export）、ローカル用の run_fill.py、unittest
-supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、update_2026-11-02_site_archive.sql（現場の削除・削除ログ・完了現場の書き込み禁止）、update_2026-11-02b_lines_guard_fix.sql（その修正）、update_2026-11-03_labor_rule.sql（人工・残業ルール［V34］・労務の設定・作業員の残業単価・現場の共通時間の既定）、update_2026-11-03c_master_import.sql（マスターの更新者の記録・Excel／CSV 取り込みの RPC・取り込み履歴）、update_2026-11-03d_profile_names.sql（帳票・Excel の作成者・確認者・承認者の氏名を返す関数 gn_profile_names）、update_2026-11-04_change_tracking.sql（追加・変更・減の記録・契約状態・経費率・客先確認の列）、update_2026-11-04b_minus_amount.sql（減の行の金額を負で保存・保存済みの減の再計算）、update_2026-11-04c_client_confirmation.sql（承認済み・完了現場でも客先確認だけは記録できるガードの例外）、update_2026-11-04d_increase_kind.sql（作業内容の区分と件の種別に「増」を足す check 制約の付け直し）、verify_rls.md（権限の確認手順）、verify_rls_auto.sql（手順をまとめた自動検証。実行後は全件取り消される）
+supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、update_2026-11-02_site_archive.sql（現場の削除・削除ログ・完了現場の書き込み禁止）、update_2026-11-02b_lines_guard_fix.sql（その修正）、update_2026-11-03_labor_rule.sql（人工・残業ルール［V34］・労務の設定・作業員の残業単価・現場の共通時間の既定）、update_2026-11-03c_master_import.sql（マスターの更新者の記録・Excel／CSV 取り込みの RPC・取り込み履歴）、update_2026-11-03d_profile_names.sql（帳票・Excel の作成者・確認者・承認者の氏名を返す関数 gn_profile_names）、update_2026-11-04_change_tracking.sql（追加・変更・減の記録・契約状態・経費率・客先確認の列）、update_2026-11-04b_minus_amount.sql（減の行の金額を負で保存・保存済みの減の再計算）、update_2026-11-04c_client_confirmation.sql（承認済み・完了現場でも客先確認だけは記録できるガードの例外）、update_2026-11-04d_increase_kind.sql（作業内容の区分と件の種別に「増」を足す check 制約の付け直し）、update_2026-11-05_issue_settlement.sql（件ごとの精算の方法・確定額・常用単価・確定日と、現場の常用単価の既定の列）、verify_rls.md（権限の確認手順）、verify_rls_auto.sql（手順をまとめた自動検証。実行後は全件取り消される）
 tests/              Vitest
 scripts/            check-sql.mjs（SQL の構文検査）
 templates/          Excel 雛形（第2計画で使用）
@@ -96,6 +96,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
      - **04c**（客先確認の3列だけの更新は、承認済み・完了現場でも通すガードの例外）：未適用だと、承認済みの日報や完了現場で客先確認の記録が失敗する（「承認済みのため編集できません」など）。
      - **04d**（作業内容の区分と件の種別に「増」［increase］を足す。check 制約を付け直す）：SQL より前にアプリをデプロイすると、区分「増」の作業内容の行を含む日報の保存と、種別「増（数量増）」の件の追加が check 制約で失敗する（それ以外の保存は通る）。
      - 確認は `supabase/verify_rls_auto.sql`（「10. 客先確認」を含む）で FAIL 0 件。
+   - **既存環境（2026-11-05 より前に `schema_genba.sql` を適用済み）**：04d の後に `supabase/update_2026-11-05_issue_settlement.sql` を実行する（重要事項の件に精算の方法［未定・一式・常用］・確定額・常用単価・確定日、現場に常用単価の既定の列を足す。既存の件は「未定」になる。何度実行しても安全）。**アプリ（2026-11-05 以降の版）をデプロイする前に実行すること**：アプリは件と現場を読むときにこの列を名指しで選ぶため、SQL より前にデプロイすると件（日報のバナー・現場画面・集計）と現場（ホーム・現場画面・日報・出力）の読み込みがすべて失敗する。新規環境では `schema_genba.sql` に含まれているので不要。
 3. 次章「既存アプリの profiles 保護（必須）」の `supabase/fix_profiles_guard.sql` を実行する。
 4. 最初の管理者：SQL Editor で `update public.profiles set is_admin = true where email = '<管理者のメール>';` を実行する（SQL Editor からの変更は手順3の保護の対象外なので通る）。以降の担当者の割り当ては管理画面から行う。
 5. `supabase/verify_rls.md` の手順で権限を確認し、結果をチェックボックスに記録する（協力会社が担当外の現場を見られないこと、社員は全現場に入力できるが承認はできないこと、承認権限など。管理者アカウントが必要なので手順4の後に行う）。共用プロジェクトに検証用の現場（検証現場X／Y）などのテスト行を作るため、最後の「7. 後片付け」で必ず削除する。

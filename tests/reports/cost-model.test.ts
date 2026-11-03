@@ -12,7 +12,7 @@ import type { ChangeKind, ReportStatus } from '@/lib/types';
 const site = (o: Partial<Site> = {}): Site => ({
   id: 's1', name: '〇〇邸新築工事', clientName: '〇〇様', projectName: null, projectNo: 'K-001', overview: '木造 2 階建て',
   contractAmount: 1_000_000, startDate: '2026-10-01', endDate: '2027-01-31', contractType: '元請け', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, ...o,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null, ...o,
 });
 const touched = { updatedAt: null, updatedBy: null, createdAt: '2026-01-01T00:00:00Z' };
 const worker = (id: string, name: string, trade: string | null): Worker => ({ id, name, trade, note: null, active: true, rates: [], overtimeRate: null, ...touched });

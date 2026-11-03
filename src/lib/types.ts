@@ -18,6 +18,8 @@ export type ChangeKind = 'contract' | 'extra' | 'increase' | 'change' | 'minus';
 export type InstructionMethod = 'oral' | 'phone' | 'email' | 'document' | 'other';
 /** 重要事項の件の種別（追加指示・増（数量増）・仕様変更・減・客先都合・やり直し・その他）。 */
 export type IssueKind = 'extra' | 'increase' | 'change' | 'minus' | 'client_delay' | 'rework' | 'other';
+/** 件の精算の方法（未定・一式＝確定額で精算・常用＝人工 × 常用単価で精算）。 */
+export type SettlementMethod = 'undecided' | 'lump_sum' | 'daily_rate';
 /**
  * 作業内容の行。source は見積の行との対応（estimate＝見積の行から、extra＝見積に無い行）で、
  * changeKind が追加・増・変更・減の区分。instructedBy〜issueId は追加・増・変更・減の根拠（誰が・どう・いつ指示したか、根拠の件）。

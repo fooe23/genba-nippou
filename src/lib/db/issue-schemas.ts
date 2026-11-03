@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { ISSUE_KINDS } from '@/lib/report/change-labels';
+import { dateSchema } from '@/lib/db/masters-schemas';
+import { ISSUE_KINDS, SETTLEMENT_METHODS } from '@/lib/report/change-labels';
 import { instructionMethodSchema } from '@/lib/report/schema';
 
 // 重要事項の件の種別・指示者・指示方法・金額見込み（addIssue の追加の項目）の入力検証。
@@ -22,3 +23,29 @@ export const issueExtraSchema = z.object({
   amountEstimate: z.preprocess(emptyToNull, z.number({ error: MSG_AMOUNT }).min(0, MSG_AMOUNT).nullable()).default(null),
 });
 export type IssueExtraInput = z.input<typeof issueExtraSchema>;
+
+// 件の精算の項目（精算の方法・確定額・常用単価・確定日）の入力検証。updateIssueSettlement とフォームの両方で使う。
+// 一式は確定額、常用は常用単価が必須。使わない方の金額は保存のときに null にする（アクション側）。
+
+const MSG_FIXED_AMOUNT = '確定額は0以上の数値で入力してください';
+const MSG_DAILY_RATE = '常用単価は0以上の数値で入力してください';
+
+export const issueSettlementSchema = z
+  .object({
+    settlementMethod: z.enum(SETTLEMENT_METHODS, { error: '精算の方法が正しくありません' }).default('undecided'),
+    fixedAmount: z
+      .preprocess(emptyToNull, z.number({ error: MSG_FIXED_AMOUNT }).min(0, MSG_FIXED_AMOUNT).nullable())
+      .default(null),
+    dailyRate: z.preprocess(emptyToNull, z.number({ error: MSG_DAILY_RATE }).min(0, MSG_DAILY_RATE).nullable()).default(null),
+    fixedOn: z.preprocess(emptyToNull, dateSchema.nullable()).default(null),
+  })
+  .superRefine((v, ctx) => {
+    if (v.settlementMethod === 'lump_sum' && v.fixedAmount === null) {
+      ctx.addIssue({ code: 'custom', path: ['fixedAmount'], message: '一式のときは確定額を入力してください' });
+    }
+    if (v.settlementMethod === 'daily_rate' && v.dailyRate === null) {
+      ctx.addIssue({ code: 'custom', path: ['dailyRate'], message: '常用のときは常用単価を入力してください' });
+    }
+  });
+export type IssueSettlementInput = z.input<typeof issueSettlementSchema>;
+export type IssueSettlementParsed = z.output<typeof issueSettlementSchema>;

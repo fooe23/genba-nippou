@@ -28,6 +28,8 @@ export interface Site {
   contractStatus: 'fixed' | 'tentative';
   /** 概算・見積提示額（契約金額が未確定のときに使う）。 */
   estimatedAmount: number | null;
+  /** 常用単価の既定（客先請求・円／人工）。件を常用で精算するときの単価の初期値。未設定は null。 */
+  defaultDailyRate: number | null;
 }
 export interface SiteMember {
   userId: string;
@@ -47,8 +49,15 @@ export interface ProfileListItem {
 export interface SiteMasters { workerIds: string[]; supplierIds: string[]; vehicleIds: string[]; leaseItemIds: string[]; }
 export interface Carryover { workerId: string; manDays: number; laborCost: number; beforeDate: string; }
 
-type SiteOptionalKey = 'commonStart' | 'commonEnd' | 'commonBreakMin' | 'commonGapMin' | 'contractStatus' | 'estimatedAmount';
-/** upsertSite に渡す入力（sites-actions.ts）。共通時間の既定・契約の状態・概算金額は省略すると変更しない（新規は DB の既定）。 */
+type SiteOptionalKey =
+  | 'commonStart'
+  | 'commonEnd'
+  | 'commonBreakMin'
+  | 'commonGapMin'
+  | 'contractStatus'
+  | 'estimatedAmount'
+  | 'defaultDailyRate';
+/** upsertSite に渡す入力（sites-actions.ts）。共通時間の既定・契約の状態・概算金額・常用単価の既定は省略すると変更しない（新規は DB の既定）。 */
 export type SiteInput = Omit<Site, 'id' | 'status' | 'deletedAt' | SiteOptionalKey> &
   Partial<Pick<Site, SiteOptionalKey>> & { id?: string; status?: Site['status'] };
 
@@ -83,13 +92,14 @@ interface SiteRow {
   deleted_at: string | null;
   contract_status: string | null;
   estimated_amount: number | string | null;
+  default_daily_rate: number | string | null;
 }
 interface ProfileRef { name: string | null; email: string | null; account_type: string | null; company_name: string | null; }
 interface MemberRow { user_id: string; role: SiteRole; profiles: ProfileRef | ProfileRef[] | null; }
 interface CarryoverRow { worker_id: string; man_days: number | string; labor_cost: number | string; before_date: string; }
 
 const SITE_COLUMNS =
-  'id, name, client_name, project_name, project_no, overview, contract_amount, start_date, end_date, contract_type, status, common_start, common_end, common_break_min, common_gap_min, deleted_at, contract_status, estimated_amount';
+  'id, name, client_name, project_name, project_no, overview, contract_amount, start_date, end_date, contract_type, status, common_start, common_end, common_break_min, common_gap_min, deleted_at, contract_status, estimated_amount, default_daily_rate';
 
 function toSite(r: SiteRow): Site {
   return {
@@ -111,6 +121,7 @@ function toSite(r: SiteRow): Site {
     deletedAt: r.deleted_at ?? null,
     contractStatus: r.contract_status === 'tentative' ? 'tentative' : 'fixed',
     estimatedAmount: r.estimated_amount === null || r.estimated_amount === undefined ? null : Number(r.estimated_amount),
+    defaultDailyRate: r.default_daily_rate === null || r.default_daily_rate === undefined ? null : Number(r.default_daily_rate),
   };
 }
 

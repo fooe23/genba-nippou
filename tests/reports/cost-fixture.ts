@@ -14,7 +14,7 @@ const time = { start: null, end: null, breakMin: null, gapMin: null };
 const site: Site = {
   id: 's1', name: '〇〇邸新築工事', clientName: '〇〇様', projectName: null, projectNo: 'K-001', overview: '木造 2 階建て "在来"',
   contractAmount: 1_000_000, startDate: '2026-10-01', endDate: '2027-01-31', contractType: '元請け', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null,
 };
 
 const lines: SavedReportLine[] = [
@@ -93,6 +93,7 @@ export const changeInput = (): CostReportInput => ({
       id: 'i1', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02',
       body: '施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。', status: 'open', doneAt: null, kind: 'extra',
       instructedBy: '施主 〇〇様', instructionMethod: 'oral', amountEstimate: 40000,
+      settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null,
     },
   ],
 });

@@ -8,7 +8,7 @@ import {
   type ClientConfirmationColumns,
   type ClientConfirmationInput,
 } from '@/lib/db/client-confirmation-schemas';
-import { issueExtraSchema, type IssueExtraInput } from '@/lib/db/issue-schemas';
+import { issueExtraSchema, issueSettlementSchema, type IssueExtraInput, type IssueSettlementInput } from '@/lib/db/issue-schemas';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
@@ -472,6 +472,50 @@ export async function setIssueDone(issueId: string, done: boolean, doneAt?: stri
     return { ok: true };
   } catch (e) {
     console.error('[setIssueDone]', e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
+}
+
+export type IssueSettlementResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * 件の精算の項目（精算の方法・確定額・常用単価・確定日）を変える。社員（管理者を含む）だけ。協力会社は拒否する。
+ * 一式でないときは確定額、常用でないときは常用単価を null にして保存する（方法を切り替えると他方は消える）。
+ * 完了した現場の件は DB のガード（site_closed）が止める。
+ */
+export async function updateIssueSettlement(issueId: string, input: IssueSettlementInput): Promise<IssueSettlementResult> {
+  const profile = await requireProfile();
+  if (profile.accountType === 'partner') return { ok: false, error: '協力会社は精算の項目を変更できません' };
+  if (!z.guid().safeParse(issueId).success) return { ok: false, error: '件の指定が正しくありません' };
+  const parsed = issueSettlementSchema.safeParse(input ?? {});
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  const v = parsed.data;
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data, error } = await supabase
+      .from('gn_report_issues')
+      .update({
+        settlement_method: v.settlementMethod,
+        fixed_amount: v.settlementMethod === 'lump_sum' ? v.fixedAmount : null,
+        daily_rate: v.settlementMethod === 'daily_rate' ? v.dailyRate : null,
+        fixed_on: v.fixedOn,
+      })
+      .eq('id', issueId)
+      .select('site_id');
+    if (error) {
+      console.error('[updateIssueSettlement]', error.message);
+      return { ok: false, error: stateErrorMessage(error.message) };
+    }
+    const row = (data ?? [])[0] as { site_id: string } | undefined;
+    if (!row) return { ok: false, error: '件が見つからないか、権限がありません' };
+
+    // 現場詳細・集計（追加・変更の台帳）・帳票・日報のどこにも件が出るため、その現場の下を全部更新する。
+    revalidatePath(`/sites/${row.site_id}`, 'layout');
+    revalidatePath('/');
+    return { ok: true };
+  } catch (e) {
+    console.error('[updateIssueSettlement]', e);
     return { ok: false, error: GENERIC_ERROR };
   }
 }

@@ -43,9 +43,10 @@ export async function upsertSite(input: SiteInput): Promise<string> {
     ...(v.commonEnd !== undefined ? { common_end: v.commonEnd } : {}),
     ...(v.commonBreakMin !== undefined ? { common_break_min: v.commonBreakMin } : {}),
     ...(v.commonGapMin !== undefined ? { common_gap_min: v.commonGapMin } : {}),
-    // 契約の状態・概算金額。省略された項目は変更しない（新規は DB の既定）。
+    // 契約の状態・概算金額・常用単価の既定。省略された項目は変更しない（新規は DB の既定）。
     ...(v.contractStatus !== undefined ? { contract_status: v.contractStatus } : {}),
     ...(v.estimatedAmount !== undefined ? { estimated_amount: v.estimatedAmount } : {}),
+    ...(v.defaultDailyRate !== undefined ? { default_daily_rate: v.defaultDailyRate } : {}),
   };
   // 削除済みの現場は編集しない（復元してから編集する）。
   const query = v.id

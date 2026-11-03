@@ -2,9 +2,9 @@ import 'server-only';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
-import { isInstructionMethod, isIssueKind } from '@/lib/report/change-labels';
+import { isInstructionMethod, isIssueKind, isSettlementMethod } from '@/lib/report/change-labels';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
-import type { InstructionMethod, IssueKind, ReportLine, ReportStatus, SiteRole, TimeSpec } from '@/lib/types';
+import type { InstructionMethod, IssueKind, ReportLine, ReportStatus, SettlementMethod, SiteRole, TimeSpec } from '@/lib/types';
 
 // 日報まわりの読み取り（RLS 前提）。
 
@@ -328,6 +328,14 @@ export interface Issue {
   instructionMethod: InstructionMethod | null;
   /** 金額見込み（円。未入力は null）。 */
   amountEstimate: number | null;
+  /** 精算の方法（未定・一式・常用）。表示名は SETTLEMENT_METHOD_LABELS。 */
+  settlementMethod: SettlementMethod;
+  /** 確定額（円。一式のとき。それ以外は null）。 */
+  fixedAmount: number | null;
+  /** 常用単価（客先請求・円／人工。常用のとき。それ以外は null）。 */
+  dailyRate: number | null;
+  /** 確定日（YYYY-MM-DD。未入力は null）。 */
+  fixedOn: string | null;
 }
 
 interface IssueRow {
@@ -341,11 +349,15 @@ interface IssueRow {
   instructed_by: string | null;
   instruction_method: string | null;
   amount_estimate: number | string | null;
+  settlement_method: string | null;
+  fixed_amount: number | string | null;
+  daily_rate: number | string | null;
+  fixed_on: string | null;
   gn_daily_reports: { report_date: string } | { report_date: string }[] | null;
 }
 
 const ISSUE_COLUMNS =
-  'id, site_id, report_id, body, status, done_at, kind, instructed_by, instruction_method, amount_estimate, gn_daily_reports(report_date)';
+  'id, site_id, report_id, body, status, done_at, kind, instructed_by, instruction_method, amount_estimate, settlement_method, fixed_amount, daily_rate, fixed_on, gn_daily_reports(report_date)';
 
 function amountOrNull(v: number | string | null): number | null {
   if (v === null || v === '') return null;
@@ -366,6 +378,10 @@ function toIssue(r: IssueRow): Issue {
     instructedBy: r.instructed_by || null,
     instructionMethod: isInstructionMethod(r.instruction_method) ? r.instruction_method : null,
     amountEstimate: amountOrNull(r.amount_estimate),
+    settlementMethod: isSettlementMethod(r.settlement_method) ? r.settlement_method : 'undecided',
+    fixedAmount: amountOrNull(r.fixed_amount),
+    dailyRate: amountOrNull(r.daily_rate),
+    fixedOn: r.fixed_on || null,
   };
 }
 
