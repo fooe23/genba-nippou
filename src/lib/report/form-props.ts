@@ -140,5 +140,10 @@ export async function loadReportFormProps(
     createdBy: head ? head.createdBy : null,
     currentUserId: profile.id,
     isAdmin: profile.isAdmin,
+    // 客先確認の記録の有無は確認日時で決める（日報の帳票 buildDailyReport と同じ）。
+    clientConfirmation:
+      head && head.clientConfirmedAt !== null
+        ? { by: head.clientConfirmedBy ?? '', at: head.clientConfirmedAt, note: head.clientConfirmedNote ?? '' }
+        : null,
   };
 }

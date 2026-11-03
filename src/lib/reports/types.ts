@@ -1,6 +1,7 @@
 import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Issue, ReportHead } from '@/lib/db/reports';
 import type { Carryover, Site } from '@/lib/db/sites';
+import type { ChangeTotals } from '@/lib/calc/change';
 import type { ChangeKind, InstructionMethod, IssueKind, ReportLine, TimeSpec } from '@/lib/types';
 
 // 帳票（第2計画（改）Task 2〜5）の型。モデルは数値だけを持ち、文字列の整形（#,##0・%・「—」・「（手入力）」）は
@@ -381,8 +382,20 @@ export interface DailyWorkRow {
   /** 歩掛 = 数量 ÷ 投入人工（数量 null・人工 0 なら null）。 */
   productivity: number | null;
   unitPrice: number | null;
-  /** 出来高（stored.amount）。 */
+  /** 出来高（stored.amount。減の行は負）。 */
   amount: number;
+  /** 区分（契約内・追加・変更・減）。追加・変更・減の行は帳票で太字にし、施工内容の頭に【区分】を付ける。 */
+  changeKind: ChangeKind;
+}
+
+/** 客先確認の記録（gn_daily_reports.client_confirmed_*）。記録の有無は確認日時（client_confirmed_at）で決める。 */
+export interface DailyClientConfirmation {
+  /** 確認者名（未記入は ''）。 */
+  by: string;
+  /** 確認日時（ISO 8601）。 */
+  at: string;
+  /** メモ（未記入は ''）。 */
+  note: string;
 }
 
 export interface DailyReportModel {
@@ -402,7 +415,11 @@ export interface DailyReportModel {
    * progress = cumulative ÷ 請負金額（請負金額が null・0、または日報の無い日は null）。
    */
   output: { today: number; cumulative: number | null; contractAmount: number | null; progress: number | null };
-  work: { rows: DailyWorkRow[]; total: { manDays: number; amount: number } };
+  /**
+   * 作業内容。changes は「本日の追加・変更・減」：区分ごとの保存値（stored.amount）の合計（減は負、net = 3 つの和）。
+   * 追加・変更・減の行が無い日は null。
+   */
+  work: { rows: DailyWorkRow[]; total: { manDays: number; amount: number }; changes: ChangeTotals | null };
   /** 重要事項（本文と、この日報の件）。 */
   issues: { text: string; items: { body: string; status: Issue['status']; doneAt: string | null }[] };
   /** 連絡事項。 */
@@ -411,6 +428,8 @@ export interface DailyReportModel {
    * 作成者（名前が読めなければ作業責任者、それも無ければ null）・確認者・承認者（読めなければ null）・承認日時（ISO）。
    */
   signature: { createdBy: string | null; reviewedBy: string | null; approvedBy: string | null; approvedAt: string | null };
+  /** 客先確認の記録（無ければ null。PDF は空の 確認者名／日付／サイン 欄を出す）。 */
+  clientConfirmation: DailyClientConfirmation | null;
 }
 
 // ─── 変更増減の一覧（第2計画（改）Task 11。src/lib/reports/change-model.ts） ───

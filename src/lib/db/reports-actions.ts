@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { clientConfirmationSchema, type ClientConfirmationInput } from '@/lib/db/client-confirmation-schemas';
 import { issueExtraSchema, type IssueExtraInput } from '@/lib/db/issue-schemas';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
@@ -31,6 +32,7 @@ const timestampSchema = z
   .string()
   .max(64)
   .regex(/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}(:?\d{2})?)$/);
+const STALE_VERSION_ERROR = '日報の版の指定が正しくありません。画面を再読み込みしてください。';
 
 /**
  * 日報を保存する。expectedUpdatedAt は画面を開いたとき（または前回保存したとき）の updated_at。
@@ -44,7 +46,7 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
   const v = checked.value;
   const expected = expectedUpdatedAt ?? null;
   if (expected !== null && !timestampSchema.safeParse(expected).success) {
-    return { ok: false, error: '日報の版の指定が正しくありません。画面を再読み込みしてください。' };
+    return { ok: false, error: STALE_VERSION_ERROR };
   }
 
   try {
@@ -268,6 +270,89 @@ export async function deleteReport(reportId: string): Promise<ReportStateResult>
     console.error('[deleteReport]', e);
     return { ok: false, error: GENERIC_ERROR };
   }
+}
+
+// ─── 客先確認の記録 ───
+// 日報の保存（gn_save_report）とは別に、客先確認の3列（client_confirmed_*）だけを書く。現場メンバー（RLS）なら
+// 誰でも、どの状態（下書き・提出・承認・差戻し）でも、完了した現場でも記録できる（gn_report_guard が3列だけの変更を通す）。
+
+export type ClientConfirmationResult = { ok: true; updatedAt: string | null } | { ok: false; error: string; stale?: boolean };
+
+async function writeClientConfirmation(
+  tag: string,
+  reportId: string,
+  patch: { client_confirmed_by: string | null; client_confirmed_at: string | null; client_confirmed_note: string | null },
+  expectedUpdatedAt: string | null | undefined,
+): Promise<ClientConfirmationResult> {
+  if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
+  const expected = expectedUpdatedAt ?? null;
+  if (expected !== null && !timestampSchema.safeParse(expected).success) return { ok: false, error: STALE_VERSION_ERROR };
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data: head, error: headError } = await supabase
+      .from('gn_daily_reports')
+      .select('site_id, report_date')
+      .eq('id', reportId)
+      .maybeSingle();
+    if (headError) {
+      console.error(`[${tag}:head]`, headError.message);
+      return { ok: false, error: GENERIC_ERROR };
+    }
+    if (!head) return { ok: false, error: NOT_FOUND };
+    const h = head as { site_id: string; report_date: string };
+
+    // 楽観ロック：画面を開いた（前回保存した）ときの版と同じときだけ書く（saveReport と同じ）。
+    let q = supabase.from('gn_daily_reports').update(patch).eq('id', reportId);
+    if (expected !== null) q = q.eq('updated_at', expected);
+    const { data, error } = await q.select('id, updated_at');
+    if (error) {
+      console.error(`[${tag}]`, error.message);
+      return { ok: false, error: stateErrorMessage(error.message) };
+    }
+    if (!data || data.length === 0) {
+      return expected !== null ? { ok: false, error: STALE_REPORT_MESSAGE, stale: true } : { ok: false, error: NOT_FOUND };
+    }
+
+    revalidatePath(`/sites/${h.site_id}`);
+    revalidatePath(`/sites/${h.site_id}/reports/${h.report_date}`);
+    revalidatePath(`/approvals/${reportId}`);
+    return { ok: true, updatedAt: (data[0] as { updated_at?: string | null }).updated_at ?? null };
+  } catch (e) {
+    console.error(`[${tag}]`, e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
+}
+
+/**
+ * 客先確認を記録する（確認者名・日時・メモ。記録し直すと上書き）。expectedUpdatedAt を渡すと、その版のときだけ書き、
+ * 違えば stale（他の端末で更新された）。updatedAt は記録後の版（日報画面の楽観ロック用）。
+ */
+export async function recordClientConfirmation(
+  reportId: string,
+  input: ClientConfirmationInput,
+  expectedUpdatedAt?: string | null,
+): Promise<ClientConfirmationResult> {
+  await requireProfile();
+  const v = clientConfirmationSchema.safeParse(input);
+  if (!v.success) return { ok: false, error: v.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  return writeClientConfirmation(
+    'recordClientConfirmation',
+    reportId,
+    { client_confirmed_by: v.data.confirmedBy, client_confirmed_at: v.data.confirmedAt, client_confirmed_note: v.data.note || null },
+    expectedUpdatedAt,
+  );
+}
+
+/** 客先確認の記録を取り消す（3列を空にする。記録の間違い用）。条件は recordClientConfirmation と同じ。 */
+export async function clearClientConfirmation(reportId: string, expectedUpdatedAt?: string | null): Promise<ClientConfirmationResult> {
+  await requireProfile();
+  return writeClientConfirmation(
+    'clearClientConfirmation',
+    reportId,
+    { client_confirmed_by: null, client_confirmed_at: null, client_confirmed_note: null },
+    expectedUpdatedAt,
+  );
 }
 
 // ─── 重要事項の件 ───

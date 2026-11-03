@@ -1,9 +1,13 @@
 import { Document, Page, renderToBuffer, StyleSheet, Text, View } from '@react-pdf/renderer';
 import { jpDateTime } from '@/lib/calc/format';
-import { Footer, InfoGrid, MUTED, RULE, s, SectionHead, Signature, Table } from '@/lib/pdf/common';
+import { BAND, Footer, InfoGrid, MM, MUTED, NAVY, RULE, s, SectionHead, Signature, Table } from '@/lib/pdf/common';
 import { registerPdfFonts } from '@/lib/pdf/fonts';
 import { NO_REPORTS, type SectionTable } from '@/lib/reports/cost-sections';
 import {
+  CHANGE_TOTALS_TITLE,
+  changeTotalsText,
+  CLIENT_CONFIRMATION_TITLE,
+  clientConfirmationBoxes,
   DAILY_REPORT_TITLE,
   DAILY_SECTION_TITLES,
   dailyDateLabel,
@@ -18,14 +22,34 @@ import type { DailyReportModel } from '@/lib/reports/types';
 // 日報の PDF（A4 縦・余白 15mm・本文 9pt。見た目と部品は common.tsx で工事原価集計表と共通）。
 // 1 日分は 1〜2 ページ、月まとめは渡した順に日ごとに改ページする（日ごとに <Page> を分ける）。
 // 並びは雛形の日報：見出し → 作業員・車両・リース・現金購入・買掛 → 本日原価集計・本日出来高 → 作業内容 → 重要事項 →
-// 連絡事項 → 署名欄。行の無い表・空の欄は「なし」の 1 行を出す（どの欄も省かない）。日報の無い日は「日報がありません」だけ。
+// 連絡事項 → 客先確認・署名欄（横に並べる）。行の無い表・空の欄は「なし」の 1 行を出す（どの欄も省かない）。日報の無い日は「日報がありません」だけ。
+// 作業内容の追加・変更・減の行は太字・施工内容の頭に【区分】で、表の下に「本日の追加・変更・減」（保存値の合計）を出す。
 
 const d = StyleSheet.create({
   date: { fontSize: 10.5, fontWeight: 700, textAlign: 'right' },
   textBox: { borderWidth: 0.5, borderColor: RULE, paddingVertical: 3, paddingHorizontal: 4 },
   none: { color: MUTED },
   gap: { marginTop: 4 },
+  changeTotals: { marginTop: 3, fontSize: 8.5, fontWeight: 700, textAlign: 'right' },
+  // 署名欄の行：左に客先確認、右に社内の署名欄（高さは署名欄と同じにし、今まで 1 ページに収まった日が 2 ページにならないようにする）。
+  signRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 10 },
+  clientBox: { flexDirection: 'row' },
+  clientTitle: {
+    width: 8 * MM,
+    backgroundColor: BAND,
+    color: NAVY,
+    fontWeight: 700,
+    textAlign: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: RULE,
+    paddingHorizontal: 1,
+  },
+  clientNote: { marginTop: 4 },
 });
+
+/** 客先確認の枠の幅（確認者名・日付・サイン）。社内の署名欄（26mm × 4）と並べて本文の幅（180mm）に収める。 */
+const CLIENT_BOX_WIDTHS = [24 * MM, 20 * MM, 20 * MM];
 
 /** 欄の間隔（工事原価集計表より詰め、明細の少ない日は 1 ページに収める）。 */
 const SECTION_GAP = 6;
@@ -49,6 +73,29 @@ function TableSection({ title, note, table }: { title: string; note?: string; ta
 function TextBox({ text }: { text: string }) {
   const empty = text.trim() === '';
   return <Text style={[d.textBox, ...(empty ? [d.none] : [])]}>{empty ? NONE : text}</Text>;
+}
+
+/**
+ * 客先確認（署名欄の左。見た目は署名欄と同じ枠）。記録が無ければ 確認者名／日付／サイン の空欄、あれば確認者名・確認日時を入れる。
+ */
+function ClientConfirmationBoxes({ model }: { model: DailyReportModel }) {
+  const boxes = clientConfirmationBoxes(model.clientConfirmation);
+  return (
+    <View style={d.clientBox}>
+      <View style={d.clientTitle}>
+        <Text>{CLIENT_CONFIRMATION_TITLE}</Text>
+      </View>
+      {boxes.map(([label, value], i) => (
+        <View key={label} style={[s.sigBox, { width: CLIENT_BOX_WIDTHS[i] }]}>
+          <Text style={s.sigLabel}>{label}</Text>
+          {/* 長い確認者名は枠を縦に伸ばす（行の途中で切らない）。 */}
+          <View style={[s.sigName, { height: 'auto', minHeight: 12 * MM }]}>
+            <Text style={{ textAlign: 'center' }}>{value}</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
 }
 
 function DayPage({ model, outputAt }: { model: DailyReportModel; outputAt: string }) {
@@ -90,7 +137,14 @@ function DayPage({ model, outputAt }: { model: DailyReportModel; outputAt: strin
               <TableSection title={`${DAILY_SECTION_TITLES.output}・進捗率`} note="進捗率 = 累計出来高 ÷ 請負金額" table={t.output} />
             </View>
           </View>
-          <TableSection title={LINE_KIND_LABELS.work} table={t.work} />
+          <View wrap={t.work.rows.length > KEEP_TOGETHER_ROWS}>
+            <TableSection title={LINE_KIND_LABELS.work} table={t.work} />
+            {model.work.changes ? (
+              <Text style={d.changeTotals} wrap={false}>
+                {`${CHANGE_TOTALS_TITLE}　${changeTotalsText(model.work.changes)}`}
+              </Text>
+            ) : null}
+          </View>
           <View>
             <SectionHead title={DAILY_SECTION_TITLES.issues} marginTop={SECTION_GAP} />
             {model.issues.text.trim() !== '' || model.issues.items.length === 0 ? <TextBox text={model.issues.text} /> : null}
@@ -104,15 +158,24 @@ function DayPage({ model, outputAt }: { model: DailyReportModel; outputAt: strin
             <SectionHead title={DAILY_SECTION_TITLES.notes} marginTop={SECTION_GAP} />
             <TextBox text={model.notes} />
           </View>
-          <Signature
-            compact
-            boxes={[
-              ['作成者', sig.createdBy ?? ''],
-              ['確認者', sig.reviewedBy ?? ''],
-              ['承認者', sig.approvedBy ?? ''],
-              ['承認日', sig.approvedAt ? jpDateTime(sig.approvedAt).slice(0, 10) : ''],
-            ]}
-          />
+          <View wrap={false}>
+            <View style={d.signRow}>
+              <ClientConfirmationBoxes model={model} />
+              <Signature
+                compact
+                marginTop={0}
+                boxes={[
+                  ['作成者', sig.createdBy ?? ''],
+                  ['確認者', sig.reviewedBy ?? ''],
+                  ['承認者', sig.approvedBy ?? ''],
+                  ['承認日', sig.approvedAt ? jpDateTime(sig.approvedAt).slice(0, 10) : ''],
+                ]}
+              />
+            </View>
+            {model.clientConfirmation && model.clientConfirmation.note.trim() !== '' ? (
+              <Text style={[d.textBox, d.clientNote]}>{`${CLIENT_CONFIRMATION_TITLE}のメモ：${model.clientConfirmation.note}`}</Text>
+            ) : null}
+          </View>
         </>
       )}
 

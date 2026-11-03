@@ -53,6 +53,15 @@ describe('ガイド', () => {
     expect(html).toContain('基準日');
   });
 
+  it('提出と承認の章に客先確認の記録（承認後・完了現場でも記録できる・PDF の欄・取り消し）がある', async () => {
+    const html = await loadChapter('approval');
+    expect(html).toContain('客先確認の記録');
+    expect(html).toContain('客先確認を記録');
+    expect(html).toContain('承認済みの日報や完了した現場の日報にも記録できます');
+    expect(html).toContain('確認者名／日付／サイン');
+    expect(html).toContain('取り消す');
+  });
+
   it('完了現場と削除の章が閲覧のみ・再認証・復元・削除ログに触れている', async () => {
     const html = await loadChapter('sites');
     expect(html).toContain('閲覧のみ');

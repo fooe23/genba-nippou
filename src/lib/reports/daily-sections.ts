@@ -1,7 +1,10 @@
+import type { ChangeTotals } from '@/lib/calc/change';
 import { weekday } from '@/lib/calc/calendar';
+import { jpDateTime } from '@/lib/calc/format';
 import type { Issue } from '@/lib/db/reports';
-import { cell, col, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
-import type { DailyHeader, DailyReportModel } from '@/lib/reports/types';
+import { CHANGE_KIND_LABELS } from '@/lib/report/change-labels';
+import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
+import type { DailyClientConfirmation, DailyHeader, DailyReportModel, DailyWorkRow } from '@/lib/reports/types';
 import type { LineKind, TimeSpec } from '@/lib/types';
 
 // 日報の帳票（PDF・CSV）で共通に使うラベル。並びは雛形の日報シートと同じ。
@@ -32,6 +35,41 @@ export const MANUAL_SUFFIX = '（手入力）';
 
 export function withManual(name: string, manual: boolean): string {
   return manual ? `${name}${MANUAL_SUFFIX}` : name;
+}
+
+/**
+ * 作業内容の施工内容。追加・変更・減の行は頭に【追加】【変更】【減】を付ける（PDF の表と CSV の「施工内容」で共通。
+ * CSV の列は増やさない）。契約内はそのまま。
+ */
+export function workDescription(r: Pick<DailyWorkRow, 'changeKind' | 'description'>): string {
+  return r.changeKind === 'contract' ? r.description : `【${CHANGE_KIND_LABELS[r.changeKind]}】${r.description}`;
+}
+
+/** 作業内容の表の下に出す小計の見出し。 */
+export const CHANGE_TOTALS_TITLE = '本日の追加・変更・減';
+
+/** 符号つきの金額（+1,000・−1,000・0）。 */
+function signedYen(n: number): string {
+  const abs = formatCell(cell.yen(Math.abs(n)));
+  if (abs === '0') return '0';
+  return n > 0 ? `+${abs}` : `−${abs}`;
+}
+
+/** 「追加 +x／変更 +y／減 −z」（保存値の合計。DailyReportModel.work.changes）。 */
+export function changeTotalsText(t: ChangeTotals): string {
+  return `追加 ${signedYen(t.extra)}／変更 ${signedYen(t.change)}／減 ${signedYen(t.minus)}`;
+}
+
+/** 客先確認の欄の見出し。 */
+export const CLIENT_CONFIRMATION_TITLE = '客先確認';
+
+/**
+ * 客先確認の枠（ラベル, 値）。記録が無ければ 確認者名／日付／サイン の空欄（印刷してサインをもらう）。
+ * 記録があれば確認者名と確認日時（日本時間の YYYY/MM/DD HH:mm）を入れ、サインの枠は空のまま。メモは枠の下に別に出す。
+ */
+export function clientConfirmationBoxes(c: DailyClientConfirmation | null): [string, string][] {
+  if (c === null) return [['確認者名', ''], ['日付', ''], ['サイン', '']];
+  return [['確認者名', c.by], ['確認日時', jpDateTime(c.at)], ['サイン', '']];
 }
 
 /** CSV の列（明細 1 行 1 レコード）。 */
@@ -91,7 +129,7 @@ const kv = (rows: [string, Cell][], total?: [string, Cell]): SectionTable => ({
 
 /**
  * 日報の表（雛形の並び）。金額・人工・残業・実働は保存値のまま。本日原価集計の合計は見出しの cost_total。
- * 手入力の名前には「（手入力）」。行が無い表は rows が空（PDF は「なし」の 1 行を出す）。
+ * 手入力の名前には「（手入力）」。作業内容の追加・変更・減の行は【区分】つきで太字（boldRows）。行が無い表は rows が空（PDF は「なし」の 1 行を出す）。
  */
 export function dailyTables(m: DailyReportModel): Record<
   'workers' | 'vehicles' | 'leases' | 'cash' | 'credit' | 'costs' | 'output' | 'work' | 'issues',
@@ -176,8 +214,9 @@ export function dailyTables(m: DailyReportModel): Record<
         num('単価(円)', 1.6),
         num('金額(円)', 1.9),
       ],
-      rows: m.work.rows.map((r) => [r.trade, r.description, qty(r.qty), r.unit, qty(r.manDays), qty(r.productivity), yen(r.unitPrice), yen(r.amount)]),
+      rows: m.work.rows.map((r) => [r.trade, workDescription(r), qty(r.qty), r.unit, qty(r.manDays), qty(r.productivity), yen(r.unitPrice), yen(r.amount)]),
       total: ['合計', '', '', '', qty(m.work.total.manDays), '', '', yen(m.work.total.amount)],
+      boldRows: m.work.rows.flatMap((r, i) => (r.changeKind !== 'contract' ? [i] : [])),
     },
     issues: {
       columns: [text('件', 6), text('状態', 1.4)],

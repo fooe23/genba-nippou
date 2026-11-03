@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Font } from '@react-pdf/renderer';
 import { renderDailyPdf } from '@/lib/pdf/daily-report';
 import { buildEmptyDailyReport } from '@/lib/reports/daily-model';
-import { dailyInput, report, sampleDaily, site } from './daily-fixture';
+import { dailyInput, report, sampleDaily, site, withChanges } from './daily-fixture';
 
 const AT = '2026-11-03T01:00:00Z';
 
@@ -50,6 +50,15 @@ describe('renderDailyPdf', () => {
       expect(pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
       expect(pdf.toString('latin1')).toContain('NotoSansJP');
       expect(pageCount(pdf)).toBe(1);
+    }
+  }, 60_000);
+
+  it('客先確認の記録と追加・変更・減の行がある日：PDF を返す（1〜2 ページ）。記録が無い日（空の枠）も同じ', async () => {
+    for (const model of [withChanges(), withChanges({ clientConfirmedBy: null, clientConfirmedAt: null, clientConfirmedNote: null })]) {
+      const pdf = await renderDailyPdf([model], AT);
+      expect(pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
+      expect(pageCount(pdf)).toBeGreaterThanOrEqual(1);
+      expect(pageCount(pdf)).toBeLessThanOrEqual(2);
     }
   }, 60_000);
 

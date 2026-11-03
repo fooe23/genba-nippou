@@ -1,3 +1,4 @@
+import type { ChangeTotals } from '@/lib/calc/change';
 import { productivity } from '@/lib/calc/report';
 import { visitNumbers } from '@/lib/calc/visit';
 import type { Site } from '@/lib/db/sites';
@@ -43,6 +44,19 @@ function workerRow(line: LaborLine & { stored: StoredLineValues }, common: TimeS
     cost: line.stored.amount,
     note: line.note,
   };
+}
+
+/**
+ * 本日の追加・変更・減：作業内容の行の保存値（stored.amount。減は負で保存）を区分ごとに足す（changeTotals と同じ形。
+ * あちらは画面の入力から計算し直すので、帳票では使わない）。追加・変更・減の行が無ければ null。
+ */
+function storedChangeTotals(rows: DailyWorkRow[]): ChangeTotals | null {
+  const of = (k: DailyWorkRow['changeKind']) => sum(rows.filter((r) => r.changeKind === k).map((r) => r.amount));
+  if (!rows.some((r) => r.changeKind !== 'contract')) return null;
+  const extra = of('extra');
+  const change = of('change');
+  const minus = of('minus');
+  return { extra, change, minus, net: extra + change + minus };
 }
 
 /** 日報のある日の帳票データ。 */
@@ -112,6 +126,7 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
           productivity: productivity(line.qty, manDays),
           unitPrice: line.unitPrice,
           amount,
+          changeKind: line.changeKind,
         });
         break;
       }
@@ -155,7 +170,7 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
     credit: { rows: credit, total: { amount: creditTotal } },
     costs: { labor, fuel, lease, cash: cashTotal, credit: creditTotal, total: labor + fuel + lease + cashTotal + creditTotal, costTotal: report.costTotal },
     output: { today: report.outputTotal, cumulative, contractAmount: contract, progress: contract ? cumulative / contract : null },
-    work: { rows: work, total: { manDays: sum(work.map((r) => r.manDays)), amount: sum(work.map((r) => r.amount)) } },
+    work: { rows: work, total: { manDays: sum(work.map((r) => r.manDays)), amount: sum(work.map((r) => r.amount)) }, changes: storedChangeTotals(work) },
     issues: { text: report.issuesText, items: input.issues.map((i) => ({ body: i.body, status: i.status, doneAt: i.doneAt })) },
     notes: report.notesText,
     signature: {
@@ -164,6 +179,10 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
       approvedBy: nameOf(report.approvedBy),
       approvedAt: report.approvedAt,
     },
+    clientConfirmation:
+      report.clientConfirmedAt !== null
+        ? { by: report.clientConfirmedBy ?? '', at: report.clientConfirmedAt, note: report.clientConfirmedNote ?? '' }
+        : null,
   };
 }
 
@@ -182,9 +201,10 @@ export function buildEmptyDailyReport(site: Site, date: string): DailyReportMode
     credit: { rows: [], total: { amount: 0 } },
     costs: { labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, total: 0, costTotal: 0 },
     output: { today: 0, cumulative: null, contractAmount: site.contractAmount, progress: null },
-    work: { rows: [], total: { manDays: 0, amount: 0 } },
+    work: { rows: [], total: { manDays: 0, amount: 0 }, changes: null },
     issues: { text: '', items: [] },
     notes: '',
     signature: { createdBy: null, reviewedBy: null, approvedBy: null, approvedAt: null },
+    clientConfirmation: null,
   };
 }

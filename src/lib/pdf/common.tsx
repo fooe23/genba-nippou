@@ -117,7 +117,20 @@ export function InfoGrid({ lines }: { lines: [string, string | null][][] }) {
   );
 }
 
-function TableRow({ table, cells, kind, compact }: { table: SectionTable; cells: Cell[]; kind: 'head' | 'body' | 'total'; compact: boolean }) {
+function TableRow({
+  table,
+  cells,
+  kind,
+  compact,
+  bold = false,
+}: {
+  table: SectionTable;
+  cells: Cell[];
+  kind: 'head' | 'body' | 'total';
+  compact: boolean;
+  /** 本文の行を太字にする（table.boldRows）。 */
+  bold?: boolean;
+}) {
   const rowStyle = [s.row, ...(kind === 'head' ? [s.headRow] : kind === 'total' ? [s.totalRow] : [])];
   return (
     // fixed は列見出しにだけ付ける（fixed={false} でも props に fixed があると react-pdf は改ページ送りをせず、行を途中で切る）
@@ -128,7 +141,7 @@ function TableRow({ table, cells, kind, compact }: { table: SectionTable; cells:
           s.cell,
           { flexGrow: col.w, flexShrink: 1, flexBasis: 0, ...(compact ? { paddingHorizontal: 2 } : {}) },
           ...(col.num ? [s.right] : []),
-          ...(kind !== 'body' ? [s.bold] : []),
+          ...(kind !== 'body' || bold ? [s.bold] : []),
         ];
         return (
           <Text key={i} style={style}>
@@ -151,7 +164,7 @@ export function Table({ table, fontSize = 9, emptyText }: { table: SectionTable;
     <View style={[s.table, { fontSize }]}>
       <TableRow table={table} cells={table.columns.map((c) => c.label)} kind="head" compact={compact} />
       {table.rows.map((r, i) => (
-        <TableRow key={i} table={table} cells={r} kind="body" compact={compact} />
+        <TableRow key={i} table={table} cells={r} kind="body" compact={compact} bold={table.boldRows?.includes(i) ?? false} />
       ))}
       {none ? (
         <View style={s.row} wrap={false}>
@@ -177,10 +190,14 @@ export function SectionHead({ title, note, marginTop }: { title: string; note?: 
   );
 }
 
-/** 署名欄（右寄せの枠。ラベル, 名前）。compact は上の間隔と押印欄を小さくする（日報）。 */
-export function Signature({ boxes, compact = false }: { boxes: [string, string][]; compact?: boolean }) {
+/**
+ * 署名欄（右寄せの枠。ラベル, 名前）。compact は上の間隔と押印欄を小さくする（日報）。marginTop は上の間隔の指定
+ * （欄の見出しの直後に置くときなど）。
+ */
+export function Signature({ boxes, compact = false, marginTop }: { boxes: [string, string][]; compact?: boolean; marginTop?: number }) {
+  const top = marginTop ?? (compact ? 10 : undefined);
   return (
-    <View style={[s.signature, ...(compact ? [{ marginTop: 10 }] : [])]} wrap={false}>
+    <View style={[s.signature, ...(top !== undefined ? [{ marginTop: top }] : [])]} wrap={false}>
       {boxes.map(([label, name]) => (
         <View key={label} style={s.sigBox}>
           <Text style={s.sigLabel}>{label}</Text>

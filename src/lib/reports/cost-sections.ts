@@ -26,6 +26,8 @@ export interface SectionTable {
   rows: Cell[][];
   /** 合計行（太字）。 */
   total?: Cell[];
+  /** 太字にする行（rows の添字。日報の作業内容の追加・変更・減の行）。PDF だけが使う。 */
+  boldRows?: number[];
 }
 
 export interface CostSection {

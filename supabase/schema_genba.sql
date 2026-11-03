@@ -377,6 +377,8 @@ $$;
 --     insert では常に 0（明細はまだ無い）。update で値を変えるには gn_save_report が立てる
 --     トランザクション内の印（gn.in_save = '1'）が要り、無ければ totals_locked。管理者も同じ。
 --     （PostgREST からは set_config を直接呼べないので、利用者がこの印を立てることはできない）
+--   * 客先確認の3列（client_confirmed_by / client_confirmed_at / client_confirmed_note）だけの変更は、
+--     状態（承認済みを含む）や現場の完了・削除に関係なく通す（2026-11-04c。RLS の現場メンバーの条件は効く）
 -- gn_save_report はこの4列に触れず status も変えない（insert は draft、on conflict update は
 -- 本文の列のみ）ので、draft / submitted / rejected の日報では担当者でもこのガードを通る。
 -- メッセージ文字列はクライアントが判定に使うため変更しないこと
@@ -412,6 +414,12 @@ begin
   end if;
 
   -- update
+  -- 客先確認の3列だけの変更（updated_at は gn_daily_reports_touch が進める）は、承認済み・完了現場でも通す
+  if (to_jsonb(new) - 'client_confirmed_by' - 'client_confirmed_at' - 'client_confirmed_note' - 'updated_at')
+     is not distinct from
+     (to_jsonb(old) - 'client_confirmed_by' - 'client_confirmed_at' - 'client_confirmed_note' - 'updated_at') then
+    return new;
+  end if;
   -- 完了・削除済みの現場：承認／差戻し（状態と確認列だけの変更）以外は不可
   if v_closed then
     if new.status not in ('approved','rejected')

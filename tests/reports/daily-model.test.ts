@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildDailyReport, buildEmptyDailyReport } from '@/lib/reports/daily-model';
-import { COST_TOTAL, dailyInput, report, sampleDaily, site } from './daily-fixture';
+import { COST_TOTAL, dailyInput, report, sampleDaily, site, withChanges } from './daily-fixture';
 
 describe('buildDailyReport', () => {
   it('見出し：現場名・工事番号・日付・当月 N 回目／通算 M 回目・天候・作業責任者・共通時間', () => {
@@ -81,10 +81,38 @@ describe('buildDailyReport', () => {
   it('作業内容：投入人工は保存値、歩掛 = 数量 ÷ 投入人工（決められなければ null）', () => {
     const m = sampleDaily();
     expect(m.work.rows).toEqual([
-      { trade: '大工', description: '床下地, "1 階"', qty: 20, unit: 'm2', manDays: 2, productivity: 10, unitPrice: 5000, amount: 100000 },
-      { trade: '', description: '片付け', qty: null, unit: '', manDays: 0.5, productivity: null, unitPrice: null, amount: 0 },
+      { trade: '大工', description: '床下地, "1 階"', qty: 20, unit: 'm2', manDays: 2, productivity: 10, unitPrice: 5000, amount: 100000, changeKind: 'contract' },
+      { trade: '', description: '片付け', qty: null, unit: '', manDays: 0.5, productivity: null, unitPrice: null, amount: 0, changeKind: 'contract' },
     ]);
     expect(m.work.total).toEqual({ manDays: 2.5, amount: 100000 });
+    // 追加・変更・減の行が無い日は小計なし。
+    expect(m.work.changes).toBeNull();
+  });
+
+  it('作業内容の区分と「本日の追加・変更・減」：区分ごとの保存値（stored.amount）の合計。減は負のまま', () => {
+    const m = withChanges();
+    expect(m.work.rows.map((r) => [r.description, r.changeKind, r.amount])).toEqual([
+      ['床下地, "1 階"', 'contract', 100000],
+      ['片付け', 'contract', 0],
+      ['棚の追加', 'extra', 60001],
+      ['窓の変更', 'change', 20002],
+      ['照明の減', 'minus', -15003],
+    ]);
+    // 数量 × 単価（60000・20000・−15000）ではなく保存値。
+    expect(m.work.changes).toEqual({ extra: 60001, change: 20002, minus: -15003, net: 65000 });
+    expect(m.work.total).toEqual({ manDays: 4, amount: 165000 });
+  });
+
+  it('客先確認：記録があれば確認者名・日時・メモ、無ければ null。日報の無い日も null', () => {
+    expect(sampleDaily().clientConfirmation).toBeNull();
+    expect(withChanges().clientConfirmation).toEqual({
+      by: '施主 〇〇様',
+      at: '2026-11-02T08:15:00+00:00',
+      note: '棚の追加と窓の変更を現地で確認。照明は 3 台減で了承。',
+    });
+    expect(withChanges({ clientConfirmedNote: null }).clientConfirmation?.note).toBe('');
+    expect(buildEmptyDailyReport(site, '2026-11-04').clientConfirmation).toBeNull();
+    expect(buildEmptyDailyReport(site, '2026-11-04').work.changes).toBeNull();
   });
 
   it('重要事項（本文＋件）・連絡事項・署名欄', () => {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { buildDailyCsv } from '@/lib/reports/daily-csv';
 import { buildEmptyDailyReport } from '@/lib/reports/daily-model';
-import { report, sampleDaily, site } from './daily-fixture';
+import { report, sampleDaily, site, withChanges } from './daily-fixture';
 
 const HEADER = '日付,回目(当月),通算,種別,名前,規格,単位,数量,単価,金額,開始,終了,休憩分,中抜分,実働H,人工,残業H,取引先,工種,施工内容,備考';
 
@@ -53,6 +53,16 @@ describe('buildDailyCsv', () => {
     const rows = lines(buildDailyCsv([sampleDaily()])).slice(1);
     expect(rows[10]).toBe('2026-11-02,2,4,作業内容,,,m2,20,5000,100000,,,,,,2,,,大工,"床下地, ""1 階""",');
     expect(rows[11]).toBe('2026-11-02,2,4,作業内容,,,,,,0,,,,,,0.5,,,,片付け,');
+  });
+
+  it('作業内容の追加・変更・減：列は 21 のまま、施工内容の頭に【区分】。金額は保存値（減は負）', () => {
+    const all = lines(buildDailyCsv([withChanges()]));
+    expect(all[0]).toBe(HEADER);
+    const rows = all.slice(1);
+    expect(rows).toHaveLength(15);
+    expect(rows[12]).toBe('2026-11-02,2,4,作業内容,,,台,2,30000,60001,,,,,,1,,,大工,【追加】棚の追加,');
+    expect(rows[13]).toBe('2026-11-02,2,4,作業内容,,,式,1,20000,20002,,,,,,0.5,,,建具,【変更】窓の変更,');
+    expect(rows[14]).toBe('2026-11-02,2,4,作業内容,,,台,3,5000,-15003,,,,,,0,,,電気,【減】照明の減,');
   });
 
   it('月まとめ：同じ列で全日分（渡した順）。日報の無い日は出さない', () => {

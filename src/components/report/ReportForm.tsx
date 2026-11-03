@@ -20,9 +20,11 @@ import type { Issue } from '@/lib/db/reports';
 import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import { INSTRUCTION_METHODS, INSTRUCTION_METHOD_LABELS, ISSUE_KINDS, ISSUE_KIND_LABELS, isInstructionMethod, isIssueKind } from '@/lib/report/change-labels';
+import type { DailyClientConfirmation } from '@/lib/reports/types';
 import type { InstructionMethod, IssueKind, LaborRule, TimeSpec } from '@/lib/types';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
+import { ClientConfirmationButton, ClientConfirmationStatus } from './ClientConfirmation';
 import { ImportDaySheet } from './ImportDaySheet';
 import { fieldClass, NumInput, Select, TextInput, TimeInput } from './inputs';
 import { IssueBanner, IssueKindTag } from './IssueBanner';
@@ -76,6 +78,8 @@ export interface ReportFormProps {
   isAdmin: boolean;
   /** 帳票（PDF・CSV）のダウンロード先。保存済みの日報で、出力できる人（社員・管理者）だけに渡す。閲覧専用でも出す。 */
   exportLinks?: { pdf: string; csv: string };
+  /** 客先確認の記録（無ければ null）。保存済みの日報なら、状態・閲覧専用・完了現場に関係なく記録・取り消しできる。 */
+  clientConfirmation: DailyClientConfirmation | null;
 }
 
 const SUBMIT_FAILED = '提出に失敗しました。通信状況を確認してもう一度お試しください。';
@@ -491,6 +495,12 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
     });
   }
 
+  /** 客先確認の記録・取り消しのあと。日報の本文は変わらないので、入力中の内容はそのまま版だけ進める。 */
+  function onClientConfirmation(v: string | null) {
+    recordVersion(v);
+    router.refresh();
+  }
+
   function reload() {
     // 他の端末の版が届けば ReportForm が入力欄を作り直す（未保存の入力は下書きに残り、復元を選べる）。
     startTransition(() => router.refresh());
@@ -552,12 +562,12 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
         <h1 className="text-xl font-bold">{p.heading}</h1>
         <span className={`rounded border px-2 py-0.5 text-sm font-bold ${STATUS_COLOR[p.status]}`}>{STATUS_LABEL[p.status]}</span>
-        {p.exportLinks && (
-          <span className="ml-auto flex gap-2">
-            {[
-              ['PDF', p.exportLinks.pdf],
-              ['CSV', p.exportLinks.csv],
-            ].map(([label, href]) => (
+        {(p.exportLinks || reportId !== null) && (
+          <span className="ml-auto flex flex-wrap justify-end gap-2">
+            {reportId !== null && (
+              <ClientConfirmationButton reportId={reportId} current={p.clientConfirmation} expected={expected} onChanged={onClientConfirmation} />
+            )}
+            {(p.exportLinks ? [['PDF', p.exportLinks.pdf], ['CSV', p.exportLinks.csv]] : []).map(([label, href]) => (
               <a
                 key={label}
                 href={href}
@@ -573,6 +583,10 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
       </div>
 
       {p.review && <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">{p.siteName}</p>}
+
+      {reportId !== null && (
+        <ClientConfirmationStatus reportId={reportId} current={p.clientConfirmation} expected={expected} onChanged={onClientConfirmation} />
+      )}
 
       {p.status === 'rejected' && !p.review && (
         <p role="alert" className="mb-4 rounded-lg border border-red-500 bg-red-50 p-3 font-bold text-red-900 dark:bg-red-950 dark:text-red-50">
