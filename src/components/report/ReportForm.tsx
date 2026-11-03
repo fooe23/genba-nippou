@@ -57,6 +57,10 @@ export interface ReportFormProps {
   review?: boolean;
   siteStartDate: string | null;
   contractAmount: number | null;
+  /** 契約が未確定の現場（集計に「総請負金額（未確定）」と概算金額を出す）。 */
+  contractTentative: boolean;
+  /** 未確定の現場の概算金額（確定の現場は null）。 */
+  estimatedAmount: number | null;
   /** この日より前の日報の出来高合計（進捗率の累計に使う）。 */
   outputBefore: number;
   hasPrevious: boolean;
@@ -721,7 +725,14 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
         <CreditTable rows={state.rows.credit} onChange={setRows('credit')} units={p.masters.units} suppliers={p.masters.suppliers} />
         <WorkTable rows={state.rows.work} onChange={setRows('work')} units={p.masters.units} issues={issueCandidates} />
 
-        <ReportSummary totals={totals} changes={changes} outputBefore={p.outputBefore} contractAmount={p.contractAmount} />
+        <ReportSummary
+          totals={totals}
+          changes={changes}
+          outputBefore={p.outputBefore}
+          contractAmount={p.contractAmount}
+          tentative={p.contractTentative}
+          estimatedAmount={p.estimatedAmount}
+        />
 
         <section aria-label="重要事項・連絡事項" className="mb-6 grid gap-4 md:grid-cols-2">
           <Labeled label="重要事項">

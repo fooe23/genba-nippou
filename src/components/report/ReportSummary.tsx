@@ -29,18 +29,27 @@ function changeText(c: ChangeTotals): string | null {
   return shown.length === 0 ? null : shown.join(' ／ ');
 }
 
-/** 本日原価集計（5項目と合計）・本日出来高・進捗率（この日までの累計出来高 ÷ 総請負金額）。 */
+/**
+ * 本日原価集計（5項目と合計）・本日出来高・進捗率（この日までの累計出来高 ÷ 総請負金額）。
+ * 契約が未確定の現場は「総請負金額（未確定）」と「概算金額」を出す（進捗率の基準は請負金額のまま。日報 PDF と同じ）。
+ */
 export function ReportSummary({
   totals,
   changes,
   outputBefore,
   contractAmount,
+  tentative = false,
+  estimatedAmount = null,
 }: {
   totals: ReportTotals;
   /** 作業内容の区分ごとの金額（減は負）。 */
   changes: ChangeTotals;
   outputBefore: number;
   contractAmount: number | null;
+  /** 契約が未確定の現場。 */
+  tentative?: boolean;
+  /** 未確定の現場の概算金額。 */
+  estimatedAmount?: number | null;
 }) {
   const cumulative = outputBefore + totals.output;
   const changeLine = changeText(changes);
@@ -72,7 +81,8 @@ export function ReportSummary({
             </div>
           )}
           <Line label="累計出来高（この日まで）" value={money(cumulative)} />
-          <Line label="総請負金額" value={contractAmount === null ? '未設定' : money(contractAmount)} />
+          <Line label={tentative ? '総請負金額（未確定）' : '総請負金額'} value={contractAmount === null ? '未設定' : money(contractAmount)} />
+          {tentative && <Line label="概算金額" value={estimatedAmount === null ? '—' : money(estimatedAmount)} />}
           <Line label="進捗率" value={rate === null || !Number.isFinite(rate) ? '—' : `${rate.toFixed(1)}%`} strong />
         </dl>
       </div>

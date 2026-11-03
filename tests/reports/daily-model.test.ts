@@ -70,7 +70,21 @@ describe('buildDailyReport', () => {
 
   it('本日出来高と進捗率 = (前日までの出来高 + 本日) ÷ 請負金額', () => {
     const m = sampleDaily();
-    expect(m.output).toEqual({ today: 100000, cumulative: 250000, contractAmount: 1_000_000, progress: 0.25 });
+    expect(m.output).toEqual({
+      today: 100000, cumulative: 250000, contractAmount: 1_000_000, progress: 0.25, tentative: false, estimatedAmount: null,
+    });
+  });
+
+  it('契約が未確定の現場：tentative と概算金額を持つ。進捗率の基準は請負金額のまま（無ければ null）', () => {
+    const tentative = sampleDaily({ site: { ...site, contractStatus: 'tentative', contractAmount: null, estimatedAmount: 800_000 } });
+    expect(tentative.output).toEqual({
+      today: 100000, cumulative: 250000, contractAmount: null, progress: null, tentative: true, estimatedAmount: 800_000,
+    });
+    // 確定の現場では概算金額を持たない（入力が残っていても使わない）
+    expect(sampleDaily({ site: { ...site, estimatedAmount: 800_000 } }).output.estimatedAmount).toBeNull();
+    expect(buildEmptyDailyReport({ ...site, contractStatus: 'tentative', estimatedAmount: null }, '2026-11-04').output).toMatchObject({
+      tentative: true, estimatedAmount: null, progress: null,
+    });
   });
 
   it('請負金額が無い（null・0）なら進捗率は null', () => {
@@ -155,7 +169,7 @@ describe('buildEmptyDailyReport', () => {
     expect(m.workers.rows).toEqual([]);
     expect(m.work.rows).toEqual([]);
     expect(m.costs).toEqual({ labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, total: 0, costTotal: 0 });
-    expect(m.output).toEqual({ today: 0, cumulative: null, contractAmount: 1_000_000, progress: null });
+    expect(m.output).toEqual({ today: 0, cumulative: null, contractAmount: 1_000_000, progress: null, tentative: false, estimatedAmount: null });
     expect(m.signature).toEqual({ createdBy: null, reviewedBy: null, approvedBy: null, approvedAt: null });
   });
 });

@@ -2,7 +2,12 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
-import { clientConfirmationSchema, type ClientConfirmationInput } from '@/lib/db/client-confirmation-schemas';
+import {
+  clientConfirmationSchema,
+  unchangedConfirmationResult,
+  type ClientConfirmationColumns,
+  type ClientConfirmationInput,
+} from '@/lib/db/client-confirmation-schemas';
 import { issueExtraSchema, type IssueExtraInput } from '@/lib/db/issue-schemas';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
@@ -10,7 +15,15 @@ import { requireProfile } from '@/lib/db/profile';
 import { listLeaseItems, listVehicles, listWorkers } from '@/lib/db/masters';
 import { getPreviousReport } from '@/lib/db/reports';
 import { getSettings } from '@/lib/db/settings';
-import { copyableLines, saveErrorMessage, SITE_CLOSED_MESSAGE, STALE_REPORT_MESSAGE, toLineRows, toReportRow } from '@/lib/report/rows';
+import {
+  copyableLines,
+  saveErrorMessage,
+  SITE_CLOSED_MESSAGE,
+  STALE_CONFIRMATION_MESSAGE,
+  STALE_REPORT_MESSAGE,
+  toLineRows,
+  toReportRow,
+} from '@/lib/report/rows';
 import { applyMasterSnapshots, needsMasterSnapshots } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -278,18 +291,6 @@ export async function deleteReport(reportId: string): Promise<ReportStateResult>
 
 export type ClientConfirmationResult = { ok: true; updatedAt: string | null } | { ok: false; error: string; stale?: boolean };
 
-type ClientConfirmationColumns = { client_confirmed_by: string | null; client_confirmed_at: string | null; client_confirmed_note: string | null };
-
-/** 3 列が同じか（日時は時刻として比べる。'' と null は同じ）。 */
-function sameClientConfirmation(a: ClientConfirmationColumns, b: ClientConfirmationColumns): boolean {
-  const time = (v: string | null) => (v ? new Date(v).getTime() : null);
-  return (
-    (a.client_confirmed_by || null) === (b.client_confirmed_by || null) &&
-    (a.client_confirmed_note || null) === (b.client_confirmed_note || null) &&
-    time(a.client_confirmed_at) === time(b.client_confirmed_at)
-  );
-}
-
 async function writeClientConfirmation(
   tag: string,
   reportId: string,
@@ -320,12 +321,9 @@ async function writeClientConfirmation(
       client_confirmed_at: string | null;
       client_confirmed_note: string | null;
     };
-    // 同じ内容の記録し直し・記録の無い日報の取り消しは書かずに成功とする（何も変えない更新は gn_report_guard の
-    // 客先確認の例外に入らず、承認済み・完了現場では拒否されるため）。
-    if (sameClientConfirmation(h, patch)) {
-      if (expected !== null && h.updated_at !== expected) return { ok: false, error: STALE_REPORT_MESSAGE, stale: true };
-      return { ok: true, updatedAt: h.updated_at };
-    }
+    // 同じ内容の記録し直し・記録の無い日報の取り消しは書かずに済ませる（unchangedConfirmationResult）。
+    const unchanged = unchangedConfirmationResult(h, patch, expected);
+    if (unchanged) return unchanged;
 
     // 楽観ロック：画面を開いた（前回保存した）ときの版と同じときだけ書く（saveReport と同じ）。
     let q = supabase.from('gn_daily_reports').update(patch).eq('id', reportId);
@@ -336,7 +334,7 @@ async function writeClientConfirmation(
       return { ok: false, error: stateErrorMessage(error.message) };
     }
     if (!data || data.length === 0) {
-      return expected !== null ? { ok: false, error: STALE_REPORT_MESSAGE, stale: true } : { ok: false, error: NOT_FOUND };
+      return expected !== null ? { ok: false, error: STALE_CONFIRMATION_MESSAGE, stale: true } : { ok: false, error: NOT_FOUND };
     }
 
     revalidatePath(`/sites/${h.site_id}`);

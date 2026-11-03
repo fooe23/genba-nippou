@@ -14,8 +14,10 @@ import type {
   ExportWarning,
   ExportWarningCode,
   ExportWorker,
+  ExportWorkRow,
 } from '@/lib/export/types';
-import type { LaborLine, LeaseLine, ReportLine, TimeSpec } from '@/lib/types';
+import { withChangeKindPrefix } from '@/lib/report/change-labels';
+import type { LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 
 // Excel 出力用の payload を組み立てる（純関数。Supabase に依存しない）。
 // 形は python/tests/fixtures/payload_days.json が正。上限を超えるときも payload は作り、warnings で知らせる
@@ -45,6 +47,21 @@ function round2(n: number): number {
 function text(v: string | null | undefined): string | null {
   if (v === null || v === undefined) return null;
   return v.trim() === '' ? null : v;
+}
+/**
+ * 作業内容の行。雛形の金額（J = 数量 E × 単価 I）と本日出来高（H60 に書く output_total。減は DB で負）を揃えるため、
+ * 減の行は数量を負にする（単価は正のまま）。施工内容の頭に【追加】【変更】【減】を付ける（日報の PDF・CSV と同じ）。
+ */
+function workRow(l: WorkLine): ExportWorkRow {
+  const qty = l.changeKind === 'minus' && l.qty !== null && l.qty !== 0 ? -l.qty : l.qty;
+  return {
+    trade: text(l.trade),
+    description: text(withChangeKindPrefix(l.changeKind, l.description)),
+    qty,
+    unit: text(l.unit),
+    man_days: l.manDays,
+    unit_price: l.unitPrice,
+  };
 }
 function jpDateLabel(date: string): string {
   const [y, m, d] = date.split('-').map(Number);
@@ -310,9 +327,7 @@ export function buildExportPayload(input: ExportInput): ExportResult {
       lease: lease.map((l) => leaseRow(l, leaseItems, dupLease, leaseRate)),
       cash: cash.map(purchaseRow),
       credit: credit.map(purchaseRow),
-      work: work.map((l) => ({
-        trade: text(l.trade), description: text(l.description), qty: l.qty, unit: text(l.unit), man_days: l.manDays, unit_price: l.unitPrice,
-      })),
+      work: work.map(workRow),
       cumulative_cost: cumulativeCost(r.date),
       output_total: r.outputTotal,
       issues_text: text(r.issuesText),

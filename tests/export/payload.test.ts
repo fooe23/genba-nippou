@@ -6,7 +6,7 @@ import { buildExportPayload, exportFileName } from '@/lib/export/payload';
 import type { ExportInput, ExportReport } from '@/lib/export/types';
 import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Site } from '@/lib/db/sites';
-import type { LaborLine, LeaseLine, ReportLine, TimeSpec } from '@/lib/types';
+import type { LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 
 // ─── 入力を手で作る補助 ───
 
@@ -188,6 +188,32 @@ describe('buildExportPayload: マスターの並びと上限', () => {
       { code: 'rows_overflow', message: '2026年11月1日 の作業員が11行で、雛形の10行を超えています', date: '2026-11-01' },
       { code: 'rows_overflow', message: '2026年11月3日 の作業内容が7行で、雛形の6行を超えています', date: '2026-11-03' },
     ]);
+  });
+
+  it('作業内容の減の行は数量を負（単価は正）にし、施工内容の頭に【追加】【変更】【減】を付ける（雛形の J＝E×I と出来高を揃える）', () => {
+    const w = (o: Partial<WorkLine>): WorkLine => ({
+      kind: 'work', estimateItemId: null, trade: '内装', description: '石膏ボード', qty: 10, unit: 'm2', manDays: 1, unitPrice: 2000, source: 'extra',
+      ...EMPTY_WORK_CHANGE, ...o,
+    });
+    const reports = [report('2026-11-02', [
+      w({}),
+      w({ changeKind: 'extra', description: '開口補強' }),
+      w({ changeKind: 'change', description: '仕様変更' }),
+      w({ changeKind: 'minus', description: '天井撤去取りやめ', qty: 5, unitPrice: 3000 }),
+      w({ changeKind: 'minus', description: '', qty: null }),
+    ], { outputTotal: 20000 + 20000 + 20000 - 15000 })];
+    const { payload } = buildExportPayload(input({ reports }));
+    const rows = payload.days[0].work;
+    expect(rows.map((r) => [r.description, r.qty, r.unit_price])).toEqual([
+      ['石膏ボード', 10, 2000],
+      ['【追加】開口補強', 10, 2000],
+      ['【変更】仕様変更', 10, 2000],
+      ['【減】天井撤去取りやめ', -5, 3000],
+      ['【減】', null, 2000],
+    ]);
+    // 行の金額（E×I）の合計が、書き込む本日出来高（output_total。減は負で保存）と一致する
+    const sum = rows.reduce((a, r) => a + (r.qty ?? 0) * (r.unit_price ?? 0), 0);
+    expect(sum).toBe(payload.days[0].output_total);
   });
 });
 

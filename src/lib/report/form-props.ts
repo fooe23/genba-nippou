@@ -128,6 +128,8 @@ export async function loadReportFormProps(
     rejectedReason: head ? head.rejectedReason : null,
     siteStartDate: site.startDate,
     contractAmount: site.contractAmount,
+    contractTentative: site.contractStatus === 'tentative',
+    estimatedAmount: site.contractStatus === 'tentative' ? site.estimatedAmount : null,
     outputBefore,
     hasPrevious: allDates.some((d) => d < date),
     initial,

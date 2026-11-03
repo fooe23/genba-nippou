@@ -104,6 +104,19 @@ describe('dailyTables', () => {
     ]);
   });
 
+  it('契約が未確定の現場：「請負金額（未確定）」と「概算金額」の行を出す（未入力は —。進捗率は請負金額が無ければ —）', () => {
+    const tentative = (estimatedAmount: number | null) =>
+      text(dailyTables(sampleDaily({ site: { ...site, contractStatus: 'tentative', contractAmount: null, estimatedAmount } })).output);
+    expect(tentative(800_000)).toEqual([
+      ['本日出来高(円)', '100,000'],
+      ['累計出来高(円)', '250,000'],
+      ['請負金額（未確定）(円)', '—'],
+      ['概算金額(円)', '800,000'],
+      ['進捗率(%)', '—'],
+    ]);
+    expect(tentative(null)[3]).toEqual(['概算金額(円)', '—']);
+  });
+
   it('作業内容：工種・施工内容・数量・単位・投入人工・歩掛・単価・金額', () => {
     const t = dailyTables(sampleDaily()).work;
     expect(text(t)).toEqual([

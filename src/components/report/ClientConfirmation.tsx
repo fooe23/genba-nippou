@@ -4,6 +4,7 @@ import { useState, useTransition } from 'react';
 import { jpDateTime } from '@/lib/calc/format';
 import { clientConfirmationSchema, isoToJstLocal, jstLocalToIso } from '@/lib/db/client-confirmation-schemas';
 import { clearClientConfirmation, recordClientConfirmation, type ClientConfirmationResult } from '@/lib/db/reports-actions';
+import { STALE_CONFIRMATION_MESSAGE } from '@/lib/report/rows';
 import type { DailyClientConfirmation } from '@/lib/reports/types';
 import { EditDialog } from '@/components/masters/EditDialog';
 import { fieldClass, TextInput } from './inputs';
@@ -53,7 +54,8 @@ function ConfirmationForm({ reportId, current, expected, onChanged, onClose }: P
         res = { ok: false, error: FAILED };
       }
       if (!res.ok) {
-        setError(res.error);
+        // 他の端末で更新されていたら、保存ではなく「再読み込みしてからもう一度記録」を案内する。
+        setError(res.stale ? STALE_CONFIRMATION_MESSAGE : res.error);
         return;
       }
       onChanged(res.updatedAt);
@@ -135,7 +137,8 @@ export function ClientConfirmationStatus({ reportId, current, expected, onChange
         res = { ok: false, error: FAILED };
       }
       if (!res.ok) {
-        setError(res.error);
+        // 他の端末で更新されていたら、保存ではなく「再読み込みしてからもう一度記録」を案内する。
+        setError(res.stale ? STALE_CONFIRMATION_MESSAGE : res.error);
         return;
       }
       onChanged(res.updatedAt);

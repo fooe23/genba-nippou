@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { STALE_CONFIRMATION_MESSAGE } from '@/lib/report/rows';
 
 // 客先確認の記録（recordClientConfirmation の入力）の検証と、日時の入力欄（datetime-local・日本時間）との変換。
 // サーバー（Server Action）とクライアント（ダイアログ）の両方で使う。
@@ -37,4 +38,36 @@ export function isoToJstLocal(iso: string): string {
     hourCycle: 'h23',
   }).format(d);
   return text.replace(' ', 'T');
+}
+
+/** 日報の客先確認の 3 列（gn_daily_reports.client_confirmed_*）。 */
+export type ClientConfirmationColumns = {
+  client_confirmed_by: string | null;
+  client_confirmed_at: string | null;
+  client_confirmed_note: string | null;
+};
+
+/** 3 列が同じか（日時は時刻として比べる。'' と null は同じ）。 */
+export function sameClientConfirmation(a: ClientConfirmationColumns, b: ClientConfirmationColumns): boolean {
+  const time = (v: string | null) => (v ? new Date(v).getTime() : null);
+  return (
+    (a.client_confirmed_by || null) === (b.client_confirmed_by || null) &&
+    (a.client_confirmed_note || null) === (b.client_confirmed_note || null) &&
+    time(a.client_confirmed_at) === time(b.client_confirmed_at)
+  );
+}
+
+/**
+ * 何も変えない記録（同じ内容の記録し直し・記録の無い日報の取り消し）は DB に書かずに済ませる。何も変えない更新は
+ * gn_report_guard の客先確認の例外に入らず、承認済み・完了現場では拒否されるため。
+ * 書く必要があれば null。書かないときは、画面の版（expected）が今の版と違えば stale、同じ（または版の指定なし）なら成功。
+ */
+export function unchangedConfirmationResult(
+  head: ClientConfirmationColumns & { updated_at: string | null },
+  patch: ClientConfirmationColumns,
+  expected: string | null,
+): { ok: true; updatedAt: string | null } | { ok: false; error: string; stale: true } | null {
+  if (!sameClientConfirmation(head, patch)) return null;
+  if (expected !== null && head.updated_at !== expected) return { ok: false, error: STALE_CONFIRMATION_MESSAGE, stale: true };
+  return { ok: true, updatedAt: head.updated_at };
 }

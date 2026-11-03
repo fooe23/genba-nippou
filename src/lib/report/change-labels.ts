@@ -8,6 +8,13 @@ export const ISSUE_KINDS = ['extra', 'change', 'minus', 'client_delay', 'rework'
 
 /** 作業内容の区分。 */
 export const CHANGE_KIND_LABELS: Record<ChangeKind, string> = { contract: '契約内', extra: '追加', change: '変更', minus: '減' };
+/**
+ * 作業内容の施工内容に区分を付ける：追加・変更・減は頭に【追加】【変更】【減】、契約内はそのまま。
+ * 日報の帳票（PDF・CSV）と原本 Excel の payload で共通に使う。
+ */
+export function withChangeKindPrefix(changeKind: ChangeKind, description: string): string {
+  return changeKind === 'contract' ? description : `【${CHANGE_KIND_LABELS[changeKind]}】${description}`;
+}
 /** 指示方法。 */
 export const INSTRUCTION_METHOD_LABELS: Record<InstructionMethod, string> = {
   oral: '口頭',

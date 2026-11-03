@@ -171,7 +171,7 @@
 - 2026-11-03 深夜：追加・変更・減の記録と交渉用資料（区分・指示者・根拠の件／件の種別／実績原価の積み上げと提案額／変更増減 精算資料 PDF・Excel／日報 PDF の客先確認欄／契約未確定（概算）の扱い）を第2計画（改）Task 9〜13 として追加。利用者「1〜6 すべて欲しい」。
 
 ## 第2計画（改）実装記録 2026-11-03
-計画書：`docs/superpowers/plans/2026-11-03-phase2b-reports-and-day-import.md`。Task 1〜8 を main 直で実装（BASE ab8260f〜、push は未実施）。Task 9〜13（追加・変更・減の記録と交渉用資料）はこの記録の範囲外。
+計画書：`docs/superpowers/plans/2026-11-03-phase2b-reports-and-day-import.md`。Task 1〜13 を main 直で実装（BASE ab8260f〜、push は未実施）。Task 9〜13 は追加・変更・減の記録と交渉用資料。最後に全体レビューの指摘をまとめて修正（最終レビュー対応）。
 
 ### 実装（Task ごと）
 - Task 1：`825b5e7 feat(export): 出力画面と原本 Excel のダウンロード（Vercel Python 関数）` — 現場 →「出力」、`/api/export`、`api/export/fill.py`、`vercel.json`、`src/proxy.ts` の matcher から `api/export/fill` を除外。Storage `gn-exports` へ best-effort で控え
@@ -181,7 +181,13 @@
 - Task 5：`6f1a515 feat(reports): 日報の PDF と CSV の出力`、`367dd93 fix(reports): 日報の無い日・月の CSV に「日報がありません」の 1 行を出す` — `/api/reports/daily`、日報画面の「PDF」「CSV」、出力画面の日報欄
 - Task 6：`78c8c4f feat(report): マスターに無い作業員・仕入先を手入力できるようにする`
 - Task 7：`0cd7970 feat(import): 1 日分の雛形（Excel）から日報を取り込む`、`a48cadd fix(import): 取り込みのファイル選択を毎回空にし、同じ注記は 1 回だけ出す`
-- Task 8：ガイド（Excel 出力と帳票、PDF の見方）、この記録、README
+- Task 8：`cda411a docs: 第2計画（改）のガイド（Excel 出力・PDF）と実装記録、README` — ガイド（Excel 出力と帳票、PDF の見方）、この記録、README
+- Task 9：`ef8c59c feat(db): 追加・変更・減の記録（区分・指示者・根拠）と契約状態・経費率・客先確認の列` — `supabase/update_2026-11-04_change_tracking.sql`、`schema_genba.sql` に反映
+- Task 10：`a538693 feat(report): 作業内容の区分と指示の根拠、件の種別、契約状態、経費率を入力できるようにする`
+- Task 11：`96be4ca feat(reports): 追加・変更・減の一覧と実績原価の積み上げ`、`92e7c8e fix(reports): 未確定の進捗率を累計原価÷概算に、月の精算提案額を月末までの累計に` — `supabase/update_2026-11-04b_minus_amount.sql`（減の行の金額を負で保存）
+- Task 12：`a873257 feat(reports): 変更増減 精算資料（案）の PDF・Excel` — `/api/reports/changes`、`public/logo.png` を関数に同梱
+- Task 13：`e81c445 feat(report): 日報 PDF の客先確認欄と確認の記録`、`fbdc42f fix(report): 客先確認のガード例外を実際の変更に限る・ガイドの PDF の位置` — `supabase/update_2026-11-04c_client_confirmation.sql`（gn_report_guard の客先確認の例外）
+- 最終レビュー対応：移行 SQL の案内（README・ガイド・この記録）、原本 Excel の減の行、ガード例外の自動検証（`verify_rls_auto.sql` の 10）、未確定現場の日報の表示、客先確認の stale の文言
 
 ### 裁定（Ruling）
 - 作業は main 直（worktree なし）。iCloud 同期下の worktree は `.next` が重複するため。push は利用者の指示があるまで行わない
@@ -197,6 +203,17 @@
 - 日報 CSV でレコードが 0 件のときは、見出しの次に「日報がありません」の 1 行を出す
 - 本日原価集計の注記「合計は保存された原価合計」は残す（要否は利用者が判断）。作業員表 8pt は ③ と同じ扱いで利用者確認
 - 取り込みの日付は常に画面の日付（Excel の日付が違うときは注記だけ）
+- （Task 9）計画書の「既存の source='extra' は 'extra' に移行」は実行しない（SQL にコメントアウトで残す）。現 UI は作業内容行をすべて source='extra' で保存しており、移行すると既存行が全部「追加」になるため
+- （Task 9）会社名・連絡先（Task 12 で使う）は Task 9 の SQL に含め、移行を 1 回で済ませる
+- （Task 10〜11）「減」の行は数量・単価を正で入力し、保存値 amount をトリガー（`gn_report_lines_compute`）で負にする。画面の計算も同じく負。本日出来高・累計出来高・精算提案額はすべて「契約内＋追加−減」
+- （Task 11）提案額：追加・変更は実績原価 ×（1＋経費率）×（1＋利益率）を円未満切り上げ。減は申告額（保存値・負）をそのまま。減の行の実績原価は 0（減の人工は按分の分母には入れる）
+- （Task 11）未確定現場（契約状態＝未確定）の採算は概算金額を基準にし、進捗率は計画書どおり「累計原価 ÷ 概算金額」（② ③）。確定現場は従来どおり「出来高 ÷ 請負」
+- （Task 11）月指定の変更増減は、一覧・区分別集計はその月だけ、精算提案額（当初＋追加＋変更＋減）は月末までの累計（工事原価集計表 ② の提案額と一致）
+- （Task 12）精算資料の明細は 8pt（16 列、2 段組み）。期間表示のため meta に日報の日付範囲（reportSpan）を持たせる
+- （Task 13）客先確認は現場メンバー全員（協力会社を含む）が、どの状態・完了現場でも記録・取り消しできる。そのため `gn_report_guard` に例外を足す：old/new の差が客先確認の 3 列（と updated_at）だけで、3 列のどれかが実際に変わるときだけ通す（何も変えない更新は通さない。アプリは同じ内容の記録を書かずに成功とする）
+- （Task 13）日報 CSV は 21 列のまま、作業内容の施工内容の頭に【追加】【変更】【減】を付けて区分を表す（PDF も同じ）。日報 PDF の客先確認欄は署名欄と同じ行の左側
+- （最終レビュー）日報の未確定現場は「請負金額（未確定）」と「概算金額」の行を出すだけにし、進捗率は請負金額基準のまま（累計原価 ÷ 概算は次の計画）
+- （最終レビュー）原本 Excel の減の行は数量を負で書き（単価は正）、施工内容に【減】（追加・変更も【追加】【変更】）を付ける。雛形の J＝E×I と本日出来高（output_total）を一致させるため
 
 ### 据え置き（minor / deferred）
 - Task 1：`/api/export` の 401 JSON は proxy の 307 に先を越され届かない／秘密不一致の文言／fetch・spawn のタイムアウト（60s）が無い／`overflowNotice` が日本語のメッセージを解析している（warning に table・count を持たせる）／ダウンロード失敗時に生の JSON が見える（fetch＋Blob にする）／`profiles` 行が無いと employee 扱い（既存）
@@ -211,6 +228,7 @@
 - Vercel の環境変数 `GN_EXPORT_SECRET` を設定（Production、プレビューを使うなら Preview も。例 `openssl rand -hex 32`）。任意で `GN_EXPORT_FILL_URL`
 - Supabase Storage のバケット `gn-exports`（非公開）の確認・作成（`schema_genba.sql` で作られる。既存環境で無ければ作る）
 - `supabase/update_2026-11-03d_profile_names.sql` の適用（未適用なら。帳票の作成者・確認者・承認者の氏名に使う）
+- **2026-11-04 の 3 本を、アプリをデプロイする前に 04 → 04b → 04c の順で適用**：`supabase/update_2026-11-04_change_tracking.sql` → `supabase/update_2026-11-04b_minus_amount.sql`（最後の `select` で `positive_left = 0`）→ `supabase/update_2026-11-04c_client_confirmation.sql`。04 より前にデプロイすると現場一覧・現場画面・日報・出力がすべて失敗する。適用後に `supabase/verify_rls_auto.sql` で FAIL 0 件（10. 客先確認を含む）
 - 本番での確認項目：
   - 工事原価集計表の 3 形式（PDF・Excel・CSV。工期全体と月、③ 7.5pt の読みやすさ、CSV を Excel でそのまま開けること）
   - 日報 PDF／CSV（1 日・月まとめ、日報画面のリンク、承認済み・完了現場、協力会社に出ないこと）
@@ -218,3 +236,6 @@
   - 1 日分雛形（`templates/現場管理日報_1日追加用_雛形.xlsm`）の取り込み（確認画面、「上書きする」、同じファイルの選び直し［iPad Safari］）
   - 手入力の作業員・仕入先（集計に「（手入力）」で出ること）
   - 375px 幅の画面（出力画面、日報画面の PDF／CSV リンク、取り込みの確認画面）
+  - 追加・変更・減：作業内容の区分・指示者・根拠の件の入力、「減」の行が本日出来高から差し引かれること（日報 PDF・CSV、工事原価集計表、原本 Excel の金額もマイナス）、契約状態（未確定）と概算金額、経費率・利益率の設定
+  - 変更増減 精算資料（案）：PDF・Excel（工期全体と月）、精算提案額（未確定の現場は概算が当初）、明細 8pt の読みやすさ、追加・変更・減が無い期間の表示
+  - 客先確認：日報画面での記録・取り消し（承認済みの日報・完了現場・協力会社のアカウントでも）、日報 PDF の客先確認欄、精算資料の明細の「客先確認」

@@ -326,6 +326,8 @@ export const SITE_CLOSED_MESSAGE =
 /** 承認済みの日報を変えようとしたとき（DB の approved_report_locked）。画面の帯と取り込みでも同じ文言を出す。 */
 export const APPROVED_LOCKED_MESSAGE = '承認済みのため編集できません';
 export const STALE_REPORT_MESSAGE = '他の端末で更新されています。画面を再読み込みしてから保存してください。';
+/** 客先確認の記録・取り消しで、他の端末で日報が更新されていたとき（保存するものは無いので「もう一度記録」）。 */
+export const STALE_CONFIRMATION_MESSAGE = '他の端末で更新されています。画面を再読み込みしてから、もう一度記録してください。';
 
 /** gn_save_report / ガードトリガーのエラーを利用者向けの文言に変換する。 */
 export function saveErrorMessage(dbMessage: string | null | undefined): string {

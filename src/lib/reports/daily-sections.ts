@@ -2,7 +2,7 @@ import type { ChangeTotals } from '@/lib/calc/change';
 import { weekday } from '@/lib/calc/calendar';
 import { jpDateTime } from '@/lib/calc/format';
 import type { Issue } from '@/lib/db/reports';
-import { CHANGE_KIND_LABELS } from '@/lib/report/change-labels';
+import { withChangeKindPrefix } from '@/lib/report/change-labels';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
 import type { DailyClientConfirmation, DailyHeader, DailyReportModel, DailyWorkRow } from '@/lib/reports/types';
 import type { LineKind, TimeSpec } from '@/lib/types';
@@ -42,8 +42,11 @@ export function withManual(name: string, manual: boolean): string {
  * CSV の列は増やさない）。契約内はそのまま。
  */
 export function workDescription(r: Pick<DailyWorkRow, 'changeKind' | 'description'>): string {
-  return r.changeKind === 'contract' ? r.description : `【${CHANGE_KIND_LABELS[r.changeKind]}】${r.description}`;
+  return withChangeKindPrefix(r.changeKind, r.description);
 }
+
+/** 契約が未確定の現場で、請負金額の行に付ける見出し（進捗率の「—」の理由を示す。概算金額の行を続けて出す）。 */
+export const CONTRACT_TENTATIVE_LABEL = '請負金額（未確定）(円)';
 
 /** 作業内容の表の下に出す小計の見出し。 */
 export const CHANGE_TOTALS_TITLE = '本日の追加・変更・減';
@@ -199,7 +202,12 @@ export function dailyTables(m: DailyReportModel): Record<
       rows: [
         ['本日出来高(円)', yen(m.output.today)],
         ['累計出来高(円)', yen(m.output.cumulative)],
-        ['請負金額(円)', yen(m.output.contractAmount)],
+        ...(m.output.tentative
+          ? [
+              [CONTRACT_TENTATIVE_LABEL, yen(m.output.contractAmount)],
+              ['概算金額(円)', yen(m.output.estimatedAmount)],
+            ]
+          : [['請負金額(円)', yen(m.output.contractAmount)]]),
         ['進捗率(%)', pct(m.output.progress)],
       ],
     },

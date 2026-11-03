@@ -413,8 +413,17 @@ export interface DailyReportModel {
   /**
    * 本日出来高（output_total）と進捗率。cumulative = 前日までの出来高 + 本日（日報の無い日は null）。
    * progress = cumulative ÷ 請負金額（請負金額が null・0、または日報の無い日は null）。
+   * tentative は契約が未確定の現場（帳票は「請負金額（未確定）」と「概算金額」を出す）。estimatedAmount はそのときの
+   * 概算金額（確定の現場は null）。進捗率の基準は未確定でも請負金額のまま（累計原価 ÷ 概算は次の計画）。
    */
-  output: { today: number; cumulative: number | null; contractAmount: number | null; progress: number | null };
+  output: {
+    today: number;
+    cumulative: number | null;
+    contractAmount: number | null;
+    progress: number | null;
+    tentative: boolean;
+    estimatedAmount: number | null;
+  };
   /**
    * 作業内容。changes は「本日の追加・変更・減」：区分ごとの保存値（stored.amount）の合計（減は負、net = 3 つの和）。
    * 追加・変更・減の行が無い日は null。

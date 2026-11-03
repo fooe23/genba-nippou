@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { firstError } from '@/lib/db/masters-schemas';
-import { clientConfirmationSchema, isoToJstLocal, jstLocalToIso } from '@/lib/db/client-confirmation-schemas';
+import {
+  clientConfirmationSchema,
+  isoToJstLocal,
+  jstLocalToIso,
+  sameClientConfirmation,
+  unchangedConfirmationResult,
+  type ClientConfirmationColumns,
+} from '@/lib/db/client-confirmation-schemas';
+import { STALE_CONFIRMATION_MESSAGE } from '@/lib/report/rows';
 
 // 客先確認の記録（recordClientConfirmation の入力）。
 
@@ -52,5 +60,52 @@ describe('日時の入力欄（datetime-local・日本時間）との変換', ()
     expect(isoToJstLocal('2026-11-03T05:30:00+00:00')).toBe('2026-11-03T14:30');
     expect(isoToJstLocal('2026-11-03T20:05:00Z')).toBe('2026-11-04T05:05');
     expect(isoToJstLocal('壊れた値')).toBe('');
+  });
+});
+
+// 何も変えない記録は DB に書かない（ガードの例外は「3 列のどれかが実際に変わる」更新だけを通すため）。
+describe('sameClientConfirmation / unchangedConfirmationResult', () => {
+  const rec = (by: string | null, at: string | null, note: string | null): ClientConfirmationColumns => ({
+    client_confirmed_by: by,
+    client_confirmed_at: at,
+    client_confirmed_note: note,
+  });
+  const NONE = rec(null, null, null);
+  const DONE = rec('施主 〇〇様', '2026-11-03T05:30:00+00:00', '口頭');
+  const V1 = '2026-11-03T06:00:00.000000+00:00';
+  const V2 = '2026-11-03T07:00:00.000000+00:00';
+
+  it('日時は時刻として比べる（DB の UTC 表記と +09:00 の入力は同じ）。空文字と null は同じ', () => {
+    expect(sameClientConfirmation(DONE, rec('施主 〇〇様', '2026-11-03T14:30:00+09:00', '口頭'))).toBe(true);
+    expect(sameClientConfirmation(rec('', null, ''), NONE)).toBe(true);
+  });
+
+  it('名前・日時・メモのどれかが違えば別の記録', () => {
+    expect(sameClientConfirmation(DONE, rec('施主 △△様', '2026-11-03T14:30:00+09:00', '口頭'))).toBe(false);
+    expect(sameClientConfirmation(DONE, rec('施主 〇〇様', '2026-11-03T14:31:00+09:00', '口頭'))).toBe(false);
+    expect(sameClientConfirmation(DONE, rec('施主 〇〇様', '2026-11-03T14:30:00+09:00', null))).toBe(false);
+    expect(sameClientConfirmation(NONE, DONE)).toBe(false);
+  });
+
+  it('同じ内容の記録し直し・記録の無い日報の取り消しは書かずに成功（版はそのまま）', () => {
+    expect(unchangedConfirmationResult({ ...DONE, updated_at: V1 }, rec('施主 〇〇様', '2026-11-03T14:30:00+09:00', '口頭'), V1)).toEqual({
+      ok: true,
+      updatedAt: V1,
+    });
+    expect(unchangedConfirmationResult({ ...NONE, updated_at: V1 }, NONE, null)).toEqual({ ok: true, updatedAt: V1 });
+  });
+
+  it('書かない場合でも、画面の版が今の版と違えば stale（もう一度記録の案内）', () => {
+    expect(unchangedConfirmationResult({ ...NONE, updated_at: V2 }, NONE, V1)).toEqual({
+      ok: false,
+      error: STALE_CONFIRMATION_MESSAGE,
+      stale: true,
+    });
+    expect(STALE_CONFIRMATION_MESSAGE).toBe('他の端末で更新されています。画面を再読み込みしてから、もう一度記録してください。');
+  });
+
+  it('内容が変わるときは null（DB に書く）', () => {
+    expect(unchangedConfirmationResult({ ...NONE, updated_at: V1 }, DONE, V1)).toBeNull();
+    expect(unchangedConfirmationResult({ ...DONE, updated_at: V1 }, NONE, V1)).toBeNull();
   });
 });

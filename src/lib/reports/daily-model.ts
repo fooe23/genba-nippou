@@ -169,7 +169,7 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
     cash: { rows: cash, total: { amount: cashTotal } },
     credit: { rows: credit, total: { amount: creditTotal } },
     costs: { labor, fuel, lease, cash: cashTotal, credit: creditTotal, total: labor + fuel + lease + cashTotal + creditTotal, costTotal: report.costTotal },
-    output: { today: report.outputTotal, cumulative, contractAmount: contract, progress: contract ? cumulative / contract : null },
+    output: { today: report.outputTotal, cumulative, contractAmount: contract, progress: contract ? cumulative / contract : null, ...contractBasis(site) },
     work: { rows: work, total: { manDays: sum(work.map((r) => r.manDays)), amount: sum(work.map((r) => r.amount)) }, changes: storedChangeTotals(work) },
     issues: { text: report.issuesText, items: input.issues.map((i) => ({ body: i.body, status: i.status, doneAt: i.doneAt })) },
     notes: report.notesText,
@@ -186,6 +186,12 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
   };
 }
 
+/** 契約の状態：未確定の現場は概算金額も出す（確定の現場の estimatedAmount は null）。 */
+function contractBasis(site: Site): { tentative: boolean; estimatedAmount: number | null } {
+  const tentative = site.contractStatus === 'tentative';
+  return { tentative, estimatedAmount: tentative ? site.estimatedAmount : null };
+}
+
 /**
  * 日報の無い日の帳票データ（エラーにしない。isEmpty: true、表はすべて空）。日報の無い月の帳票では date に 'YYYY-MM' を渡す
  * （PDF の見出しは「YYYY年MM月」。dailyDateLabel）。
@@ -200,7 +206,7 @@ export function buildEmptyDailyReport(site: Site, date: string): DailyReportMode
     cash: { rows: [], total: { amount: 0 } },
     credit: { rows: [], total: { amount: 0 } },
     costs: { labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, total: 0, costTotal: 0 },
-    output: { today: 0, cumulative: null, contractAmount: site.contractAmount, progress: null },
+    output: { today: 0, cumulative: null, contractAmount: site.contractAmount, progress: null, ...contractBasis(site) },
     work: { rows: [], total: { manDays: 0, amount: 0 }, changes: null },
     issues: { text: '', items: [] },
     notes: '',

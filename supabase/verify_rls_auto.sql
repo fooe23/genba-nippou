@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -503,6 +503,79 @@ begin
     perform pg_temp.as_editor();
     if sqlerrm like '%site_closed%' then rep := rep || E'PASS 9-8 完了現場の内容は管理者でも変更できない（進行中に戻す必要）\n';
     else fails := fails + 1; rep := rep || format(E'FAIL 9-8 想定外: %s\n', sqlerrm); end if;
+  end;
+
+  -- ===== 10. 客先確認の3列だけの更新（update_2026-11-04c のガード例外） =====
+  -- Y は 9-7 で完了・11-06 は承認済み。C を Y の担当（staff）にする。X の rid（11-01）は承認済み・X は進行中・A は担当。
+  insert into public.gn_site_members (site_id, user_id, role) values (y, v_c, 'staff');
+  begin
+    perform pg_temp.as_user(v_c);
+    update public.gn_daily_reports
+       set client_confirmed_by = '施主 検証様', client_confirmed_at = '2026-11-06T15:00:00+09:00', client_confirmed_note = '現地で確認'
+     where site_id = y and report_date = '2026-11-06';
+    get diagnostics n = row_count;
+    perform pg_temp.as_editor();
+    select client_confirmed_by, status into t, t2 from public.gn_daily_reports where site_id = y and report_date = '2026-11-06';
+    if n = 1 and t = '施主 検証様' and t2 = 'approved' then rep := rep || E'PASS 10-1 担当は完了現場の承認済み日報にも客先確認だけは記録できる\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 10-1 更新件数=%s by=%s status=%s\n', n, t, t2); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 10-1 エラー: %s\n', sqlerrm);
+  end;
+  begin
+    perform pg_temp.as_user(v_c);
+    update public.gn_daily_reports
+       set client_confirmed_by = '施主 別人様', client_confirmed_at = now(), client_confirmed_note = null, weather = '雹'
+     where site_id = y and report_date = '2026-11-06';
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 10-2 客先確認と一緒に天気を変えられた（完了現場）\n';
+  exception when others then
+    perform pg_temp.as_editor();
+    if sqlerrm like '%site_closed%' then rep := rep || E'PASS 10-2 客先確認と一緒に他の列は変えられない（完了現場は site_closed）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 10-2 想定外: %s\n', sqlerrm); end if;
+  end;
+  begin
+    perform pg_temp.as_user(v_c);
+    update public.gn_daily_reports
+       set client_confirmed_by = '施主 検証様', client_confirmed_at = '2026-11-06T15:00:00+09:00', client_confirmed_note = '現地で確認'
+     where site_id = y and report_date = '2026-11-06';
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 10-3 同じ値の更新（何も変えない）が承認済み・完了現場で通った\n';
+  exception when others then
+    perform pg_temp.as_editor();
+    if sqlerrm like '%site_closed%' or sqlerrm like '%approved_report_locked%' then
+      rep := rep || E'PASS 10-3 何も変えない更新は例外に入らず拒否される\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 10-3 想定外: %s\n', sqlerrm); end if;
+  end;
+  begin
+    perform pg_temp.as_user(v_a);  -- A は協力会社・X の担当
+    update public.gn_daily_reports
+       set client_confirmed_by = '元請 検証様', client_confirmed_at = '2026-11-01T17:00:00+09:00', client_confirmed_note = null
+     where id = rid;
+    get diagnostics n = row_count;
+    perform pg_temp.as_editor();
+    select client_confirmed_by, status into t, t2 from public.gn_daily_reports where id = rid;
+    if n = 1 and t = '元請 検証様' and t2 = 'approved' then rep := rep || E'PASS 10-4 協力会社の担当も割り当て現場の承認済み日報に客先確認を記録できる\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 10-4 更新件数=%s by=%s status=%s\n', n, t, t2); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 10-4 エラー: %s\n', sqlerrm);
+  end;
+  begin
+    perform pg_temp.as_user(v_a);
+    update public.gn_daily_reports set client_confirmed_note = 'メモ追記', weather = '雪' where id = rid;
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 10-5 客先確認と一緒に承認済みの天気を変えられた\n';
+  exception when others then
+    perform pg_temp.as_editor();
+    if sqlerrm like '%approved_report_locked%' then rep := rep || E'PASS 10-5 客先確認と一緒に他の列は変えられない（進行中の現場は approved_report_locked）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 10-5 想定外: %s\n', sqlerrm); end if;
+  end;
+  begin
+    perform pg_temp.as_user(v_a);  -- A は Y の担当ではない（協力会社）
+    update public.gn_daily_reports set client_confirmed_note = '担当外から' where site_id = y and report_date = '2026-11-06';
+    get diagnostics n = row_count;
+    perform pg_temp.as_editor();
+    select client_confirmed_note into t from public.gn_daily_reports where site_id = y and report_date = '2026-11-06';
+    if n = 0 and t = '現地で確認' then rep := rep || E'PASS 10-6 担当外の協力会社は客先確認を記録できない（RLS）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 10-6 更新件数=%s note=%s\n', n, t); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 10-6 エラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====
