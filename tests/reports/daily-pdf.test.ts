@@ -53,7 +53,7 @@ describe('renderDailyPdf', () => {
     }
   }, 60_000);
 
-  it('客先確認の記録と追加・変更・減の行がある日：PDF を返す（1〜2 ページ）。記録が無い日（空の枠）も同じ', async () => {
+  it('客先確認の記録と追加・増・変更・減の行がある日：PDF を返す（1〜2 ページ）。記録が無い日（空の枠）も同じ', async () => {
     for (const model of [withChanges(), withChanges({ clientConfirmedBy: null, clientConfirmedAt: null, clientConfirmedNote: null })]) {
       const pdf = await renderDailyPdf([model], AT);
       expect(pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');

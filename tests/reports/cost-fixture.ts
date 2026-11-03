@@ -61,7 +61,7 @@ export function emptyModel(): CostReportModel {
   return buildCostReport(costInput([]), { kind: 'all' }, NOW, RATES);
 }
 
-// ─── 変更増減 精算資料（Task 12）用：追加・変更・減の行と根拠の件のある日報 ───
+// ─── 変更増減 精算資料（Task 12）用：追加・変更・減の行と根拠の件のある日報（増の行は無い） ───
 
 /** 11/05 の日報：上の lines（契約内 2 人工）に、追加 1.5 人工・変更 0.5 人工・減（10 m2 × 2,500）を足す。 */
 const changeLines: SavedReportLine[] = [
@@ -82,7 +82,7 @@ const changeLines: SavedReportLine[] = [
   },
 ];
 
-/** 10/20（契約内だけ）と 11/05（追加・変更・減。客先確認あり）。根拠の件 i1 は 11/02 の日報の 1 件目。 */
+/** 10/20（契約内だけ）と 11/05（追加・変更・減。増は無い。客先確認あり）。根拠の件 i1 は 11/02 の日報の 1 件目。 */
 export const changeInput = (): CostReportInput => ({
   ...costInput([
     report('2026-10-20', 'approved'),

@@ -396,11 +396,16 @@ describe('⑦ 工種別出来高', () => {
   });
 });
 
-describe('② 採算の基準（契約未確定の現場）と追加・変更・減の提案額', () => {
+describe('② 採算の基準（契約未確定の現場）と追加・増・変更・減の提案額', () => {
   const reports = [
     report('2026-10-20', [labor('w1', '田中', 1, 20000), work('内装', '追加の棚', 1, '式', 1, 30_000, 'extra')]),
     report('2026-11-02', [labor('w1', '田中', 1, 20000), work('内装', '床', 1, 'm2', 1, 100_000), work('内装', '減の巾木', 1, 'm', 0, -5_000, 'minus')]),
     report('2026-12-01', [labor('w1', '田中', 1, 40000), work('内装', '変更の扉', 1, '式', 1, 50_000, 'change')]),
+  ];
+  /** 上の日報に、11/03 の増（労務 30,000 ÷ 1 人工 × 1 → 30,000 × 1.265 = 37,950）を足したもの。 */
+  const withIncrease = [
+    ...reports,
+    report('2026-11-03', [labor('w1', '田中', 1, 30000), work('内装', '床の増', 2, 'm2', 1, 6_000, 'increase')]),
   ];
 
   it('契約確定：基準は請負金額（basis contract）、概算金額は登録値のまま', () => {
@@ -433,21 +438,25 @@ describe('② 採算の基準（契約未確定の現場）と追加・変更・
     expect(p).toMatchObject({ basis: null, contractTotal: 1_000_000, estimatedAmount: null, grossProfit: null, grossMargin: null, progress: null });
   });
 
-  it('提案額の合計は変更増減の一覧と同じ計算（追加＋変更＋減）で、期間末までの累計', () => {
+  it('提案額の合計は変更増減の一覧と同じ計算（追加＋増＋変更＋減）で、期間末までの累計', () => {
     // 追加：労務 20,000 ÷ 1 人工 × 1 → 20,000 × 1.265 = 25,300。変更：40,000 × 1.265 = 50,600。減：−5,000（申告額）
     expect(buildCostReport(input(reports), ALL, now, RATES).profit.changeProposal).toBe(25_300 + 50_600 - 5_000);
     expect(buildCostReport(input(reports), NOV, now, RATES).profit.changeProposal).toBe(25_300 - 5_000); // 11 月末まで
+    // 増は追加と同じく実績原価から：30,000 × 1.265 = 37,950
+    expect(buildCostReport(input(withIncrease), ALL, now, RATES).profit.changeProposal).toBe(25_300 + 37_950 + 50_600 - 5_000);
+    expect(buildCostReport(input(withIncrease), NOV, now, RATES).profit.changeProposal).toBe(25_300 + 37_950 - 5_000);
   });
 
-  it('② の提案額と変更増減の一覧の精算（追加＋変更＋減）は、どの期間でも一致する', () => {
+  it('② の提案額と変更増減の一覧の精算（追加＋増＋変更＋減）は、どの期間でも一致する', () => {
     for (const period of [ALL, NOV, { kind: 'month', month: '2026-10' } as const, { kind: 'month', month: '2026-12' } as const]) {
-      const p = buildCostReport(input(reports), period, now, RATES).profit;
-      const s = buildChangeLedger(input(reports), RATES, period).settlement;
-      expect(p.changeProposal).toBe(s.extra + s.change + s.minus);
+      const p = buildCostReport(input(withIncrease), period, now, RATES).profit;
+      const s = buildChangeLedger(input(withIncrease), RATES, period).settlement;
+      expect(p.changeProposal).toBe(s.extra + s.increase + s.change + s.minus);
+      if (period.kind === 'all' || period.month === '2026-11') expect(s.increase).toBe(37_950); // 増が実際に入っている
     }
   });
 
-  it('追加・変更・減の行が無ければ null', () => {
+  it('追加・増・変更・減の行が無ければ null', () => {
     const p = buildCostReport(input([report('2026-11-02', [labor('w1', '田中', 1, 20000), work('内装', '床', 1, 'm2', 1, 100_000)])]), ALL, now, RATES).profit;
     expect(p.changeProposal).toBeNull();
   });

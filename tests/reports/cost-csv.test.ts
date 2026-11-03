@@ -80,7 +80,7 @@ describe('buildCostCsv', () => {
   });
 });
 
-describe('② 採算の追加・変更・減の提案額と「概算に対する見込み」', () => {
+describe('② 採算の追加・増・変更・減の提案額と「概算に対する見込み」', () => {
   const profit = (model: ReturnType<typeof sampleModel>) => costSections(model).find((x) => x.title === '② 採算')!;
 
   it('提案額の行（行が無ければ「—」= null。CSV は空欄）。契約確定なら注記なし', () => {

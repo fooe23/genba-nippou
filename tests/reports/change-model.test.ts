@@ -132,7 +132,7 @@ describe('proposalFromCost（提案金額の丸め）', () => {
 describe('一覧の行', () => {
   const m = buildChangeLedger(input([nov5(), nov2(), oct20()]), RATES, ALL);
 
-  it('追加・変更・減の行だけを日付順（同じ日は日報の行の順）に並べる。契約内は出さない', () => {
+  it('追加・増・変更・減の行だけを日付順（同じ日は日報の行の順）に並べる。契約内は出さない', () => {
     expect(m.rows.map((r) => [r.date, r.changeKind])).toEqual([
       ['2026-10-20', 'extra'],
       ['2026-11-02', 'extra'],
@@ -233,7 +233,7 @@ describe('期間', () => {
     expect(m.contractOutput).toBe(50000);
     expect(m.period).toEqual({ kind: 'month', month: '2026-11' });
   });
-  it('追加・変更・減の行が無ければ isEmpty（集計は 0、精算提案額 = 当初）', () => {
+  it('追加・増・変更・減の行が無ければ isEmpty（集計は 0、精算提案額 = 当初）', () => {
     const m = buildChangeLedger(input([report('2026-11-02', [labor(1, 18000), work('contract', 1, 1, 1000)])]), RATES, ALL);
     expect(m.isEmpty).toBe(true);
     expect(m.rows).toEqual([]);

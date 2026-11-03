@@ -11,7 +11,7 @@ import {
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { fromInput, patchRow, toInput } from '@/components/report/form-state';
 
-// 作業内容の行の「追加・変更・減」の記録（区分・指示者・指示方法・指示日・根拠の件）。
+// 作業内容の行の「追加・増・変更・減」の記録（区分・指示者・指示方法・指示日・根拠の件）。
 
 const base = {
   siteId: '11111111-1111-1111-1111-111111111111',
