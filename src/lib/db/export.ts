@@ -73,6 +73,29 @@ export async function loadProfileNames(ids: string[]): Promise<Record<string, st
   return out;
 }
 
+/** 指定した日報の明細行（gn_report_lines の全列。日報・並び順）。原価集計表の読み取り（reports-data.ts）でも使う。 */
+export async function fetchReportLineRows(reportIds: string[]): Promise<(LineRowRead & { report_id: string })[]> {
+  if (reportIds.length === 0) return [];
+  const supabase = await createServerSupabase();
+  const pages = await Promise.all(
+    chunk(reportIds, ID_CHUNK).map((part) =>
+      fetchAllPages<LineRowRead & { report_id: string }>(async (rFrom, rTo) => {
+        const { data, error } = await supabase
+          .from('gn_report_lines')
+          .select('*')
+          .in('report_id', part)
+          .order('report_id', { ascending: true })
+          .order('sort_order', { ascending: true })
+          .order('id', { ascending: true }) // ページ境界で重複・欠落しないよう並びを固定する
+          .range(rFrom, rTo);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as (LineRowRead & { report_id: string })[];
+      }),
+    ),
+  );
+  return pages.flat();
+}
+
 /** その月の日報（日付順）を明細・重要事項の件・作成者などの氏名つきで読む。 */
 export async function loadMonthReports(siteId: string, month: string): Promise<ExportReport[]> {
   const supabase = await createServerSupabase();
@@ -90,22 +113,7 @@ export async function loadMonthReports(siteId: string, month: string): Promise<E
   const ids = rows.map((r) => r.id);
 
   const [lineRows, issueRows, names] = await Promise.all([
-    Promise.all(
-      chunk(ids, ID_CHUNK).map((part) =>
-        fetchAllPages<LineRowRead & { report_id: string }>(async (rFrom, rTo) => {
-          const { data: d, error: e } = await supabase
-            .from('gn_report_lines')
-            .select('*')
-            .in('report_id', part)
-            .order('report_id', { ascending: true })
-            .order('sort_order', { ascending: true })
-            .order('id', { ascending: true }) // ページ境界で重複・欠落しないよう並びを固定する
-            .range(rFrom, rTo);
-          if (e) throw new Error(e.message);
-          return (d ?? []) as (LineRowRead & { report_id: string })[];
-        }),
-      ),
-    ).then((pages) => pages.flat()),
+    fetchReportLineRows(ids),
     Promise.all(
       chunk(ids, ID_CHUNK).map((part) =>
         fetchAllPages<{ report_id: string; body: string }>(async (rFrom, rTo) => {
