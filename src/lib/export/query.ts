@@ -4,7 +4,8 @@ import { isUuid } from '@/lib/uuid';
 // /api/export の入口まわりの純関数（Next・Supabase に依存しない）：クエリの検証、添付ファイル名、
 // 原本 Excel に入りきらない警告の文。出力画面（ExportPanel）でも同じ文を出す。
 
-const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+/** 'YYYY-MM'。帳票のクエリ（src/lib/reports/query.ts）でも使う。 */
+export const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 /** `?site=<uuid>&month=YYYY-MM` を読む。形式が違えばエラーの文。 */
 export function parseExportQuery(url: URL | string): { siteId: string; month: string } | { error: string } {

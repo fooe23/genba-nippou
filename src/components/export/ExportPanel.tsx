@@ -12,7 +12,7 @@ export interface ExportMonthOption {
   notice: string | null;
 }
 
-/** 出力画面：月を選び、原本 Excel（.xlsm）をダウンロードする。工事原価集計表・日報は後の Task で入れる。 */
+/** 出力画面：原本 Excel（.xlsm、月ごと）と工事原価集計表（工期全体または月、PDF・Excel・CSV）。日報は後の Task で入れる。 */
 export function ExportPanel({ siteId, months }: { siteId: string; months: ExportMonthOption[] }) {
   const [month, setMonth] = useState(months[0]?.month ?? '');
   const current = months.find((m) => m.month === month) ?? months[0];
@@ -59,9 +59,53 @@ export function ExportPanel({ siteId, months }: { siteId: string; months: Export
         )}
       </section>
 
-      <Placeholder title="工事原価集計表" />
+      <CostReportSection siteId={siteId} months={months} />
       <Placeholder title="日報" />
     </div>
+  );
+}
+
+const COST_FORMATS = [
+  { format: 'pdf', label: 'PDF' },
+  { format: 'xlsx', label: 'Excel' },
+  { format: 'csv', label: 'CSV' },
+] as const;
+
+/** 工事原価集計表：集計期間（工期全体／日報のある月）を選び、PDF・Excel・CSV をダウンロードする。 */
+function CostReportSection({ siteId, months }: { siteId: string; months: ExportMonthOption[] }) {
+  const [period, setPeriod] = useState('all');
+  const href = (format: string) =>
+    `/api/reports/cost?site=${encodeURIComponent(siteId)}&period=${encodeURIComponent(period)}&format=${format}`;
+  return (
+    <section aria-labelledby="export-cost">
+      <h2 id="export-cost" className="mb-1 text-lg font-bold">
+        工事原価集計表
+      </h2>
+      <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">
+        原価・採算・推移・作業員・取引先・工種別出来高をまとめた集計表です。
+      </p>
+      <Field label="集計期間">
+        <select value={period} onChange={(e) => setPeriod(e.target.value)} className={inputClass}>
+          <option value="all">工期全体</option>
+          {months.map((m) => (
+            <option key={m.month} value={m.month}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {COST_FORMATS.map(({ format, label }) => (
+          <a
+            key={format}
+            href={href(format)}
+            className={`${format === 'pdf' ? primaryButtonClass : secondaryButtonClass} flex items-center justify-center`}
+          >
+            {label}
+          </a>
+        ))}
+      </div>
+    </section>
   );
 }
 

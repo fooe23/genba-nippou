@@ -55,9 +55,14 @@ function jpDateLabel(date: string): string {
 
 const FORBIDDEN = /[/\\:*?"<>|\u0000-\u001f\u007f]/g;
 
-/** `現場名_YYYY年MM月.xlsm`。禁止文字（/ \ : * ? " < > |）と制御文字は _、前後の空白は除き、空なら「現場」。 */
+/** ファイル名に使う現場名。禁止文字（/ \ : * ? " < > |）と制御文字は _、前後の空白は除き、空なら「現場」。帳票（src/lib/reports）でも使う。 */
+export function fileNameStem(siteName: string): string {
+  return siteName.trim().replace(FORBIDDEN, '_').trim() || '現場';
+}
+
+/** `現場名_YYYY年MM月.xlsm`（現場名は fileNameStem）。 */
 export function exportFileName(siteName: string, month: string): string {
-  const name = siteName.trim().replace(FORBIDDEN, '_').trim() || '現場';
+  const name = fileNameStem(siteName);
   const [y, m] = month.split('-');
   return `${name}_${y}年${m.padStart(2, '0')}月.xlsm`;
 }
