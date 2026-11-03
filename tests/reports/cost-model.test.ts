@@ -326,7 +326,7 @@ describe('⑤ 取引先別累計', () => {
 describe('⑥ 車両・リース', () => {
   const reports = [
     report('2026-11-02', [fuel('v1', '2t ダンプ', 40, 680), lease('l1', '足場', 10, '式', 3000), lease(null, '発電機', 1, '台', 2000)]),
-    report('2026-11-05', [fuel('v1', '2t ダンプ', 60, 1020), fuel(null, '借用車', 5, 100), lease('l1', '足場', 2, '日', 600)]),
+    report('2026-11-05', [fuel('v1', '2t ダンプ', 60, 1020), fuel(null, '借用車', 5, 100), lease('l1', '足場', 2, '日', 600), lease(null, '敷鉄板', 3, '', 900)]),
   ];
 
   it('車両ごとの走行距離・燃料費、リース品ごとの数量（単位混在は null）・リース費', () => {
@@ -338,8 +338,9 @@ describe('⑥ 車両・リース', () => {
     expect(m.equipment.leases).toEqual([
       { itemId: 'l1', name: '足場', manual: false, qty: null, unit: null, leaseCost: 3600 },
       { itemId: null, name: '発電機', manual: true, qty: 1, unit: '台', leaseCost: 2000 },
+      { itemId: null, name: '敷鉄板', manual: true, qty: 3, unit: null, leaseCost: 900 }, // 単位なしだけ → 合計、単位 null
     ]);
-    expect(m.equipment.total).toEqual({ distanceKm: 105, fuelCost: 1800, leaseCost: 5600 });
+    expect(m.equipment.total).toEqual({ distanceKm: 105, fuelCost: 1800, leaseCost: 6500 });
   });
 });
 
@@ -348,33 +349,44 @@ describe('⑦ 工種別出来高', () => {
     report('2026-11-02', [
       work('型枠', '基礎立上り', 10, 'm2', 2, 100_000),
       work('鉄筋', '基礎配筋', 1, 't', 1, 80_000),
-      work('', '片付け', null, '', 0.5, 0),
+      work('', '片付け', null, '', 0.5, 0), // 数量の入った行が無い → 数量 null
     ]),
     report('2026-11-05', [
       work('型枠', '土間', 5, 'm2', 1, 50_000),
-      work('型枠', '土間', 5, '', 0, 30_000), // 単位なしは混在とみなさない
-      work('鉄筋', '基礎配筋', 200, 'kg', 1, 40_000),
+      work('型枠', '土間', 5, '', 0, 30_000), // 単位なし '' と 'm2' は別の単位 → 混在
+      work('鉄筋', '基礎配筋', 200, 'kg', 1, 40_000), // t と kg → 混在
+      work('左官', '中塗り', 4, 'm2', 1, 10_000),
+      work('左官', '中塗り', null, '', 0.5, 0), // 数量の無い行は単位も見ない
+      work('雑工', '清掃', 2, '', 1, 5_000), // すべて単位なし → 合計、単位は null
+      work('雑工', '清掃', 3, '', 1, 5_000),
     ]),
   ];
   const m = buildCostReport(input(reports), ALL, now);
 
-  it('単位が 1 種類なら数量の合計と歩掛、混在なら数量・歩掛は null', () => {
+  it('数量の入った行の単位がすべて同じなら合計と歩掛、違えば・数量が無ければ数量・単位・歩掛は null', () => {
     expect(m.trades.rows.map((r) => [r.trade, r.mainDescription, r.qty, r.unit, r.manDays, r.productivity, r.output])).toEqual([
-      ['型枠', '土間', 20, 'm2', 3, 20 / 3, 180_000],
+      ['型枠', '土間', null, null, 3, null, 180_000],
       ['鉄筋', '基礎配筋', null, null, 2, null, 120_000],
-      ['', '片付け', 0, '', 0.5, 0, 0],
+      ['左官', '中塗り', 4, 'm2', 1.5, 4 / 1.5, 10_000],
+      ['雑工', '清掃', 5, null, 2, 2.5, 10_000],
+      ['', '片付け', null, null, 0.5, null, 0],
     ]);
   });
 
   it('構成比の合計が 100%、合計行', () => {
     const sum = m.trades.rows.reduce((s, r) => s + r.share, 0);
     expect(Math.abs(sum - 1)).toBeLessThan(1e-9);
-    expect(m.trades.rows[0].share).toBeCloseTo(0.6, 12);
-    expect(m.trades.total).toEqual({ manDays: 5.5, output: 300_000 });
+    expect(m.trades.rows[0].share).toBeCloseTo(180_000 / 320_000, 12);
+    expect(m.trades.total).toEqual({ manDays: 9, output: 320_000 });
   });
 
   it('最頻の施工内容が同数なら先に出たもの', () => {
     const t = buildCostReport(input([report('2026-11-02', [work('左官', 'A', 1, 'm2', 1, 1), work('左官', 'B', 1, 'm2', 1, 1)])]), ALL, now);
     expect(t.trades.rows[0].mainDescription).toBe('A');
+  });
+
+  it('人工 0 なら歩掛は null', () => {
+    const t = buildCostReport(input([report('2026-11-02', [work('左官', 'A', 3, 'm2', 0, 1)])]), ALL, now);
+    expect([t.trades.rows[0].qty, t.trades.rows[0].productivity]).toEqual([3, null]);
   });
 });

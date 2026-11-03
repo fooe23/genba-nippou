@@ -7,7 +7,8 @@ import type { Carryover } from '@/lib/db/sites';
 // アプリ内集計（月次・原価・出面・作業員別累計）。純粋関数のみ。
 // 人工は小数 2 桁に丸める（浮動小数の誤差対策）。金額は丸めない。
 
-export interface LaborEntry { reportDate: string; workerId: string | null; workerName: string; manDays: number; cost: number; }
+/** 労務行 1 件の保存値（man_days・amount・overtime_hours）。 */
+export interface LaborEntry { reportDate: string; workerId: string | null; workerName: string; manDays: number; cost: number; overtimeHours: number; }
 export interface DayTotals extends ReportHead { labor: number; fuel: number; lease: number; cash: number; credit: number; workerCount: number; }
 export interface MonthlyRow { date: string; monthIndex: number; totalIndex: number; weather: string | null; workerCount: number; labor: number; fuel: number; lease: number; cash: number; credit: number; cost: number; output: number; progress: number; }
 
@@ -119,6 +120,10 @@ export interface WorkerCumulativeRow {
   /** 累計 = 前月繰越 + 表示期間。 */
   totalManDays: number;
   totalCost: number;
+  /** 出勤日数：累計に入った日報の日付の数（繰越初期値の分は数えない）。 */
+  workDays: number;
+  /** 残業 H：累計に入った日報の分（繰越初期値には残業が無い）。 */
+  overtimeHours: number;
   /** 繰越の基準日より前の日報の件数（繰越初期値に含まれているとみなして集計から除いた分）。 */
   excludedCount: number;
 }
@@ -133,6 +138,7 @@ export interface Period { from: string | null; to: string | null; }
  * - 累計 = 前月繰越 + 当期間（to より後の日報は含めない）
  * 繰越初期値は基準日より前の分を表すので、その作業員の基準日より前の日報は二重に数えないよう
  * どこにも入れず、件数だけ excludedCount に数える。繰越だけ・前月繰越だけの作業員も含める。
+ * 出勤日数・残業 H は累計（前月繰越の日報 + 当期間）に入った日報から数える（繰越初期値には含まれない）。
  */
 export function workerCumulative(
   entries: LaborEntry[],
@@ -142,13 +148,14 @@ export function workerCumulative(
 ): WorkerCumulativeRow[] {
   // キー: workerId があればそれ、なければ名前（先頭に区別用の接頭辞）
   const map = new Map<string, WorkerCumulativeRow>();
+  const datesByKey = new Map<string, Set<string>>();
   const ensure = (key: string, workerId: string | null, fallbackName: string): WorkerCumulativeRow => {
     let row = map.get(key);
     if (!row) {
       row = {
         workerId,
         workerName: (workerId !== null ? workerNames[workerId] : undefined) ?? fallbackName,
-        carryManDays: 0, carryCost: 0, manDays: 0, cost: 0, totalManDays: 0, totalCost: 0, excludedCount: 0,
+        carryManDays: 0, carryCost: 0, manDays: 0, cost: 0, totalManDays: 0, totalCost: 0, workDays: 0, overtimeHours: 0, excludedCount: 0,
       };
       map.set(key, row);
     }
@@ -172,6 +179,13 @@ export function workerCumulative(
       continue;
     }
     const row = ensure(key, e.workerId, e.workerName);
+    row.overtimeHours = round2(row.overtimeHours + e.overtimeHours);
+    let dates = datesByKey.get(key);
+    if (!dates) {
+      dates = new Set();
+      datesByKey.set(key, dates);
+    }
+    dates.add(e.reportDate);
     if (period.from !== null && e.reportDate < period.from) {
       row.carryManDays = round2(row.carryManDays + e.manDays);
       row.carryCost += e.cost;
@@ -181,6 +195,7 @@ export function workerCumulative(
     }
   }
 
+  for (const [key, dates] of datesByKey) map.get(key)!.workDays = dates.size;
   const rows = [...map.values()];
   for (const r of rows) {
     r.totalManDays = round2(r.carryManDays + r.manDays);

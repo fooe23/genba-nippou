@@ -10,7 +10,6 @@ import {
 } from '@/lib/calc/aggregate';
 import { daysBetween } from '@/lib/calc/calendar';
 import { monthKey } from '@/lib/calc/format';
-import type { Carryover } from '@/lib/db/sites';
 import type {
   CostReportHeader,
   CostReportInput,
@@ -94,7 +93,7 @@ function laborEntries(reports: ReportWithLines[]): LaborEntry[] {
   return reports.flatMap((r) =>
     r.lines.flatMap((l) =>
       l.kind === 'labor'
-        ? [{ reportDate: r.reportDate, workerId: l.workerId, workerName: l.workerName, manDays: l.stored.manDays, cost: l.stored.amount }]
+        ? [{ reportDate: r.reportDate, workerId: l.workerId, workerName: l.workerName, manDays: l.stored.manDays, cost: l.stored.amount, overtimeHours: l.stored.overtimeHours }]
         : [],
     ),
   );
@@ -232,27 +231,21 @@ function buildWorkers(input: CostReportInput, allReports: ReportWithLines[], wor
   const tradeById = new Map(input.workers.map((w) => [w.id, w.trade]));
   const cumulative = workerCumulative(laborEntries(allReports), input.carryovers, workerNames, workerPeriod);
 
-  // 出勤日数・残業 H は workerCumulative に無いので、同じ規則（to まで・繰越の基準日より前は除く）で数える。
-  const extra = workDaysAndOvertime(allReports, input.carryovers, workerPeriod.to);
-  const keyOf = (workerId: string | null, workerName: string) => (workerId !== null ? `id:${workerId}` : `name:${workerName}`);
-
-  const rows: WorkerRow[] = cumulative.map((c) => {
-    const x = extra.get(keyOf(c.workerId, c.workerName));
-    return {
-      workerId: c.workerId,
-      workerName: c.workerName,
-      manual: c.workerId === null,
-      trade: c.workerId === null ? null : (tradeById.get(c.workerId) ?? null),
-      workDays: x?.dates.size ?? 0,
-      carryManDays: c.carryManDays,
-      carryCost: c.carryCost,
-      periodManDays: c.manDays,
-      periodCost: c.cost,
-      manDays: c.totalManDays,
-      overtimeHours: round2(x?.overtimeHours ?? 0),
-      cost: c.totalCost,
-    };
-  });
+  // 出勤日数・残業 H も workerCumulative の行から（同じ規則：to まで・繰越の基準日より前は除く）。
+  const rows: WorkerRow[] = cumulative.map((c) => ({
+    workerId: c.workerId,
+    workerName: c.workerName,
+    manual: c.workerId === null,
+    trade: c.workerId === null ? null : (tradeById.get(c.workerId) ?? null),
+    workDays: c.workDays,
+    carryManDays: c.carryManDays,
+    carryCost: c.carryCost,
+    periodManDays: c.manDays,
+    periodCost: c.cost,
+    manDays: c.totalManDays,
+    overtimeHours: c.overtimeHours,
+    cost: c.totalCost,
+  }));
 
   const total = { workDays: 0, manDays: 0, overtimeHours: 0, cost: 0 };
   for (const r of rows) {
@@ -262,33 +255,6 @@ function buildWorkers(input: CostReportInput, allReports: ReportWithLines[], wor
     total.cost += r.cost;
   }
   return { rows, total };
-}
-
-function workDaysAndOvertime(
-  reports: ReportWithLines[],
-  carryovers: Carryover[],
-  to: string | null,
-): Map<string, { dates: Set<string>; overtimeHours: number }> {
-  const beforeDates = new Map<string, string>();
-  for (const c of carryovers) beforeDates.set(c.workerId, c.beforeDate);
-  const out = new Map<string, { dates: Set<string>; overtimeHours: number }>();
-  for (const r of reports) {
-    if (to !== null && r.reportDate > to) continue;
-    for (const l of r.lines) {
-      if (l.kind !== 'labor') continue;
-      const beforeDate = l.workerId !== null ? beforeDates.get(l.workerId) : undefined;
-      if (beforeDate !== undefined && r.reportDate < beforeDate) continue;
-      const key = l.workerId !== null ? `id:${l.workerId}` : `name:${l.workerName}`;
-      let v = out.get(key);
-      if (!v) {
-        v = { dates: new Set(), overtimeHours: 0 };
-        out.set(key, v);
-      }
-      v.dates.add(r.reportDate);
-      v.overtimeHours += l.stored.overtimeHours;
-    }
-  }
-  return out;
 }
 
 // ─── ⑤ 取引先別 ───
@@ -339,17 +305,25 @@ function buildVendors(input: CostReportInput, periodReports: ReportWithLines[]):
 
 // ─── ⑥ 車両・リース ───
 
-/** 数量の合計。単位（空を除く）が 1 種類以下なら合計と単位、混在なら null。 */
+/**
+ * 数量の合計（⑥ リース・⑦ 工種別）。数量が入っている行（qty が null でない）だけを数える。
+ * それらの単位の文字列がすべて同じなら合計とその単位（'' は単位なしとして null）、違えば数量・単位とも null。
+ * 数量が入っている行が無ければ数量・単位とも null。'' と 'm2' は別の単位として扱う。
+ */
 class QtyByUnit {
   private qty = 0;
+  private count = 0;
   private units = new Set<string>();
   add(qty: number | null, unit: string): void {
-    this.qty += qty ?? 0;
-    if (unit.trim() !== '') this.units.add(unit.trim());
+    if (qty === null) return;
+    this.qty += qty;
+    this.count += 1;
+    this.units.add(unit);
   }
   result(): { qty: number | null; unit: string | null } {
-    if (this.units.size > 1) return { qty: null, unit: null };
-    return { qty: this.qty, unit: [...this.units][0] ?? '' };
+    if (this.count === 0 || this.units.size > 1) return { qty: null, unit: null };
+    const unit = [...this.units][0];
+    return { qty: this.qty, unit: unit === '' ? null : unit };
   }
 }
 

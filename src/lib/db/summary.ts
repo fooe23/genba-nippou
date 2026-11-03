@@ -13,6 +13,7 @@ interface LineRow {
   ref_id: string | null;
   name: string | null;
   man_days: number | string | null;
+  overtime_hours: number | string | null;
 }
 
 // .in() の URL が長くなりすぎないよう id を分けて問い合わせる。さらに PostgREST の max_rows（既定 1000）で
@@ -28,7 +29,7 @@ async function fetchLines(reportIds: string[]): Promise<LineRow[]> {
       fetchAllPages<LineRow>(async (from, to) => {
         const { data, error } = await supabase
           .from('gn_report_lines')
-          .select('report_id, kind, amount, ref_id, name, man_days')
+          .select('report_id, kind, amount, ref_id, name, man_days, overtime_hours')
           .in('report_id', ids)
           .in('kind', ['labor', 'fuel', 'lease', 'cash', 'credit'])
           .order('id', { ascending: true }) // ページ境界で重複・欠落しないよう並びを固定する
@@ -66,6 +67,7 @@ export async function loadSummaryData(siteId: string): Promise<{ days: DayTotals
           workerName: l.name ?? '（名前なし）',
           manDays: Number(l.man_days ?? 0),
           cost: amount,
+          overtimeHours: Number(l.overtime_hours ?? 0),
         });
         break;
       case 'fuel': t.fuel += amount; break;

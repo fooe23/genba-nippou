@@ -238,7 +238,7 @@ describe('buildExportPayload: 日当・リース単価', () => {
       labor('w2', '山田 太郎', { dailyRate: 22000 }),
       lease('l2', '発電機', 3500),
     ])];
-    const laborEntries = [{ reportDate: '2026-10-10', workerId: null, workerName: '山田 太郎', manDays: 1, cost: 20000 }];
+    const laborEntries = [{ reportDate: '2026-10-10', workerId: null, workerName: '山田 太郎', manDays: 1, cost: 20000, overtimeHours: 0 }];
     const { payload, warnings } = buildExportPayload(input({
       reports, workers, leaseItems: items, laborEntries,
       selected: { workerIds: ['w1', 'w2'], supplierIds: [], vehicleIds: [], leaseItemIds: ['l1'] },
@@ -271,12 +271,12 @@ describe('buildExportPayload: 前月繰越', () => {
   it('繰越初期値 + 基準日以降で出力月より前の日報。基準日より前と出力月以降は入れない', () => {
     const workers = [worker('w1', '山田 太郎'), worker('w2', '鈴木 一郎')];
     const laborEntries = [
-      { reportDate: '2026-09-20', workerId: 'w1', workerName: '山田 太郎', manDays: 1, cost: 18000 }, // 基準日より前（初期値に含まれる）
-      { reportDate: '2026-10-10', workerId: 'w1', workerName: '山田 太郎', manDays: 1.07, cost: 19260 },
-      { reportDate: '2026-10-31', workerId: 'w1', workerName: '山田 太郎', manDays: 0.5, cost: 9000 },
-      { reportDate: '2026-11-05', workerId: 'w1', workerName: '山田 太郎', manDays: 1, cost: 18000 }, // 出力月
-      { reportDate: '2026-12-01', workerId: 'w1', workerName: '山田 太郎', manDays: 1, cost: 18000 }, // 出力月より後
-      { reportDate: '2026-10-15', workerId: 'w2', workerName: '鈴木 一郎', manDays: 0.53, cost: 8480 },
+      { reportDate: '2026-09-20', workerId: 'w1', workerName: '山田 太郎', manDays: 1, cost: 18000, overtimeHours: 0 }, // 基準日より前（初期値に含まれる）
+      { reportDate: '2026-10-10', workerId: 'w1', workerName: '山田 太郎', manDays: 1.07, cost: 19260, overtimeHours: 0 },
+      { reportDate: '2026-10-31', workerId: 'w1', workerName: '山田 太郎', manDays: 0.5, cost: 9000, overtimeHours: 0 },
+      { reportDate: '2026-11-05', workerId: 'w1', workerName: '山田 太郎', manDays: 1, cost: 18000, overtimeHours: 0 }, // 出力月
+      { reportDate: '2026-12-01', workerId: 'w1', workerName: '山田 太郎', manDays: 1, cost: 18000, overtimeHours: 0 }, // 出力月より後
+      { reportDate: '2026-10-15', workerId: 'w2', workerName: '鈴木 一郎', manDays: 0.53, cost: 8480, overtimeHours: 0 },
     ];
     const { payload } = buildExportPayload(input({
       workers, laborEntries,
@@ -300,8 +300,8 @@ describe('buildExportPayload: 前月繰越', () => {
       selected: { workerIds: ['w1'], supplierIds: [], vehicleIds: [], leaseItemIds: [] },
       carryovers: [{ workerId: 'w4', manDays: 3, laborCost: 54000, beforeDate: '2026-10-01' }],
       laborEntries: [
-        { reportDate: '2026-10-20', workerId: 'w5', workerName: 'いぜんの日報', manDays: 1, cost: 18000 },
-        { reportDate: '2026-12-01', workerId: 'w6', workerName: '繰越なし', manDays: 1, cost: 18000 }, // 出力月より後は繰越ではない
+        { reportDate: '2026-10-20', workerId: 'w5', workerName: 'いぜんの日報', manDays: 1, cost: 18000, overtimeHours: 0 },
+        { reportDate: '2026-12-01', workerId: 'w6', workerName: '繰越なし', manDays: 1, cost: 18000, overtimeHours: 0 }, // 出力月より後は繰越ではない
       ],
     }));
     expect(payload.workers.map((w) => [w.name, w.carry_man_days, w.carry_cost])).toEqual([
@@ -318,8 +318,8 @@ describe('buildExportPayload: 前月繰越', () => {
       workers: [worker('w1', '山田 太郎')],
       carryovers: [{ workerId: 'w1', manDays: 10, laborCost: 180000, beforeDate: '2026-10-01' }],
       laborEntries: [
-        { reportDate: '2026-09-25', workerId: null, workerName: '山田 太郎', manDays: 1, cost: 18000 }, // 初期値に含まれる
-        { reportDate: '2026-10-15', workerId: null, workerName: '山田 太郎', manDays: 0.5, cost: 9000 },
+        { reportDate: '2026-09-25', workerId: null, workerName: '山田 太郎', manDays: 1, cost: 18000, overtimeHours: 0 }, // 初期値に含まれる
+        { reportDate: '2026-10-15', workerId: null, workerName: '山田 太郎', manDays: 0.5, cost: 9000, overtimeHours: 0 },
       ],
     }));
     expect(payload.workers.map((w) => [w.name, w.carry_man_days, w.carry_cost])).toEqual([['山田 太郎', 10.5, 189000]]);

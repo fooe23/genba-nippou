@@ -26,9 +26,9 @@ describe('原価集計', () => {
 });
 describe('出面一覧・作業員別累計', () => {
   const e = [
-    { reportDate: '2026-11-02', workerId: 'w1', workerName: '田中', manDays: 1.07, cost: 20330 },
-    { reportDate: '2026-11-05', workerId: 'w1', workerName: '田中', manDays: 1, cost: 19000 },
-    { reportDate: '2026-11-05', workerId: 'w2', workerName: '佐藤', manDays: 0.53, cost: 7950 },
+    { reportDate: '2026-11-02', workerId: 'w1', workerName: '田中', manDays: 1.07, cost: 20330, overtimeHours: 0 },
+    { reportDate: '2026-11-05', workerId: 'w1', workerName: '田中', manDays: 1, cost: 19000, overtimeHours: 0 },
+    { reportDate: '2026-11-05', workerId: 'w2', workerName: '佐藤', manDays: 0.53, cost: 7950, overtimeHours: 0 },
   ];
   it('出面一覧', () => {
     const a = attendance(e); const t = a.find(r => r.workerName === '田中')!;
@@ -45,11 +45,11 @@ describe('作業員別累計：前月繰越／当期間／累計（Excel 雛形�
   const carry = [{ workerId: 'w1', manDays: 12.5, laborCost: 225000, beforeDate: '2026-10-01' }];
   const names = { w1: '田中', w2: '佐藤' };
   const e: LaborEntry[] = [
-    { reportDate: '2026-10-20', workerId: 'w1', workerName: '田中', manDays: 1, cost: 18000 },
-    { reportDate: '2026-10-25', workerId: 'w2', workerName: '佐藤', manDays: 0.5, cost: 7500 },
-    { reportDate: '2026-11-02', workerId: 'w1', workerName: '田中', manDays: 1.07, cost: 20330 },
-    { reportDate: '2026-11-05', workerId: 'w1', workerName: '田中', manDays: 1, cost: 19000 },
-    { reportDate: '2026-12-01', workerId: 'w1', workerName: '田中', manDays: 1, cost: 19000 },
+    { reportDate: '2026-10-20', workerId: 'w1', workerName: '田中', manDays: 1, cost: 18000, overtimeHours: 0 },
+    { reportDate: '2026-10-25', workerId: 'w2', workerName: '佐藤', manDays: 0.5, cost: 7500, overtimeHours: 0 },
+    { reportDate: '2026-11-02', workerId: 'w1', workerName: '田中', manDays: 1.07, cost: 20330, overtimeHours: 1.5 },
+    { reportDate: '2026-11-05', workerId: 'w1', workerName: '田中', manDays: 1, cost: 19000, overtimeHours: 0 },
+    { reportDate: '2026-12-01', workerId: 'w1', workerName: '田中', manDays: 1, cost: 19000, overtimeHours: 0 },
   ];
   it('月表示：前月までの日報は前月繰越に入り、表示月より後は入らない', () => {
     const w = workerCumulative(e, carry, names, { from: '2026-11-01', to: '2026-11-31' });
@@ -63,8 +63,8 @@ describe('作業員別累計：前月繰越／当期間／累計（Excel 雛形�
   });
   it('繰越の基準日より前の日報は二重に数えず、件数だけ数える', () => {
     const early: LaborEntry[] = [
-      { reportDate: '2026-09-30', workerId: 'w1', workerName: '田中', manDays: 1, cost: 18000 },
-      { reportDate: '2026-09-30', workerId: 'w2', workerName: '佐藤', manDays: 1, cost: 15000 }, // w2 は繰越なし → 除外しない
+      { reportDate: '2026-09-30', workerId: 'w1', workerName: '田中', manDays: 1, cost: 18000, overtimeHours: 3 },
+      { reportDate: '2026-09-30', workerId: 'w2', workerName: '佐藤', manDays: 1, cost: 15000, overtimeHours: 0 }, // w2 は繰越なし → 除外しない
       ...e,
     ];
     const month = workerCumulative(early, carry, names, { from: '2026-11-01', to: '2026-11-31' });
@@ -75,6 +75,24 @@ describe('作業員別累計：前月繰越／当期間／累計（Excel 雛形�
     const all = workerCumulative(early, carry, names, ALL);
     expect(all.find((r) => r.workerId === 'w1')!.excludedCount).toBe(1);
     expect(all.find((r) => r.workerId === 'w1')!.totalManDays).toBe(16.57); // 12.5 + 1 + 1.07 + 1 + 1
+  });
+  it('出勤日数・残業 H は累計に入った日報だけ（基準日より前・期間末より後は数えず、繰越初期値は日数に入らない）', () => {
+    const early: LaborEntry[] = [
+      { reportDate: '2026-09-30', workerId: 'w1', workerName: '田中', manDays: 1, cost: 18000, overtimeHours: 3 }, // 基準日より前
+      { reportDate: '2026-11-05', workerId: 'w1', workerName: '田中', manDays: 0.5, cost: 9000, overtimeHours: 0.25 }, // 同じ日の 2 行目
+      ...e,
+    ];
+    const month = workerCumulative(early, carry, names, { from: '2026-11-01', to: '2026-11-30' });
+    const t = month.find((r) => r.workerId === 'w1')!;
+    expect([t.workDays, t.overtimeHours]).toEqual([3, 1.75]); // 10/20・11/2・11/5（12/1 は期間末より後）
+    const s = month.find((r) => r.workerId === 'w2')!;
+    expect([s.workDays, s.overtimeHours]).toEqual([1, 0]); // 10/25（前月繰越の日報）
+    const all = workerCumulative(early, carry, names, ALL);
+    expect(all.find((r) => r.workerId === 'w1')!.workDays).toBe(4); // + 12/1
+  });
+  it('繰越だけの作業員は出勤日数 0', () => {
+    const w = workerCumulative([], [{ workerId: 'w9', manDays: 3, laborCost: 50000, beforeDate: '2026-10-01' }], { w9: '鈴木' }, ALL);
+    expect([w[0].workDays, w[0].overtimeHours, w[0].totalManDays]).toEqual([0, 0, 3]);
   });
   it('from = null（工期全体）は従来どおり：繰越 = 繰越初期値、当期間 = 全日報', () => {
     const w = workerCumulative(e, carry, names, ALL);

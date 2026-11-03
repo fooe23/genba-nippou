@@ -181,7 +181,7 @@ export interface VehicleRow {
   fuelCost: number;
 }
 
-/** ⑥ リース品（集計期間）。qty は単位が 1 種類なら合計、混在なら null。 */
+/** ⑥ リース品（集計期間）。qty・unit は ⑦ と同じ規則（数量の入った行の単位がすべて同じなら合計。違う・数量の入った行が無いなら null。unit '' は null）。 */
 export interface LeaseRow {
   itemId: string | null;
   name: string;
@@ -203,9 +203,12 @@ export interface TradeRow {
   trade: string;
   /** 最も多い施工内容（同数なら先に出たもの。空は数えない。無ければ ''）。 */
   mainDescription: string;
-  /** 施工数量（単位が 1 種類なら合計、混在なら null＝「—」）。 */
+  /**
+   * 施工数量。数量の入った行（qty が null でない）の単位の文字列がすべて同じなら合計、違えば null＝「—」。
+   * 数量の入った行が無ければ null。'' と 'm2' は別の単位。
+   */
   qty: number | null;
-  /** 単位（混在なら null）。 */
+  /** 単位（混在・数量なし・単位なし '' のときは null）。 */
   unit: string | null;
   manDays: number;
   /** 歩掛 = 数量 ÷ 投入人工（人工 0 または数量 null なら null）。 */

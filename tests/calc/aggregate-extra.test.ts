@@ -15,7 +15,7 @@ describe('追加ケース', () => {
     expect(costSummary([zeroDay], 0).grossMargin).toBeNull();
   });
   it('繰越だけの作業員も累計に含まれる', () => {
-    const e: LaborEntry[] = [{ reportDate: '2026-11-02', workerId: 'w1', workerName: '田中', manDays: 1, cost: 19000 }];
+    const e: LaborEntry[] = [{ reportDate: '2026-11-02', workerId: 'w1', workerName: '田中', manDays: 1, cost: 19000, overtimeHours: 0 }];
     const w = workerCumulative(e, [{ workerId: 'w9', manDays: 3, laborCost: 50000, beforeDate: '2026-10-01' }], { w1: '田中', w9: '鈴木' }, { from: null, to: null });
     const s = w.find((r) => r.workerId === 'w9')!;
     expect(s.workerName).toBe('鈴木');
@@ -24,18 +24,18 @@ describe('追加ケース', () => {
   });
   it('workerId が null の明細は名前でまとめる', () => {
     const e: LaborEntry[] = [
-      { reportDate: '2026-11-02', workerId: null, workerName: '応援A', manDays: 0.5, cost: 7000 },
-      { reportDate: '2026-11-03', workerId: null, workerName: '応援A', manDays: 0.5, cost: 7000 },
+      { reportDate: '2026-11-02', workerId: null, workerName: '応援A', manDays: 0.5, cost: 7000, overtimeHours: 0 },
+      { reportDate: '2026-11-03', workerId: null, workerName: '応援A', manDays: 0.5, cost: 7000, overtimeHours: 0 },
     ];
     const w = workerCumulative(e, [], {}, { from: null, to: null });
     expect(w).toHaveLength(1);
-    expect(w[0]).toMatchObject({ workerId: null, workerName: '応援A', manDays: 1, cost: 14000 });
+    expect(w[0]).toMatchObject({ workerId: null, workerName: '応援A', manDays: 1, cost: 14000, workDays: 2, overtimeHours: 0 });
   });
   it('出面は名前順で、同日複数行は合算し稼働日数は日付の数', () => {
     const e: LaborEntry[] = [
-      { reportDate: '2026-11-02', workerId: 'w2', workerName: 'さとう', manDays: 0.5, cost: 1000 },
-      { reportDate: '2026-11-02', workerId: 'w1', workerName: 'あべ', manDays: 0.3, cost: 600 },
-      { reportDate: '2026-11-02', workerId: 'w1', workerName: 'あべ', manDays: 0.3, cost: 600 },
+      { reportDate: '2026-11-02', workerId: 'w2', workerName: 'さとう', manDays: 0.5, cost: 1000, overtimeHours: 0 },
+      { reportDate: '2026-11-02', workerId: 'w1', workerName: 'あべ', manDays: 0.3, cost: 600, overtimeHours: 0 },
+      { reportDate: '2026-11-02', workerId: 'w1', workerName: 'あべ', manDays: 0.3, cost: 600, overtimeHours: 0 },
     ];
     const a = attendance(e);
     expect(a.map((r) => r.workerName)).toEqual(['あべ', 'さとう']);
