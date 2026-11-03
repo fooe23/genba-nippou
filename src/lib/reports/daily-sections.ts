@@ -43,7 +43,6 @@ export const DAILY_CSV_COLUMNS = [
 // ─── PDF の見出しと表（純関数）。セル・書式は工事原価集計表と同じ（cost-sections.ts の Cell・formatCell） ───
 
 export const DAILY_REPORT_TITLE = '現場日報';
-export const NO_DAILY_REPORTS = '日報がありません';
 /** 行の無い表・空の欄に出す文。 */
 export const NONE = 'なし';
 

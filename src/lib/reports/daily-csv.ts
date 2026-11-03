@@ -1,9 +1,11 @@
+import { NO_REPORTS } from '@/lib/reports/cost-sections';
 import { toCsv } from '@/lib/reports/csv';
 import { DAILY_CSV_COLUMNS, LINE_KIND_LABELS, withManual } from '@/lib/reports/daily-sections';
 import type { DailyReportModel } from '@/lib/reports/types';
 
 // 日報の CSV（純関数）。明細 1 行 1 レコード、列は DAILY_CSV_COLUMNS（21 列）。1 日分も月まとめも同じ形で、
 // 渡した日報の順に 作業員→車両→リース→現金購入→買掛→作業内容 の順で並べる。日報の無い日（isEmpty）は出さない。
+// レコードが 1 件も無いとき（日報の無い日・月）は「日報がありません」の 1 行（日付＝最初のモデルの date、種別＝その文、他は空）。
 // 値はモデルの数値のまま（金額の桁区切りなし）。空欄・決められない値は空。
 
 type Value = string | number | null;
@@ -80,8 +82,9 @@ function dayRecords(m: DailyReportModel): CsvRecord[] {
   ];
 }
 
-/** 日報（1 日分または月の全日分）の CSV。レコードが無くても見出しの行は出す。 */
+/** 日報（1 日分または月の全日分）の CSV。レコードが無ければ見出しの行と「日報がありません」の 1 行。 */
 export function buildDailyCsv(models: DailyReportModel[]): string {
-  const records = models.filter((m) => !m.isEmpty).flatMap(dayRecords);
+  const days = models.filter((m) => !m.isEmpty).flatMap(dayRecords);
+  const records: CsvRecord[] = days.length > 0 ? days : [{ 日付: models[0]?.header.date ?? null, 種別: NO_REPORTS }];
   return toCsv([[...DAILY_CSV_COLUMNS], ...records.map((r) => DAILY_CSV_COLUMNS.map((c) => r[c] ?? null))]);
 }

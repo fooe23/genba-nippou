@@ -64,8 +64,28 @@ describe('buildDailyCsv', () => {
     expect(rows[13]).toBe('2026-11-05,3,5,車両,2t ダンプ,10km/L,km,42,170,714,,,,,,,,,,,残土運搬');
   });
 
-  it('レコードが 1 件も無くても見出しの行は出す', () => {
-    expect(lines(buildDailyCsv([]))).toEqual([HEADER]);
-    expect(lines(buildDailyCsv([buildEmptyDailyReport(site, '2026-11-03')]))).toEqual([HEADER]);
+  it('日報の無い日：見出しの行と「日報がありません」の 1 行（日付と種別だけ）', () => {
+    expect(lines(buildDailyCsv([buildEmptyDailyReport(site, '2026-11-03')]))).toEqual([
+      HEADER,
+      '2026-11-03,,,日報がありません,,,,,,,,,,,,,,,,,',
+    ]);
+  });
+
+  it('日報の無い月：日付の列は年月のまま。空のモデルが複数でも「日報がありません」は 1 行だけ', () => {
+    expect(lines(buildDailyCsv([buildEmptyDailyReport(site, '2026-12')]))).toEqual([HEADER, '2026-12,,,日報がありません,,,,,,,,,,,,,,,,,']);
+    expect(lines(buildDailyCsv([buildEmptyDailyReport(site, '2026-11-03'), buildEmptyDailyReport(site, '2026-11-04')]))).toEqual([
+      HEADER,
+      '2026-11-03,,,日報がありません,,,,,,,,,,,,,,,,,',
+    ]);
+  });
+
+  it('モデルが無いときも「日報がありません」の 1 行（日付は空）', () => {
+    expect(lines(buildDailyCsv([]))).toEqual([HEADER, ',,,日報がありません,,,,,,,,,,,,,,,,,']);
+  });
+
+  it('実際の日報がある月は、空の日を飛ばし「日報がありません」は出さない', () => {
+    const rows = lines(buildDailyCsv([sampleDaily(), buildEmptyDailyReport(site, '2026-11-03')]));
+    expect(rows).toHaveLength(1 + 12);
+    expect(rows.some((r) => r.includes('日報がありません'))).toBe(false);
   });
 });

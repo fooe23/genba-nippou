@@ -10,7 +10,7 @@ import type { DailyReportModel } from '@/lib/reports/types';
 
 // 日報の帳票。GET /api/reports/daily?site=<uuid>&date=YYYY-MM-DD&format=pdf|csv（1 日分）
 //          GET /api/reports/daily?site=<uuid>&month=YYYY-MM&format=pdf|csv（月まとめ。日付の昇順、PDF は日ごとに改ページ）
-// 日報が無い日・月も空の帳票（PDF は「日報がありません」、CSV は見出しの行だけ）を返す。失敗はすべて JSON { ok: false, error }
+// 日報が無い日・月も空の帳票（PDF・CSV とも「日報がありません」の 1 行）を返す。失敗はすべて JSON { ok: false, error }
 // （400 クエリ／401・403 権限／404 現場／500 読み込み・作成失敗）。PDF（react-pdf）は Node で作る。
 
 export const runtime = 'nodejs';

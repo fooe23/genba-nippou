@@ -2,7 +2,7 @@ import { Document, Page, renderToBuffer, StyleSheet, Text, View } from '@react-p
 import { jpDateTime } from '@/lib/calc/format';
 import { Footer, InfoGrid, MUTED, RULE, s, SectionHead, Signature, Table } from '@/lib/pdf/common';
 import { registerPdfFonts } from '@/lib/pdf/fonts';
-import type { SectionTable } from '@/lib/reports/cost-sections';
+import { NO_REPORTS, type SectionTable } from '@/lib/reports/cost-sections';
 import {
   DAILY_REPORT_TITLE,
   DAILY_SECTION_TITLES,
@@ -10,7 +10,6 @@ import {
   dailyHeaderRows,
   dailyTables,
   LINE_KIND_LABELS,
-  NO_DAILY_REPORTS,
   NONE,
   visitText,
 } from '@/lib/reports/daily-sections';
@@ -73,7 +72,7 @@ function DayPage({ model, outputAt }: { model: DailyReportModel; outputAt: strin
       </View>
 
       {t === null ? (
-        <Text style={s.empty}>{NO_DAILY_REPORTS}</Text>
+        <Text style={s.empty}>{NO_REPORTS}</Text>
       ) : (
         <>
           <InfoGrid lines={[header.slice(0, 2), header.slice(2, 4)]} />
