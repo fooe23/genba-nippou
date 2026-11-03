@@ -79,6 +79,13 @@ describe('ガイド', () => {
     expect(html).toContain('車両名／ナンバー');
   });
 
+  it('入力の章がマスターに無い人・取引先の手入力に触れている', async () => {
+    const html = await loadChapter('input');
+    expect(html).toContain('マスターに無い人・取引先を入れるとき');
+    expect(html).toContain('（手入力）');
+    expect(html).toContain('J 列');
+  });
+
   it('未掲載の slug は GuideNotFound', async () => {
     await expect(loadChapter('nothing')).rejects.toBeInstanceOf(GuideNotFound);
     await expect(loadChapter('../../package')).rejects.toBeInstanceOf(GuideNotFound);

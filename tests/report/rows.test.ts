@@ -104,3 +104,19 @@ describe('saveErrorMessage', () => {
     expect(saveErrorMessage('new row violates row-level security')).toContain('保存に失敗しました');
   });
 });
+
+describe('手入力の行の保存列', () => {
+  it('作業員：ref_id は null、name は氏名、unit_price は日当（DB のトリガーがこの日当で労務費を計算する）', () => {
+    const manual: LaborLine = { kind: 'labor', workerId: null, workerName: '飛び込み 鈴木', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 15000, note: '', overtimeRate: null };
+    expect(toLineRow(manual, common, 0, DEFAULT_LABOR_RULE)).toMatchObject({
+      kind: 'labor', ref_id: null, name: '飛び込み 鈴木', unit_price: 15000, hours: 8, man_days: 1, amount: 15000, overtime_rate: null,
+    });
+    // 残業単価は標準の計算式（日当 ÷ 8 × 1.25）：ROUND(15000 ÷ 8 × 1.25) = 2344
+    const nine = { ...manual, time: { start: '08:00', end: '18:00', breakMin: null, gapMin: null } };
+    expect(toLineRow(nine, common, 0, DEFAULT_LABOR_RULE)).toMatchObject({ overtime_hours: 1, overtime_rate: null, amount: 15000 + 2344 });
+  });
+  it('買掛：ref_id は null、vendor は仕入先名', () => {
+    const manual: ReportLine = { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店' };
+    expect(toLineRow(manual, common, 0, DEFAULT_LABOR_RULE)).toMatchObject({ kind: 'credit', ref_id: null, vendor: '近所の資材店', amount: 1500 });
+  });
+});

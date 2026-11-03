@@ -107,3 +107,32 @@ describe('reportWarnings（追加）', () => {
     expect(w).toEqual(['リース「足場材」：単価が未設定です（リース費が0円になります）']);
   });
 });
+
+describe('マスターに無い作業員・仕入先（手入力の行）', () => {
+  const t = { start: null, end: null, breakMin: null, gapMin: null };
+  const manualLabor = { kind: 'labor', workerId: null, workerName: '飛び込み 鈴木', time: t, dailyRate: 15000, note: '', overtimeRate: null };
+  const manualCredit = { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店' };
+
+  it('作業員：参照なし・氏名・日当で通り、値はそのまま', () => {
+    const r = validateReport({ ...base, lines: [manualLabor] });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.lines[0]).toEqual(manualLabor);
+  });
+
+  it('作業員：「（手入力）」を選んで氏名が空なら既存の文言でエラー', () => {
+    const r = validateReport({ ...base, lines: [{ ...manualLabor, workerName: '  ' }] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.errors).toEqual(['作業員の1行目：作業員名を選択してください']);
+  });
+
+  it('買掛：仕入先の参照なし・仕入先名で通り、値はそのまま', () => {
+    const r = validateReport({ ...base, lines: [manualCredit] });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.value.lines[0]).toEqual(manualCredit);
+  });
+
+  it('手入力の作業員の日当が空なら、氏名つきで警告する', () => {
+    const w = reportWarnings({ ...base, lines: [{ ...manualLabor, dailyRate: null } as SaveInput['lines'][number]] });
+    expect(w).toEqual(['作業員「飛び込み 鈴木」：日当が未設定です（労務費が0円になります）']);
+  });
+});

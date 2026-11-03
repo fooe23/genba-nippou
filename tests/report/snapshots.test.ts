@@ -39,6 +39,16 @@ describe('保存時のマスター単価の複写（サーバー側）', () => {
     const noOvertime = { ...masters, workers: [{ ...masters.workers[0], overtimeRate: null }] };
     expect(applyMasterSnapshots(lines, '2026-10-31', noOvertime)[0]).toMatchObject({ dailyRate: 18000, overtimeRate: null });
   });
+  it('手入力の作業員・仕入先の行（参照なし）は同じオブジェクトのまま返す', () => {
+    const manual: ReportLine[] = [
+      { kind: 'labor', workerId: null, workerName: '飛び込み 鈴木', time: t, dailyRate: 15000, note: '', overtimeRate: null },
+      { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店' },
+    ];
+    const out = applyMasterSnapshots(manual, '2026-10-31', masters);
+    expect(out[0]).toBe(manual[0]);
+    expect(out[1]).toBe(manual[1]);
+    expect(needsMasterSnapshots(manual)).toBe(false);
+  });
   it('参照のある行が無ければマスターを読まなくてよい', () => {
     expect(needsMasterSnapshots(lines)).toBe(true);
     expect(needsMasterSnapshots([lines[1], lines[5], lines[6]])).toBe(false);

@@ -3,13 +3,17 @@
 import { rateAt } from '@/lib/calc/rates';
 import { laborLineValues } from '@/lib/calc/report';
 import type { LaborLine, LaborRule, TimeSpec } from '@/lib/types';
-import { decimal, money, newLine, patchRow, removeRow, row, type Row, type WorkerOption } from '../form-state';
+import { decimal, isManualRow, money, newLine, patchRow, removeRow, row, selectRow, type Row, type WorkerOption } from '../form-state';
 import { Computed, NumInput, Select, TextInput, TimeInput } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
+
+/** 作業員の選択肢の末尾に置く「（手入力）」の値（作業員の ID は uuid なので重ならない）。 */
+const MANUAL_WORKER = '__manual__';
 
 /**
  * 作業員の表。日当は選んだ作業員の単価履歴（日報の日付時点）を、残業単価は作業員マスターの値を複写する。
  * 時間は空欄なら共通時間。人工・残業・労務費は rule（労務の設定）で計算する。
+ * マスターに無い人は「（手入力）」を選び、氏名と日当を入れる（workerId は null。残業単価は標準の計算式）。
  */
 export function LaborTable({
   rows,
@@ -30,10 +34,16 @@ export function LaborTable({
   workers: WorkerOption[];
 }) {
   const set = (i: number, patch: Partial<LaborLine>) => onChange((rs) => patchRow(rs, i, patch));
+  // 作業員の選び直しと手入力の氏名：「（手入力）」の印（Row.manual）も一緒に付け外しする。
+  const select = (i: number, patch: Partial<LaborLine>, manual: boolean) => onChange((rs) => selectRow(rs, i, patch, manual));
+  const isManual = (r: Row<LaborLine>) => isManualRow(r, r.line.workerId, r.line.workerName);
   const setTime = (i: number, line: LaborLine, patch: Partial<TimeSpec>) => set(i, { time: { ...line.time, ...patch } });
   // 行ごとに 1 回だけ計算する（表示列と小計で共用）。
   const values = rows.map((r) => laborLineValues(r.line, common, rule, { preferSaved }));
-  const options = workers.map((w) => ({ value: w.id, label: w.active ? w.name : `${w.name}（無効）` }));
+  const options = [
+    ...workers.map((w) => ({ value: w.id, label: w.active ? w.name : `${w.name}（無効）` })),
+    { value: MANUAL_WORKER, label: '（手入力）' },
+  ];
   const commonBreak = common.breakMin === null ? '' : `共通${common.breakMin}`;
   const commonGap = common.gapMin === null ? '' : `共通${common.gapMin}`;
 
@@ -41,18 +51,39 @@ export function LaborTable({
     {
       label: '作業員',
       wide: true,
-      cell: (l, i) => (
-        <Select
-          value={l.workerId ?? ''}
-          options={options}
-          missingLabel={l.workerName || '（不明な作業員）'}
-          onChange={(id) => {
-            const w = workers.find((x) => x.id === id);
-            if (!w) set(i, { workerId: null, workerName: '', dailyRate: null, overtimeRate: null });
-            else set(i, { workerId: w.id, workerName: w.name, dailyRate: rateAt(w.rates, date), overtimeRate: w.overtimeRate });
-          }}
-        />
-      ),
+      // 手入力の行は選択と氏名の 2 つの欄になるので、それぞれに label を付ける。
+      input: false,
+      cell: (l, i, r) => {
+        const manual = isManual(r);
+        return (
+          <div className="space-y-2">
+            <label className="block">
+              <span className="sr-only">作業員（{i + 1}行目）</span>
+              <Select
+                value={l.workerId ?? (manual ? MANUAL_WORKER : '')}
+                options={options}
+                missingLabel={l.workerName || '（不明な作業員）'}
+                onChange={(id) => {
+                  const w = workers.find((x) => x.id === id);
+                  if (!w) select(i, { workerId: null, workerName: '', dailyRate: null, overtimeRate: null }, id === MANUAL_WORKER);
+                  else select(i, { workerId: w.id, workerName: w.name, dailyRate: rateAt(w.rates, date), overtimeRate: w.overtimeRate }, false);
+                }}
+              />
+            </label>
+            {manual && (
+              <label className="block">
+                <span className="sr-only">氏名（{i + 1}行目）</span>
+                <TextInput
+                  value={l.workerName}
+                  maxLength={100}
+                  placeholder="氏名"
+                  onChange={(v) => select(i, { workerName: v }, true)}
+                />
+              </label>
+            )}
+          </div>
+        );
+      },
     },
     { label: '開始', cell: (l, i) => <TimeInput value={l.time.start} onChange={(v) => setTime(i, l, { start: v })} /> },
     { label: '終了', cell: (l, i) => <TimeInput value={l.time.end} onChange={(v) => setTime(i, l, { end: v })} /> },
@@ -68,7 +99,19 @@ export function LaborTable({
     { label: '実働H', input: false, cell: (_l, i) => <Computed>{decimal(values[i].hours)}</Computed> },
     { label: '人工', input: false, cell: (_l, i) => <Computed>{decimal(values[i].manDays)}</Computed> },
     { label: '残業H', input: false, cell: (_l, i) => <Computed>{decimal(values[i].overtimeHours)}</Computed> },
-    { label: '日当', input: false, cell: (l) => <Computed>{l.dailyRate === null ? '未設定' : money(l.dailyRate)}</Computed> },
+    {
+      label: '日当',
+      input: false,
+      cell: (l, i, r) =>
+        isManual(r) ? (
+          <label className="block">
+            <span className="sr-only">日当（円・{i + 1}行目）</span>
+            <NumInput integer value={l.dailyRate} placeholder="円" onChange={(v) => set(i, { dailyRate: v })} />
+          </label>
+        ) : (
+          <Computed>{l.dailyRate === null ? '未設定' : money(l.dailyRate)}</Computed>
+        ),
+    },
     { label: '労務費', input: false, cell: (_l, i) => <Computed>{money(values[i].cost)}</Computed> },
   ];
 
@@ -85,7 +128,7 @@ export function LaborTable({
       subtotalLabel="労務費 小計"
       subtotal={money(subtotal)}
       emptyText="作業員はまだありません。「＋追加」で入力します。時間を空欄にすると共通時間で計算します。"
-      hint="作業員がプルダウンに無いときは、管理者が 管理 → 現場 → ③ この現場で使うマスター で追加できます（何も選んでいない現場は有効な作業員全員が出ます）。"
+      hint="作業員がプルダウンに無いときは、管理者が 管理 → 現場 → ③ この現場で使うマスター で追加できます（何も選んでいない現場は有効な作業員全員が出ます）。一度だけ来る人は「（手入力）」を選んで氏名と日当を入れます。"
     />
   );
 }
