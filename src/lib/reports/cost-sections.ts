@@ -155,7 +155,7 @@ export function costSections(model: CostReportModel): CostSection[] {
           ['総人工', dec1(profit.totalManDays)],
           ['1 人工あたり原価(円)', yen(profit.costPerManDay)],
           [`1 日あたり原価（日報日数 ${profit.dayCount} 日）(円)`, yen(profit.costPerDay)],
-          ['追加・増・変更・減の提案額（円）', yen(profit.changeProposal)],
+          ['追加・増・変更・減の精算額（円）', yen(profit.changeProposal)],
         ]),
       ],
     },

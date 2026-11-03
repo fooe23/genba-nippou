@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import { buildChangeLedger } from '@/lib/reports/change-model';
 import { buildCostReport } from '@/lib/reports/cost-model';
+import type { Issue } from '@/lib/db/reports';
 import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Carryover, Site } from '@/lib/db/sites';
 import type { CostReportInput, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
@@ -454,6 +455,53 @@ describe('② 採算の基準（契約未確定の現場）と追加・増・変
       expect(p.changeProposal).toBe(s.extra + s.increase + s.change + s.minus);
       if (period.kind === 'all' || period.month === '2026-11') expect(s.increase).toBe(37_950); // 増が実際に入っている
     }
+  });
+
+  /** 精算の項目を持つ件（既定は未定の追加）。 */
+  const issue = (id: string, reportDate: string, o: Partial<Issue> = {}): Issue => ({
+    id, siteId: 's1', reportId: `r-${reportDate}`, reportDate, body: `${id} の件`, status: 'open', doneAt: null, kind: 'extra',
+    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, ...o,
+  });
+  const linkTo = (l: SavedReportLine, issueId: string): SavedReportLine => ({ ...l, issueId }) as SavedReportLine;
+  /** 10/20 の追加の行を一式の件 iL（確定額 100,000）に紐づけ、12/01 に行の無い一式の件 iX（70,000）を登録したもの。 */
+  const settledInput = () =>
+    input(
+      [
+        report('2026-10-20', [labor('w1', '田中', 1, 20000), linkTo(work('内装', '追加の棚', 1, '式', 1, 30_000, 'extra'), 'iL')]),
+        ...withIncrease.slice(1),
+      ],
+      {
+        issues: [
+          issue('iL', '2026-10-20', { settlementMethod: 'lump_sum', fixedAmount: 100_000 }),
+          issue('iX', '2026-12-01', { settlementMethod: 'lump_sum', fixedAmount: 70_000 }),
+        ],
+      },
+    );
+
+  it('② は件ごとの精算額の合計（一式は確定額。一式の件に紐づく行の提案額は数えない。期間末より後に登録した件は入らない）', () => {
+    // 工期全体：一式 100,000 ＋ 一式 70,000 ＋ 増 37,950 ＋ 変更 50,600 − 減 5,000
+    expect(buildCostReport(settledInput(), ALL, now, RATES).profit.changeProposal).toBe(100_000 + 70_000 + 37_950 + 50_600 - 5_000);
+    // 11 月：12/01 登録の iX と 12 月の変更は入らない
+    expect(buildCostReport(settledInput(), NOV, now, RATES).profit.changeProposal).toBe(100_000 + 37_950 - 5_000);
+    expect(buildCostReport(settledInput(), { kind: 'month', month: '2026-10' }, now, RATES).profit.changeProposal).toBe(100_000);
+  });
+
+  it('② と変更増減の一覧の精算は、件に精算の方法があってもどの期間でも一致する', () => {
+    for (const period of [ALL, NOV, { kind: 'month', month: '2026-10' } as const, { kind: 'month', month: '2026-12' } as const]) {
+      const p = buildCostReport(settledInput(), period, now, RATES).profit;
+      const s = buildChangeLedger(settledInput(), RATES, period).settlement;
+      expect(p.changeProposal).toBe(s.extra + s.increase + s.change + s.minus);
+    }
+  });
+
+  it('追加・増・変更・減の行が無くても、一式の件があれば null でない', () => {
+    const p = buildCostReport(
+      input([report('2026-11-02', [labor('w1', '田中', 1, 20000), work('内装', '床', 1, 'm2', 1, 100_000)])], {
+        issues: [issue('iL', '2026-11-02', { settlementMethod: 'lump_sum', fixedAmount: 70_000 })],
+      }),
+      ALL, now, RATES,
+    ).profit;
+    expect(p.changeProposal).toBe(70_000);
   });
 
   it('追加・増・変更・減の行が無ければ null', () => {

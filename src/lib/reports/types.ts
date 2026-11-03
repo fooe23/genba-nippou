@@ -2,7 +2,7 @@ import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Issue, ReportHead } from '@/lib/db/reports';
 import type { Carryover, Site } from '@/lib/db/sites';
 import type { ChangeTotals } from '@/lib/calc/change';
-import type { ChangeKind, InstructionMethod, IssueKind, ReportLine, TimeSpec } from '@/lib/types';
+import type { ChangeKind, InstructionMethod, IssueKind, ReportLine, SettlementMethod, TimeSpec } from '@/lib/types';
 
 // 帳票（第2計画（改）Task 2〜5）の型。モデルは数値だけを持ち、文字列の整形（#,##0・%・「—」・「（手入力）」）は
 // レンダラー（PDF・Excel・CSV）が行う。計画書で「—」と書かれている値は null。
@@ -112,8 +112,9 @@ export interface Profitability {
   /** 1 日あたり原価の分母（累計の日報件数）。 */
   dayCount: number;
   /**
-   * 追加・増・変更・減の提案額の合計（追加 ＋ 増 ＋ 変更 ＋ 減。減は負）。変更増減の一覧（buildChangeLedger）と同じ計算で、
-   * 期間の末日までの累計。追加・増・変更・減の行が無ければ null。
+   * 追加・増・変更・減の精算額の合計（追加 ＋ 増 ＋ 変更 ＋ 減。減は負）。変更増減の一覧（buildChangeLedger）の
+   * settlement と同じ計算で、期間の末日までの累計（件ごとの精算額 ＋ 件に紐づかない行の提案額）。
+   * 期間の末日までに追加・増・変更・減の行も、載せる件も無ければ null。
    */
   changeProposal: number | null;
 }
@@ -512,29 +513,76 @@ export interface ChangeLedgerRow {
   proposalBasis: 'cost' | 'declared';
 }
 
-/** 区分ごとの集計。減の申告額・提案額は負。 */
+/** 区分ごとの集計。減の申告額・提案額・精算額は負。 */
 export interface ChangeKindSummary {
+  /** 件数・申告額・実績原価・提案額は集計期間の行（rows）だけ。 */
   count: number;
   declared: number;
   actualCost: number;
   proposal: number;
+  /**
+   * 精算額（期間末までの累計。月の期間でもその月だけではない）= 載せる件のうち合計に入れる（countsToward）区分が
+   * この区分の件の精算額 ＋ 件に紐づかない行のこの区分の提案額。一式・常用の件に紐づく行の提案額は入らない。
+   */
+  settled: number;
+}
+
+/**
+ * 精算資料に載せる件の、件ごとの精算（settleIssue）。載せる件 = 精算の方法が一式・常用で、件の日報日が期間末以前の件、
+ * または期間末までに追加・増・変更・減の行が紐づく未定の件。未定で行の無い件は載せない。
+ */
+export interface ChangeIssueSettlement {
+  id: string;
+  /** 件を書いた日報の日付。 */
+  reportDate: string;
+  kind: IssueKind;
+  /** 本文の先頭 40 字（前後の空白は除く。ChangeIssueRef と同じ）。 */
+  bodyHead: string;
+  /** 指示者（未入力は null）。 */
+  instructedBy: string | null;
+  /** 金額見込み（円。未入力は null）。参考で、精算額には使わない。 */
+  amountEstimate: number | null;
+  /** 精算の方法（未定・一式・常用）と、確定額（一式）・常用単価（常用）・確定日（件の保存値）。 */
+  settlementMethod: SettlementMethod;
+  fixedAmount: number | null;
+  dailyRate: number | null;
+  fixedOn: string | null;
+  /** 精算の区分（settlementCategory。客先都合・その他は追加、やり直しは null）。 */
+  category: ChangeLedgerKind | null;
+  /** 期間末までの、この件に紐づく行の件数・投入人工の合計・実績原価の合計（丸めない）・提案額の合計（減は負）。 */
+  lineCount: number;
+  manDays: number;
+  actualCost: number;
+  proposal: number;
+  /**
+   * 精算額（円）。一式 = 確定額（'fixed'）、常用 = 紐づく行の人工の合計 × 常用単価を円未満切り上げ（'daily_rate'）、
+   * 未定 = 紐づく行の提案額の合計（'proposal'）。区分が減なら一式・常用は負にする（未定は行の提案額がすでに負）。
+   */
+  settled: number;
+  settledBasis: 'fixed' | 'daily_rate' | 'proposal';
+  /** 区分ごとの精算額・精算提案額に入れる（category が null のやり直しは参考で、入れない）。 */
+  countsToward: boolean;
 }
 
 export interface ChangeLedgerModel {
-  /** 集計期間（rows）に追加・増・変更・減の行が 1 行も無い。 */
+  /** 集計期間（rows）に追加・増・変更・減の行が 1 行も無く、載せる件（issues）も無い。 */
   isEmpty: boolean;
   period: { kind: 'all' | 'month'; month: string | null };
   rates: ChangeRates;
   /** 集計期間の行（月ならその月だけ）。 */
   rows: ChangeLedgerRow[];
-  /** 集計期間（rows）の区分ごとの集計。 */
+  /** 区分ごとの集計（件数・申告額・実績原価・提案額は集計期間の rows、settled は期間末までの累計）。 */
   summary: Record<ChangeLedgerKind, ChangeKindSummary>;
+  /** 精算資料に載せる件（期間末まで）。件の日報日順、同じ日は件の登録順（input.issues の並び）。 */
+  issues: ChangeIssueSettlement[];
+  /** 期間末までの、件に紐づかない（未選択・読めない件）追加・増・変更・減の行の件数・人工・実績原価・提案額の合計。 */
+  unlinked: { lineCount: number; manDays: number; actualCost: number; proposal: number };
   /** 集計期間の契約内の作業内容の出来高（保存値 amount の合計）。 */
   contractOutput: number;
   /**
-   * 精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 増 ＋ 変更 ＋ 減（減は負）。各区分は提案額の合計。
-   * 範囲は through までの全部の行（月の期間でも、その月だけではなく現場の最初の日報から月末まで。工事原価集計表 ②
-   * の changeProposal と同じ）。当初が無ければ base・proposed は null。
+   * 精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 増 ＋ 変更 ＋ 減（減は負）。各区分は精算額
+   * （summary[区分].settled）。範囲は through までの全部の行と載せる件（月の期間でも、その月だけではなく現場の最初の
+   * 日報から月末まで。工事原価集計表 ② の changeProposal と同じ）。当初が無ければ base・proposed は null。
    */
   settlement: {
     base: number | null;

@@ -65,7 +65,7 @@ describe('changeSummary（サマリー表と注記）', () => {
 
   it('増の行：件数・申告額・提案額（モデルの summary.increase）', () => {
     const m = sampleChangeModel();
-    const withIncrease = { ...m, summary: { ...m.summary, increase: { count: 2, declared: 12_000, actualCost: 10_000, proposal: 12_650 } } };
+    const withIncrease = { ...m, summary: { ...m.summary, increase: { count: 2, declared: 12_000, actualCost: 10_000, proposal: 12_650, settled: 12_650 } } };
     expect(texts(changeSummary(withIncrease).table.rows[3])).toEqual(['増', '2', '12,000', '12,650']);
   });
 

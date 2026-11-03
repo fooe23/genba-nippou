@@ -48,7 +48,7 @@ import type {
 //
 // 粗利・粗利率・進捗率（② と ③）の基準額は、契約が確定なら請負金額、未確定なら概算金額（profitBasis）。
 // 進捗率は、確定なら累計出来高 ÷ 請負金額、未確定なら累計原価 ÷ 概算金額（概算に対する見込み）。
-// ② の追加・増・変更・減の提案額は変更増減の一覧（change-model.ts の buildChangeLedger）と同じ計算で、期間末までの累計。
+// ② の追加・増・変更・減の精算額は変更増減の一覧（change-model.ts の buildChangeLedger）の精算と同じ計算で、期間末までの累計。
 
 function round2(x: number): number {
   return Math.round(x * 100) / 100;
@@ -171,10 +171,14 @@ function buildProfit(
   };
 }
 
-/** 期間末までの日報の 追加 ＋ 増 ＋ 変更 ＋ 減 の提案額（変更増減の一覧と同じ計算）。行が無ければ null。 */
-function changeProposalTotal(input: CostReportInput, cumulativeReports: ReportWithLines[], rates: ChangeRates): number | null {
-  const ledger = buildChangeLedger({ site: input.site, reports: cumulativeReports, issues: input.issues }, rates, { kind: 'all' });
-  if (ledger.isEmpty) return null;
+/**
+ * 期間末までの 追加 ＋ 増 ＋ 変更 ＋ 減 の精算額（変更増減の一覧の settlement そのもの。同じ期間で作るので月指定でも一致する：
+ * 期間末より後に登録した一式・常用の件は入らない）。期間末までに追加・増・変更・減の行も、載せる件も無ければ null。
+ */
+function changeProposalTotal(input: CostReportInput, cumulativeReports: ReportWithLines[], period: CostReportPeriod, rates: ChangeRates): number | null {
+  const ledger = buildChangeLedger({ site: input.site, reports: cumulativeReports, issues: input.issues }, rates, period);
+  const hasChangeRows = cumulativeReports.some((r) => r.lines.some((l) => l.kind === 'work' && l.changeKind !== 'contract'));
+  if (!hasChangeRows && ledger.issues.length === 0) return null;
   const { extra, increase, change, minus } = ledger.settlement;
   return extra + increase + change + minus;
 }
@@ -453,7 +457,7 @@ function buildTrades(periodReports: ReportWithLines[]): TradeSection {
 
 // ─── 本体 ───
 
-/** rates は追加・増・変更の提案金額に掛ける率（gn_settings の経費率・利益率）。② の changeProposal に使う。 */
+/** rates は追加・増・変更の提案金額に掛ける率（gn_settings の経費率・利益率）。② の changeProposal（精算額）に使う。 */
 export function buildCostReport(input: CostReportInput, period: CostReportPeriod, now: CostReportNow, rates: ChangeRates): CostReportModel {
   // 進捗率（③）の基準。② と同じ（契約確定なら請負金額、未確定なら概算金額）。
   const base = profitBasis(input.site);
@@ -476,7 +480,7 @@ export function buildCostReport(input: CostReportInput, period: CostReportPeriod
     isEmpty: periodReports.length === 0,
     header,
     costs: { labor: c.labor, fuel: c.fuel, lease: c.lease, cash: c.cash, credit: c.credit, total: c.cost, shares: c.shares },
-    profit: buildProfit(input.site, cumulativeReports, cumulativeDays, changeProposalTotal(input, cumulativeReports, rates)),
+    profit: buildProfit(input.site, cumulativeReports, cumulativeDays, changeProposalTotal(input, cumulativeReports, period, rates)),
     trend: buildTrend(allDays, period, periodMonths, base),
     workers: buildWorkers(input, allReports, workerPeriod),
     vendors: buildVendors(input, periodReports),
