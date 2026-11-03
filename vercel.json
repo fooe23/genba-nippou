@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/export/fill.py": {
+      "maxDuration": 60,
+      "includeFiles": "{templates/現場管理台帳_V34_原本.xlsm,python/**}"
+    }
+  }
+}

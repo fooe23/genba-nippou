@@ -45,12 +45,23 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
         <ReportCalendar siteId={siteId} heads={heads} today={today} />
       </div>
 
-      <Link
-        href={`/sites/${siteId}/summary`}
-        className="mt-6 flex min-h-12 w-full items-center justify-center rounded-lg border border-blue-700 text-base font-bold text-blue-700 dark:border-blue-400 dark:text-blue-400"
-      >
-        集計を見る
-      </Link>
+      <div className="mt-6 flex gap-3">
+        <Link
+          href={`/sites/${siteId}/summary`}
+          className="flex min-h-12 flex-1 items-center justify-center rounded-lg border border-blue-700 text-base font-bold text-blue-700 dark:border-blue-400 dark:text-blue-400"
+        >
+          集計を見る
+        </Link>
+        {/* 協力会社は出力しない（/api/export も 403） */}
+        {profile.accountType !== 'partner' && (
+          <Link
+            href={`/sites/${siteId}/export`}
+            className="flex min-h-12 flex-1 items-center justify-center rounded-lg border border-blue-700 text-base font-bold text-blue-700 dark:border-blue-400 dark:text-blue-400"
+          >
+            出力
+          </Link>
+        )}
+      </div>
 
       {profile.isAdmin && <SiteStatusButton siteId={siteId} status={site.status} />}
     </main>

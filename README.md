@@ -15,7 +15,11 @@
 - 管理（現場・担当者・現場で使うマスター・繰越初期値／マスター6種・単価履歴）
 - アプリ内ガイド（`/guide`）
 
-**第2〜4計画は未実装**（Excel出力、積算連携、PDF・写真・マスターExcel取り込み）。計画の全体像は `docs/superpowers/plans/README.md`、設計は `docs/superpowers/specs/2026-10-30-genba-nippou-design.md`。
+**第2計画（改）で追加**
+
+- 出力画面（現場 → 出力）と原本 Excel（V34 雛形の .xlsm）のダウンロード
+
+**第2〜4計画の残りは未実装**（工事原価集計表・日報の出力、積算連携、PDF・写真・マスターExcel取り込み）。計画の全体像は `docs/superpowers/plans/README.md`、設計は `docs/superpowers/specs/2026-10-30-genba-nippou-design.md`。
 
 ## 構成
 
@@ -25,7 +29,8 @@
 | スタイル | Tailwind CSS 4（スマホ優先） |
 | 認証・DB・ファイル | Supabase（Auth、PostgreSQL＋RLS、Storage） |
 | 公開 | Vercel（GitHub への push で自動デプロイ） |
-| Excel出力・積算PDF読み取り | Python 関数（`api/python/`）は第2計画で追加。現時点では存在しない |
+| Excel出力 | Vercel の Python 関数 `api/export/fill.py`（openpyxl。`python/genba_export` を使う）。ローカルは `python3 python/run_fill.py` |
+| 積算PDF読み取り | 第3計画で追加。現時点では存在しない |
 
 ## ディレクトリ構成
 
@@ -34,7 +39,9 @@ src/app/            画面（(auth)=ログイン、(app)=ホーム・sites・app
 src/components/     画面部品（report, site, sites, approval, summary, masters）
 src/lib/            calc=計算, db=Supabase 読み書き, report=日報フォーム, supabase=クライアント
 src/content/        アプリ内ガイドの本文
-src/proxy.ts        ログイン状態の確認（未ログインは /login へ）
+src/proxy.ts        ログイン状態の確認（未ログインは /login へ。api/export/fill は対象外）
+api/export/fill.py  Vercel の Python 関数（原本 Excel を作る。vercel.json で雛形と python/ を同梱）
+python/             Excel 出力の本体（genba_export）、ローカル用の run_fill.py、unittest
 supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、update_2026-11-02_site_archive.sql（現場の削除・削除ログ・完了現場の書き込み禁止）、update_2026-11-02b_lines_guard_fix.sql（その修正）、update_2026-11-03_labor_rule.sql（人工・残業ルール［V34］・労務の設定・作業員の残業単価・現場の共通時間の既定）、update_2026-11-03c_master_import.sql（マスターの更新者の記録・Excel／CSV 取り込みの RPC・取り込み履歴）、verify_rls.md（権限の確認手順）、verify_rls_auto.sql（手順をまとめた自動検証。実行後は全件取り消される）
 tests/              Vitest
 scripts/            check-sql.mjs（SQL の構文検査）
@@ -59,12 +66,15 @@ NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 ```
 
+原本 Excel の出力（現場 → 「出力」）は、ローカルでは `python3 python/run_fill.py` を起動して作る。Python 3.9 以上と openpyxl が要る（`python3 -m pip install -r requirements.txt`）。`GN_EXPORT_SECRET` はローカルでは空でよい。
+
 `SUPABASE_SERVICE_ROLE_KEY` は第1計画では使わない。`.env*` は git に入らない（`.env.example` のみ追跡）。
 
 | コマンド | 内容 |
 |---|---|
 | `npm test` | Vitest（単体テスト） |
 | `npm run lint` | ESLint |
+| `npm run test:py` | Python の unittest（Excel 出力と `api/export/fill.py`。python3 と openpyxl が要る） |
 | `npm run build` | 本番ビルド（型検査を含む） |
 | `npm run check:sql` | `supabase/*.sql`（`schema_genba.sql`・`add_profile_account_type.sql`・`fix_profiles_guard.sql`・`update_2026-10-31_employee_access.sql`・`update_2026-11-02_site_archive.sql`・`update_2026-11-03_labor_rule.sql` など `supabase/` の全 SQL）の構文検査（DB には接続しない） |
 
@@ -106,7 +116,20 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`（`sb_publishable_…`）
    - Settings → Git の Production Branch は `main`（既定のまま）。以後は `main` への push で自動デプロイされる。
    - 本番URL：`https://genba-nippou-ten.vercel.app`（2026-11-01 公開）。
+   - 原本 Excel の出力を使うなら、次章「Excel 出力（Vercel の Python 関数）」の環境変数も設定する。
 4. Supabase の Authentication → URL Configuration で、Site URL に本番URL（`https://genba-nippou-ten.vercel.app`）を設定し、Redirect URLs に `https://genba-nippou-ten.vercel.app/**` を追加する。プレビュー環境も使うなら `https://*-<team>.vercel.app/**` も追加する。
+
+## Excel 出力（Vercel の Python 関数）
+
+現場 → 「出力」で月を選ぶと、`/api/export?site=<現場ID>&month=YYYY-MM`（Next の Route Handler）が日報を読み、V34 雛形（`templates/現場管理台帳_V34_原本.xlsm`）に書いた xlsm を返す。雛形への書き込みは Python（openpyxl）で行う。
+
+- **Python 関数**：`api/export/fill.py`（POST のみ）。`vercel.json` で最大 60 秒、雛形と `python/**` を同梱する。openpyxl はリポジトリ直下の `requirements.txt` から入る。Next の Route Handler は Vercel 上では `https://$VERCEL_PROJECT_PRODUCTION_URL/api/export/fill` に `X-Export-Secret` を付けて POST する（プレビュー環境からも本番の関数を呼ぶ）。
+- **Vercel の環境変数**（Settings → Environment Variables）：
+  - `GN_EXPORT_SECRET`（必須）：長いランダムな文字列（例：`openssl rand -hex 32`）。Route Handler と Python 関数の両方が読む。未設定だと出力は「設定がありません」で失敗し、Python 関数は 403 を返す。
+  - `GN_EXPORT_FILL_URL`（任意）：Python 関数の送り先を変えるとき（別のデプロイの関数を使うなど）。
+- **Storage**：作った xlsm は `gn-exports/<site_id>/<YYYY-MM>/daicho_v34_<YYYY-MM>.xlsm` にも上書き保存する（Storage のキーは ASCII だけなので、ダウンロード時の日本語のファイル名とは別）。バケット `gn-exports`（非公開）とポリシーは `schema_genba.sql` で作られる。バケットが無い・保存に失敗したときはサーバーのログに残してダウンロードは続ける（ほかの人が先に保存した同じ月は、管理者以外は上書きできず保存だけ失敗する）。
+- **出せないとき**：日報の明細が雛形の行数を超える日がある月、マスターが雛形の件数を超える月は、ボタンを押せず「この月は原本 Excel では出せません（…）。PDF／CSV をご利用ください」と出る（`/api/export` も 400）。協力会社のアカウントは出力できない（画面に出さず、`/api/export` は 403）。
+- **ローカル**：`VERCEL` も `GN_EXPORT_FILL_URL` も無いときは `python3 python/run_fill.py` を起動する（stdin に `{"template", "payload"}` の JSON、stdout に xlsm）。単体で試すなら `python3 python/run_fill.py < 入力.json > 出力.xlsm`。
 
 ## 本番確認チェックリスト
 
@@ -127,7 +150,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 
 ## 既知の制約
 
-- 未実装：Excel出力、PDF出力、積算書の取り込みと連携、写真の添付（第2〜4計画）。
+- 未実装：工事原価集計表・日報の出力（出力画面では「準備中」）、PDF出力、積算書の取り込みと連携、写真の添付（第2〜4計画）。
 - マスターのExcel取り込みは未実装（第4計画）。
 - 1現場につき1日1枚の日報。
 - Storage のオブジェクトパスは先頭を `<site_id>/…` にする。RLS が先頭要素の現場IDで権限を判定するため、この規約を外れるとアクセスできない。
