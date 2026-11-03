@@ -28,6 +28,7 @@ import { ClientConfirmationButton, ClientConfirmationStatus } from './ClientConf
 import { ImportDaySheet } from './ImportDaySheet';
 import { fieldClass, NumInput, Select, TextInput, TimeInput } from './inputs';
 import { IssueBanner, IssueKindTag } from './IssueBanner';
+import { ReopenApprovalButton, REOPENED_MESSAGE } from './ReopenApprovalButton';
 import { ReportSummary } from './ReportSummary';
 import { FuelTable } from './tables/FuelTable';
 import { LaborTable } from './tables/LaborTable';
@@ -291,7 +292,10 @@ export function ReportForm(p: ReportFormProps) {
     if (p.updatedAt === null || !own.includes(p.updatedAt)) setGeneration((g) => g + 1);
   }
   const onOwnVersion = useCallback((v: string) => setOwn((o) => [...o, v]), []);
-  return <ReportFormBody key={generation} {...p} onOwnVersion={onOwnVersion} />;
+  // 承認解除のあとは版が進んで入力欄が作り直されるので、完了の表示は作り直しで消えないここで覚えておく。
+  const [reopened, setReopened] = useState(false);
+  const onReopened = useCallback(() => setReopened(true), []);
+  return <ReportFormBody key={generation} {...p} onOwnVersion={onOwnVersion} reopened={reopened} onReopened={onReopened} />;
 }
 
 function initialFormState(initial: SaveInput, masters: ReportMasters, readOnly: boolean): { state: FormState; filled: number } {
@@ -301,7 +305,12 @@ function initialFormState(initial: SaveInput, masters: ReportMasters, readOnly: 
 }
 
 /** 上から 見出し → 基本情報 → 前回コピー → 共通時間 → 6表 → 集計 → 重要事項・連絡事項 → 警告 → 保存。 */
-function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion: (v: string) => void }) {
+function ReportFormBody({
+  onOwnVersion,
+  reopened,
+  onReopened,
+  ...p
+}: ReportFormProps & { onOwnVersion: (v: string) => void; reopened: boolean; onReopened: () => void }) {
   const router = useRouter();
   // 楽観ロック：いまの入力のもとになったサーバーの版。自分が保存・提出するたびに新しい版に進める。
   const [expected, setExpected] = useState(p.updatedAt);
@@ -604,8 +613,15 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
       )}
 
       {p.readOnly && p.status === 'approved' && (
+        <div role="status" className="mb-4 rounded-lg border border-green-500 bg-green-50 p-3 text-green-900 dark:bg-green-950 dark:text-green-50">
+          <p className="font-bold">{APPROVED_LOCKED_MESSAGE}</p>
+          {/* 承認画面（review）には ApprovalActions の同じボタンがある。完了現場は DB が拒否するので出さない（先に「進行中に戻す」）。 */}
+          {p.isAdmin && !p.review && !p.siteClosed && reportId !== null && <ReopenApprovalButton reportId={reportId} onDone={onReopened} />}
+        </div>
+      )}
+      {reopened && p.status !== 'approved' && (
         <p role="status" className="mb-4 rounded-lg border border-green-500 bg-green-50 p-3 font-bold text-green-900 dark:bg-green-950 dark:text-green-50">
-          {APPROVED_LOCKED_MESSAGE}
+          {REOPENED_MESSAGE}
         </p>
       )}
       {p.readOnly && p.readOnlyNotice && (
