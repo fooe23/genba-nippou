@@ -59,3 +59,30 @@ describe('workerInputSchema（残業単価）', () => {
     expect(r.overtimeRate).toBe(2500);
   });
 });
+
+describe('settingsInputSchema（経費率・利益率・会社名）', () => {
+  it('省略は undefined（変更しない）', () => {
+    const r = settingsInputSchema.parse(ok);
+    expect(r.overheadRate).toBeUndefined();
+    expect(r.profitRate).toBeUndefined();
+    expect(r.companyName).toBeUndefined();
+    expect(r.companyContact).toBeUndefined();
+  });
+  it('率は 0〜1（端も可）。会社名・連絡先は空欄なら null、前後の空白は除く', () => {
+    expect(settingsInputSchema.parse({ ...ok, overheadRate: 0.15, profitRate: 0.1 })).toMatchObject({ overheadRate: 0.15, profitRate: 0.1 });
+    expect(settingsInputSchema.safeParse({ ...ok, overheadRate: 0, profitRate: 1 }).success).toBe(true);
+    expect(settingsInputSchema.parse({ ...ok, companyName: ' 株式会社オオホリ建託 ', companyContact: '' })).toMatchObject({
+      companyName: '株式会社オオホリ建託', companyContact: null,
+    });
+    expect(settingsInputSchema.parse({ ...ok, companyName: null, companyContact: 'TEL 000-0000-0000' })).toMatchObject({
+      companyName: null, companyContact: 'TEL 000-0000-0000',
+    });
+  });
+  it('範囲外・長すぎる値は日本語の文言で弾く', () => {
+    expect(firstError(settingsInputSchema, { ...ok, overheadRate: -0.01 })).toBe('経費率は0〜1の数値で入力してください');
+    expect(firstError(settingsInputSchema, { ...ok, overheadRate: 1.5 })).toBe('経費率は0〜1の数値で入力してください');
+    expect(firstError(settingsInputSchema, { ...ok, profitRate: NaN })).toBe('利益率は0〜1の数値で入力してください');
+    expect(firstError(settingsInputSchema, { ...ok, companyName: 'あ'.repeat(101) })).toBe('会社名は100文字以内で入力してください');
+    expect(firstError(settingsInputSchema, { ...ok, companyContact: 'あ'.repeat(201) })).toBe('会社の連絡先は200文字以内で入力してください');
+  });
+});

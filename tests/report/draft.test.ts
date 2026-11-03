@@ -32,6 +32,17 @@ describe('isValidDraft', () => {
     expect(isValidDraft(draft, siteId, '2026-11-06')).toBe(false);
     expect(isValidDraft({ ...draft, lines: 'x' }, siteId, date)).toBe(false);
   });
+  it('区分などの無い古い作業内容の行は、読み込み時に既定（契約内・指示なし）を末尾に足す', () => {
+    const work = { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地', qty: 1, unit: '', manDays: null, unitPrice: null, source: 'extra' };
+    const old = { ...draft, lines: [work] } as unknown as SaveInput;
+    expect(isValidDraft(old, siteId, date)).toBe(true);
+    const up = upgradeDraft(old);
+    expect(up.lines[0]).toEqual({ ...work, changeKind: 'contract', instructedBy: '', instructionMethod: null, instructedOn: null, issueId: null });
+    expect(Object.keys(up.lines[0]).slice(-5)).toEqual(['changeKind', 'instructedBy', 'instructionMethod', 'instructedOn', 'issueId']);
+    // 入っている値はそのまま
+    const filled = upgradeDraft({ ...draft, lines: [{ ...work, changeKind: 'minus', instructedBy: '施主' }] } as unknown as SaveInput);
+    expect(filled.lines[0]).toMatchObject({ changeKind: 'minus', instructedBy: '施主', instructionMethod: null });
+  });
   it('残業単価（overtimeRate）の無い古い下書きも受け付け、読み込み時に null を末尾に足す', () => {
     expect(isValidDraft(draft, siteId, date)).toBe(true); // draft の作業員行には overtimeRate が無い
     const up = upgradeDraft(draft as unknown as SaveInput);

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { archiveSiteSchema, carryoverSchema, memberSchema, siteInputSchema, siteStatusSchema } from '@/lib/db/sites-schemas';
+import { firstError } from '@/lib/db/masters-schemas';
 
 const base = {
   name: '村山一彦様邸 母屋修繕工事',
@@ -138,5 +139,27 @@ describe('siteStatusSchema', () => {
   });
   it('現場IDは UUID のみ', () => {
     expect(siteStatusSchema.safeParse({ siteId: 'x', status: 'done' }).success).toBe(false);
+  });
+});
+
+describe('siteInputSchema（契約の状態・概算金額）', () => {
+  it('省略は undefined（変更しない）', () => {
+    const r = siteInputSchema.parse(base);
+    expect(r.contractStatus).toBeUndefined();
+    expect(r.estimatedAmount).toBeUndefined();
+  });
+  it('確定・未確定と、0以上の概算金額（null でクリア）を受け付ける', () => {
+    expect(siteInputSchema.parse({ ...base, contractStatus: 'tentative', estimatedAmount: 1200000 })).toMatchObject({
+      contractStatus: 'tentative', estimatedAmount: 1200000,
+    });
+    expect(siteInputSchema.parse({ ...base, contractStatus: 'fixed', estimatedAmount: null })).toMatchObject({
+      contractStatus: 'fixed', estimatedAmount: null,
+    });
+    expect(siteInputSchema.parse({ ...base, estimatedAmount: 0 }).estimatedAmount).toBe(0);
+  });
+  it('正しくない値は日本語の文言で弾く', () => {
+    expect(firstError(siteInputSchema, { ...base, contractStatus: 'draft' })).toBe('契約の状態が正しくありません');
+    expect(firstError(siteInputSchema, { ...base, estimatedAmount: -1 })).toBe('概算金額は0以上の数値で入力してください');
+    expect(firstError(siteInputSchema, { ...base, estimatedAmount: NaN })).toBe('概算金額は0以上の数値で入力してください');
   });
 });

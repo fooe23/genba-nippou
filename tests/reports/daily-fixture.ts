@@ -1,4 +1,5 @@
 import { buildDailyReport } from '@/lib/reports/daily-model';
+import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import type { DailyReportInput, DailyReportModel, DailyReportSource, SavedReportLine } from '@/lib/reports/types';
@@ -12,7 +13,7 @@ const noTime = { start: null, end: null, breakMin: null, gapMin: null };
 export const site: Site = {
   id: 's1', name: '〇〇邸新築工事', clientName: '〇〇様', projectName: null, projectNo: 'K-001', overview: null,
   contractAmount: 1_000_000, startDate: '2026-10-01', endDate: '2027-01-31', contractType: '元請け', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null,
 };
 
 export const lines: SavedReportLine[] = [
@@ -36,8 +37,8 @@ export const lines: SavedReportLine[] = [
   { kind: 'cash', itemName: '釘', spec: 'N65', unit: '箱', qty: 1, unitPrice: 1200, vendor: '=ホームセンター', stored: stored(1200) },
   { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 10, unitPrice: 1500, supplierId: 'sp1', vendor: '山田商店', stored: stored(15000) },
   { kind: 'credit', itemName: '金物', spec: '', unit: '式', qty: 1, unitPrice: 800, supplierId: null, vendor: '川村金物', stored: stored(800) },
-  { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地, "1 階"', qty: 20, unit: 'm2', manDays: 2, unitPrice: 5000, source: 'extra', stored: stored(100000, 2) },
-  { kind: 'work', estimateItemId: null, trade: '', description: '片付け', qty: null, unit: '', manDays: 0.5, unitPrice: null, source: 'extra', stored: stored(0, 0.5) },
+  { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地, "1 階"', qty: 20, unit: 'm2', manDays: 2, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, stored: stored(100000, 2) },
+  { kind: 'work', estimateItemId: null, trade: '', description: '片付け', qty: null, unit: '', manDays: 0.5, unitPrice: null, source: 'extra', ...EMPTY_WORK_CHANGE, stored: stored(0, 0.5) },
 ];
 
 export const COST_TOTAL = 18001 + 17344 + 0 + 714 + 0 + 3000 + 5000 + 1200 + 15000 + 800;
@@ -46,6 +47,7 @@ export function report(date = '2026-11-02', over: Partial<DailyReportSource> = {
   return {
     id: `r-${date}`, siteId: 's1', reportDate: date, weather: '晴れ', supervisor: '大江', status: 'approved', rejectedReason: null,
     outputTotal: 100000, costTotal: COST_TOTAL, manDaysTotal: 2, updatedAt: null, createdBy: 'p1',
+    clientConfirmedBy: null, clientConfirmedAt: null, clientConfirmedNote: null,
     lines,
     common: { start: '08:00', end: '17:30', breakMin: 90, gapMin: 0 },
     issuesText: '施主より追加の依頼あり',
@@ -56,8 +58,8 @@ export function report(date = '2026-11-02', over: Partial<DailyReportSource> = {
 }
 
 export const issues: Issue[] = [
-  { id: 'i1', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '棚の追加', status: 'open', doneAt: null },
-  { id: 'i2', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '窓の変更', status: 'done', doneAt: '2026-11-04T03:00:00Z' },
+  { id: 'i1', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '棚の追加', status: 'open', doneAt: null, kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null },
+  { id: 'i2', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '窓の変更', status: 'done', doneAt: '2026-11-04T03:00:00Z', kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null },
 ];
 
 export function dailyInput(over: Partial<DailyReportInput> = {}): DailyReportInput {

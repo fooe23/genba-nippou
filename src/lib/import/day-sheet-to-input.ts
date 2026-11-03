@@ -2,6 +2,7 @@ import type { ReportMasters } from '@/components/report/form-state';
 import { jpDate } from '@/lib/calc/format';
 import { rateAt } from '@/lib/calc/rates';
 import type { DaySheetParse } from '@/lib/import/day-sheet';
+import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { ReportLineInput, SaveInput } from '@/lib/report/schema';
 
 // 1 日分の雛形から読んだ内容 → 日報フォームに流し込む SaveInput（純関数）。
@@ -112,7 +113,7 @@ export function toSaveInput(
     if (l.description === '') notes.push(`作業内容の ${i + 1} 行目（${l.trade}）は施工内容が空です。保存の前に入れてください`);
     lines.push({
       kind: 'work', estimateItemId: null, trade: l.trade, description: l.description, qty: l.qty, unit: l.unit,
-      manDays: l.manDays, unitPrice: l.unitPrice, source: 'extra',
+      manDays: l.manDays, unitPrice: l.unitPrice, source: 'extra', ...EMPTY_WORK_CHANGE,
     });
   });
 

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { ReportMasters } from '@/components/report/form-state';
 import type { DaySheetParse } from '@/lib/import/day-sheet';
 import { toSaveInput } from '@/lib/import/day-sheet-to-input';
@@ -78,7 +79,7 @@ describe('toSaveInput', () => {
         { kind: 'lease', itemId: id(21), itemName: '発電機', spec: '2kVA', unit: '日', qty: 1, unitPrice: 3000, note: '' },
         { kind: 'cash', itemName: 'ビス', spec: '', unit: '箱', qty: 2, unitPrice: 1200, vendor: 'ホームセンター' },
         { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 10, unitPrice: 1500, supplierId: id(31), vendor: '○○建材' },
-        { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地', qty: 20, unit: '㎡', manDays: 1.5, unitPrice: 3000, source: 'extra' },
+        { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地', qty: 20, unit: '㎡', manDays: 1.5, unitPrice: 3000, source: 'extra', ...EMPTY_WORK_CHANGE },
       ],
     });
     expect(reportInputSchema.safeParse(input).success).toBe(true);

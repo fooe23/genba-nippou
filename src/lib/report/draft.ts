@@ -1,3 +1,4 @@
+import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { SaveInput } from '@/lib/report/schema';
 
 // 未保存の入力を端末（localStorage）に残す。プライベートモード等で使えない場合は何もしない。
@@ -46,16 +47,24 @@ export function isValidDraft(v: unknown, siteId: string, date: string): v is Sav
   });
 }
 
+/** 作業内容の行に無い区分・指示の項目だけを既定値で足す（EMPTY_WORK_CHANGE の並びで末尾に）。 */
+function missingWorkChange(l: object): Partial<typeof EMPTY_WORK_CHANGE> {
+  return Object.fromEntries(Object.entries(EMPTY_WORK_CHANGE).filter(([k]) => (l as Record<string, unknown>)[k] === undefined));
+}
+
 /**
  * 古い形式の下書きを今の形にそろえる。作業員の行に残業単価（overtimeRate）が無ければ null（標準の計算式）を入れる。
+ * 作業内容の行に区分・指示の項目が無ければ既定（契約内・指示なし）を入れる。
  * 項目は末尾に足す（サーバーから読んだ行と JSON の並びをそろえ、同じ内容なら復元を促さないため）。
  */
 export function upgradeDraft(data: SaveInput): SaveInput {
   return {
     ...data,
-    lines: data.lines.map((l) =>
-      l.kind === 'labor' && (l as { overtimeRate?: unknown }).overtimeRate === undefined ? { ...l, overtimeRate: null } : l,
-    ),
+    lines: data.lines.map((l) => {
+      if (l.kind === 'labor' && (l as { overtimeRate?: unknown }).overtimeRate === undefined) return { ...l, overtimeRate: null };
+      if (l.kind === 'work') return { ...l, ...missingWorkChange(l) };
+      return l;
+    }),
   };
 }
 

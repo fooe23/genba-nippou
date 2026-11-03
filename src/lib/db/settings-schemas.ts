@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// 全社の設定（労務の計算設定・共通時間の既定）の入力検証。サーバー（Server Action）とクライアント（フォーム）の両方で使う。
+// 全社の設定（労務の計算設定・共通時間の既定・提案金額の率・自社の名前）の入力検証。サーバー（Server Action）とクライアント（フォーム）の両方で使う。
 
 const MSG_TIME = '時刻は HH:MM 形式で入力してください';
 const MSG_MIN = '休憩・中抜は0〜600の整数（分）で入力してください';
@@ -25,6 +25,14 @@ export const optionalMinutesSchema = z.preprocess(
   z.number({ error: MSG_MIN }).int(MSG_MIN).min(0, MSG_MIN).max(600, MSG_MIN).nullable(),
 );
 
+/** 任意の文字列（前後の空白を除く。空欄は null）。 */
+function optionalTextSchema(label: string, max: number) {
+  return z.preprocess(
+    emptyToNull,
+    z.string({ error: `${label}は文字で入力してください` }).trim().max(max, `${label}は${max}文字以内で入力してください`).nullable(),
+  );
+}
+
 export const settingsInputSchema = z.object({
   shoteiHours: rangeSchema('1人工の基準時間（所定）', 0.5, 24),
   fixedOvertimeLimit: rangeSchema('固定残業の上限時間', 0, 24),
@@ -34,5 +42,10 @@ export const settingsInputSchema = z.object({
   defaultCommonEnd: optionalTimeSchema,
   defaultCommonBreakMin: optionalMinutesSchema,
   defaultCommonGapMin: optionalMinutesSchema,
+  // 追加・変更の提案金額の率と自社の名前・連絡先。省略時は変更しない。
+  overheadRate: rangeSchema('経費率', 0, 1).optional(),
+  profitRate: rangeSchema('利益率', 0, 1).optional(),
+  companyName: optionalTextSchema('会社名', 100).optional(),
+  companyContact: optionalTextSchema('会社の連絡先', 200).optional(),
 });
 export type SettingsInput = z.input<typeof settingsInputSchema>;

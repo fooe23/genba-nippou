@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildExportPayload, exportFileName } from '@/lib/export/payload';
@@ -30,7 +31,7 @@ const lease = (itemId: string | null, itemName: string, unitPrice: number): Leas
 const SITE: Site = {
   id: 's1', name: '検証現場', clientName: '検証客先', projectName: '検証工事', projectNo: 'K-001', overview: '概要',
   contractAmount: 12000000, startDate: '2026-10-01', endDate: '2027-03-31', contractType: '元請け', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null,
 };
 
 const report = (date: string, lines: ReportLine[] = [], o: Partial<ExportReport> = {}): ExportReport => ({
@@ -174,7 +175,7 @@ describe('buildExportPayload: マスターの並びと上限', () => {
 
   it('明細が雛形の行数を超える日は rows_overflow（2回目の作業内容だけ 8 行まで）', () => {
     const work = (n: number): ReportLine[] => Array.from({ length: n }, () => ({
-      kind: 'work', estimateItemId: null, trade: '解体', description: '撤去', qty: 1, unit: 'm2', manDays: 1, unitPrice: 100, source: 'extra',
+      kind: 'work', estimateItemId: null, trade: '解体', description: '撤去', qty: 1, unit: 'm2', manDays: 1, unitPrice: 100, source: 'extra', ...EMPTY_WORK_CHANGE,
     }));
     const reports = [
       report('2026-11-01', [...work(6), ...Array.from({ length: 11 }, () => labor(null, 'X'))]),
@@ -378,7 +379,7 @@ describe('buildExportPayload: 日報の項目', () => {
       lease('l1', '発電機', 3000),
       { kind: 'cash', itemName: 'ビス', spec: '50mm', unit: '箱', qty: 1, unitPrice: 500, vendor: 'ホームセンター' },
       { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p1', vendor: '○○建材' },
-      { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra' },
+      { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE },
     ], {
       status: 'approved', outputTotal: 50000, costTotal: 10600,
       issuesText: '追加工事の指示あり', issues: ['サッシ追加 2 か所'], notesText: '雨天のため午後中止',
@@ -442,7 +443,7 @@ describe('Python の fixture との形の一致', () => {
       lease('l1', '発電機', 3000),
       { kind: 'cash', itemName: 'ビス', spec: '50mm', unit: '箱', qty: 1, unitPrice: 500, vendor: 'ホームセンター' },
       { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p1', vendor: '○○建材' },
-      { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra' },
+      { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE },
     ], { issues: ['件'] });
     const { payload } = buildExportPayload(input({
       reports: [r],

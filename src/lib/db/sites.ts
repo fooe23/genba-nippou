@@ -24,6 +24,10 @@ export interface Site {
   commonGapMin: number | null;
   /** 削除（アーカイブ）した日時。null なら削除されていない。管理者には削除済みも返るので、呼び出し側で判断する。 */
   deletedAt: string | null;
+  /** 契約金額が確定しているか（fixed）、未確定（tentative。概算・見積提示額 estimatedAmount を使う）か。 */
+  contractStatus: 'fixed' | 'tentative';
+  /** 概算・見積提示額（契約金額が未確定のときに使う）。 */
+  estimatedAmount: number | null;
 }
 export interface SiteMember {
   userId: string;
@@ -43,10 +47,10 @@ export interface ProfileListItem {
 export interface SiteMasters { workerIds: string[]; supplierIds: string[]; vehicleIds: string[]; leaseItemIds: string[]; }
 export interface Carryover { workerId: string; manDays: number; laborCost: number; beforeDate: string; }
 
-type SiteCommonKey = 'commonStart' | 'commonEnd' | 'commonBreakMin' | 'commonGapMin';
-/** upsertSite に渡す入力（sites-actions.ts）。共通時間の既定は省略すると変更しない。 */
-export type SiteInput = Omit<Site, 'id' | 'status' | 'deletedAt' | SiteCommonKey> &
-  Partial<Pick<Site, SiteCommonKey>> & { id?: string; status?: Site['status'] };
+type SiteOptionalKey = 'commonStart' | 'commonEnd' | 'commonBreakMin' | 'commonGapMin' | 'contractStatus' | 'estimatedAmount';
+/** upsertSite に渡す入力（sites-actions.ts）。共通時間の既定・契約の状態・概算金額は省略すると変更しない（新規は DB の既定）。 */
+export type SiteInput = Omit<Site, 'id' | 'status' | 'deletedAt' | SiteOptionalKey> &
+  Partial<Pick<Site, SiteOptionalKey>> & { id?: string; status?: Site['status'] };
 
 /** 現場の削除・復元の記録（gn_site_audit_log。管理者だけ読める）。 */
 export interface SiteAuditEntry {
@@ -77,13 +81,15 @@ interface SiteRow {
   common_break_min: number | string | null;
   common_gap_min: number | string | null;
   deleted_at: string | null;
+  contract_status: string | null;
+  estimated_amount: number | string | null;
 }
 interface ProfileRef { name: string | null; email: string | null; account_type: string | null; company_name: string | null; }
 interface MemberRow { user_id: string; role: SiteRole; profiles: ProfileRef | ProfileRef[] | null; }
 interface CarryoverRow { worker_id: string; man_days: number | string; labor_cost: number | string; before_date: string; }
 
 const SITE_COLUMNS =
-  'id, name, client_name, project_name, project_no, overview, contract_amount, start_date, end_date, contract_type, status, common_start, common_end, common_break_min, common_gap_min, deleted_at';
+  'id, name, client_name, project_name, project_no, overview, contract_amount, start_date, end_date, contract_type, status, common_start, common_end, common_break_min, common_gap_min, deleted_at, contract_status, estimated_amount';
 
 function toSite(r: SiteRow): Site {
   return {
@@ -103,6 +109,8 @@ function toSite(r: SiteRow): Site {
     commonBreakMin: r.common_break_min === null || r.common_break_min === undefined ? null : Number(r.common_break_min),
     commonGapMin: r.common_gap_min === null || r.common_gap_min === undefined ? null : Number(r.common_gap_min),
     deletedAt: r.deleted_at ?? null,
+    contractStatus: r.contract_status === 'tentative' ? 'tentative' : 'fixed',
+    estimatedAmount: r.estimated_amount === null || r.estimated_amount === undefined ? null : Number(r.estimated_amount),
   };
 }
 

@@ -35,6 +35,12 @@ alter table public.gn_sites add column if not exists common_start     text;
 alter table public.gn_sites add column if not exists common_end       text;
 alter table public.gn_sites add column if not exists common_break_min int;
 alter table public.gn_sites add column if not exists common_gap_min   int;
+-- 既存環境向け（2026-11-04 追加列。update_2026-11-04_change_tracking.sql）
+-- 契約金額の状態（確定・未確定）と、未確定のときに使う概算・見積提示額
+alter table public.gn_sites add column if not exists contract_status text not null default 'fixed'
+  check (contract_status in ('fixed','tentative'));
+alter table public.gn_sites add column if not exists estimated_amount numeric
+  check (estimated_amount is null or estimated_amount >= 0);
 
 
 create table if not exists public.gn_site_members (
@@ -246,6 +252,29 @@ create table if not exists public.gn_report_issues (
   updated_at       timestamptz not null default now()
 );
 create index if not exists gn_report_issues_report_idx on public.gn_report_issues (report_id);
+
+-- 既存環境向け（2026-11-04 追加列。update_2026-11-04_change_tracking.sql）：追加・変更・減の記録
+-- 日報の客先確認（確認者名・日時・メモ）。日報の保存（gn_save_report）では変えない。
+alter table public.gn_daily_reports add column if not exists client_confirmed_by   text;
+alter table public.gn_daily_reports add column if not exists client_confirmed_at   timestamptz;
+alter table public.gn_daily_reports add column if not exists client_confirmed_note text;
+-- 作業内容の行（kind = 'work'）の区分・指示者・指示方法・指示日・根拠の件。作業内容以外の行の区分は 'contract' のまま使わない。
+alter table public.gn_report_lines add column if not exists change_kind text not null default 'contract'
+  check (change_kind in ('contract','extra','change','minus'));
+alter table public.gn_report_lines add column if not exists instructed_by text;
+alter table public.gn_report_lines add column if not exists instruction_method text
+  check (instruction_method in ('oral','phone','email','document','other'));
+alter table public.gn_report_lines add column if not exists instructed_on date;
+alter table public.gn_report_lines add column if not exists issue_id uuid
+  references public.gn_report_issues(id) on delete set null;
+-- 重要事項の件の種別・指示者・指示方法・金額見込み
+alter table public.gn_report_issues add column if not exists kind text not null default 'other'
+  check (kind in ('extra','change','minus','client_delay','rework','other'));
+alter table public.gn_report_issues add column if not exists instructed_by text;
+alter table public.gn_report_issues add column if not exists instruction_method text
+  check (instruction_method in ('oral','phone','email','document','other'));
+alter table public.gn_report_issues add column if not exists amount_estimate numeric
+  check (amount_estimate is null or amount_estimate >= 0);
 
 create table if not exists public.gn_carryovers (
   id          uuid primary key default gen_random_uuid(),
@@ -514,6 +543,12 @@ create table if not exists public.gn_settings (
   updated_at               timestamptz not null default now()
 );
 insert into public.gn_settings (id) values (1) on conflict (id) do nothing;
+-- 既存環境向け（2026-11-04 追加列。update_2026-11-04_change_tracking.sql）
+-- 追加・変更の提案金額に掛ける経費率・利益率（0.15 = 15%）と、提案書に出す自社の名前・連絡先
+alter table public.gn_settings add column if not exists overhead_rate numeric not null default 0.15 check (overhead_rate >= 0);
+alter table public.gn_settings add column if not exists profit_rate   numeric not null default 0.10 check (profit_rate >= 0);
+alter table public.gn_settings add column if not exists company_name    text;
+alter table public.gn_settings add column if not exists company_contact text;
 
 drop trigger if exists gn_settings_touch on public.gn_settings;
 create trigger gn_settings_touch before update on public.gn_settings
@@ -642,6 +677,8 @@ create trigger gn_report_issues_guard before insert or update on public.gn_repor
 -- 楽観ロック：p_report->>'expected_updated_at'（画面を開いたときの updated_at）があれば、
 -- いまの日報の updated_at と比べ、違う（他の端末で更新された・削除された）なら stale_report。
 -- 無い（null / 空）なら比べない（新しい日報の作成など）。
+-- 明細の区分・指示（change_kind 〜 issue_id。2026-11-04）も p_lines から書く。客先確認（client_confirmed_*）は
+-- 日報の保存では変えない（on conflict update の列に入れない）。
 create or replace function public.gn_save_report(p_report jsonb, p_lines jsonb)
 returns uuid language plpgsql security invoker set search_path = public as $$
 declare
@@ -694,14 +731,17 @@ begin
     report_id, kind, sort_order, ref_id, name, spec, unit, qty, unit_price, amount,
     start_time, end_time, break_min, gap_min, hours, man_days, km_per_l, distance_km,
     price_per_l, vendor, trade, description, productivity, source, note,
-    overtime_hours, overtime_rate
+    overtime_hours, overtime_rate,
+    change_kind, instructed_by, instruction_method, instructed_on, issue_id
   )
   select
     v_id, t.kind, coalesce(t.sort_order, e.ord::int), t.ref_id, t.name, t.spec, t.unit,
     t.qty, t.unit_price, t.amount, t.start_time, t.end_time, t.break_min, t.gap_min,
     t.hours, t.man_days, t.km_per_l, t.distance_km, t.price_per_l, t.vendor, t.trade,
     t.description, t.productivity, t.source, t.note,
-    t.overtime_hours, t.overtime_rate
+    t.overtime_hours, t.overtime_rate,
+    -- 区分は not null。送られない（作業内容以外の行・古い画面）なら契約内。
+    coalesce(t.change_kind, 'contract'), t.instructed_by, t.instruction_method, t.instructed_on, t.issue_id
   from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) with ordinality as e(elem, ord),
        lateral jsonb_populate_record(null::public.gn_report_lines, e.elem) as t
   order by coalesce(t.sort_order, e.ord::int), e.ord;

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_LABOR_RULE } from '@/lib/calc/report';
 import { copyableLines, fromLineRow, saveErrorMessage, toLineRow, toLineRows, toReportRow, withoutSaved } from '@/lib/report/rows';
-import type { LaborLine, ReportLine, TimeSpec } from '@/lib/types';
+import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
+import type { LaborLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 
 const common: TimeSpec = { start: '08:00', end: '17:00', breakMin: 60, gapMin: 0 };
 const W = '11111111-1111-4111-8111-111111111111';
@@ -11,14 +12,14 @@ const lines: ReportLine[] = [
   { kind: 'lease', itemId: W, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '' },
   { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'ホームセンター' },
   { kind: 'credit', itemName: 'タイル', spec: '300角', unit: '枚', qty: 50, unitPrice: 250, supplierId: W, vendor: 'ABC建材' },
-  { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra' },
+  { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra', ...EMPTY_WORK_CHANGE },
 ];
 
 describe('toLineRows', () => {
   const rows = toLineRows(lines, common, DEFAULT_LABOR_RULE);
-  it('全行が26列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
+  it('全行が31列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
     for (const r of rows) {
-      expect(Object.keys(r)).toHaveLength(26);
+      expect(Object.keys(r)).toHaveLength(31);
       expect(Object.values(r)).not.toContain('');
     }
     expect(rows.map((r) => r.sort_order)).toEqual([0, 1, 2, 3, 4, 5]);
@@ -48,7 +49,13 @@ describe('toLineRows', () => {
     expect(rows[5]).toMatchObject({
       ref_id: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', man_days: 1.6, unit_price: 1200,
       amount: 42000, productivity: 21.875, source: 'extra', name: null,
+      change_kind: 'contract', instructed_by: null, instruction_method: null, instructed_on: null, issue_id: null,
     });
+  });
+  it('区分・指示の列は作業内容の行だけ。その他の行は null（DB は区分を契約内にする）', () => {
+    for (const r of rows.slice(0, 5)) {
+      expect(r).toMatchObject({ change_kind: null, instructed_by: null, instruction_method: null, instructed_on: null, issue_id: null });
+    }
   });
   it('読み戻すと元の明細になる（空文字は "" に戻る。労務行は DB の計算値 saved も付く）', () => {
     const back = rows.map((r) => fromLineRow(r));
@@ -67,6 +74,35 @@ describe('toLineRows', () => {
     const withSaved = fromLineRow(r) as LaborLine;
     expect(Object.keys(toLineRow(withSaved, common, 0, DEFAULT_LABOR_RULE))).not.toContain('saved');
     expect(copyableLines([withSaved])[0]).not.toHaveProperty('saved');
+  });
+});
+
+describe('作業内容の区分・指示（追加・変更・減の記録）', () => {
+  const ISSUE = '22222222-2222-4222-8222-222222222222';
+  const work: WorkLine = {
+    ...(lines[5] as WorkLine),
+    changeKind: 'extra', instructedBy: ' 施主 山田様 ', instructionMethod: 'phone', instructedOn: '2026-11-04', issueId: ISSUE,
+  };
+  it('保存の列に書き、読み戻すと同じ値になる（指示者の前後の空白は除く）', () => {
+    const row = toLineRow(work, common, 0, DEFAULT_LABOR_RULE);
+    expect(row).toMatchObject({
+      change_kind: 'extra', instructed_by: '施主 山田様', instruction_method: 'phone', instructed_on: '2026-11-04', issue_id: ISSUE,
+    });
+    expect(fromLineRow(row)).toEqual({ ...work, instructedBy: '施主 山田様' });
+  });
+  it('列の無い・空の・正しくない値は既定（契約内・指示なし）で読む', () => {
+    expect(fromLineRow({ kind: 'work', description: '片付け' })).toMatchObject(EMPTY_WORK_CHANGE);
+    expect(
+      fromLineRow({ kind: 'work', change_kind: 'plus', instructed_by: null, instruction_method: 'fax', instructed_on: '', issue_id: '' }),
+    ).toMatchObject(EMPTY_WORK_CHANGE);
+    for (const k of ['contract', 'extra', 'change', 'minus'] as const) {
+      expect(fromLineRow({ kind: 'work', change_kind: k })).toMatchObject({ changeKind: k });
+    }
+  });
+  it('読み戻した作業内容の項目の並びは新しい行（区分などは末尾）と同じ', () => {
+    expect(Object.keys(fromLineRow({ kind: 'work' }) as WorkLine).slice(-6)).toEqual([
+      'source', 'changeKind', 'instructedBy', 'instructionMethod', 'instructedOn', 'issueId',
+    ]);
   });
 });
 

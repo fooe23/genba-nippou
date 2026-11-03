@@ -7,12 +7,15 @@ import { optionalMinutesSchema, optionalTimeSchema } from '@/lib/db/settings-sch
 export const CONTRACT_TYPES = ['元請け', '下請', '常用'] as const;
 export const SITE_STATUSES = ['active', 'done'] as const;
 export const SITE_ROLES = ['staff', 'reviewer', 'approver'] as const;
+/** 契約金額の状態（確定・未確定）。 */
+export const CONTRACT_STATUSES = ['fixed', 'tentative'] as const;
 
 const MSG_NAME = '現場名を入力してください';
 const MSG_TEXT = '200文字以内で入力してください';
 const MSG_AMOUNT = '金額は0以上の数値で入力してください';
 const MSG_MAN_DAYS = '人工は0以上の数値で入力してください';
 const MSG_COST = '労務費は0以上の数値で入力してください';
+const MSG_ESTIMATE = '概算金額は0以上の数値で入力してください';
 
 const idSchema = z.uuid({ error: 'IDの形式が正しくありません' });
 
@@ -42,6 +45,9 @@ export const siteInputSchema = z.object({
   commonEnd: optionalTimeSchema.optional(),
   commonBreakMin: optionalMinutesSchema.optional(),
   commonGapMin: optionalMinutesSchema.optional(),
+  // 契約の状態と概算・見積提示額（任意）。省略時は変更しない（新規は DB の既定：確定・概算なし）。
+  contractStatus: z.enum(CONTRACT_STATUSES, { error: '契約の状態が正しくありません' }).optional(),
+  estimatedAmount: z.number({ error: MSG_ESTIMATE }).min(0, MSG_ESTIMATE).nullable().optional(),
 });
 export type SiteInputParsed = z.output<typeof siteInputSchema>;
 

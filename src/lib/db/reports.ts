@@ -2,8 +2,9 @@ import 'server-only';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
+import { isInstructionMethod, isIssueKind } from '@/lib/report/change-labels';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
-import type { ReportLine, ReportStatus, SiteRole, TimeSpec } from '@/lib/types';
+import type { InstructionMethod, IssueKind, ReportLine, ReportStatus, SiteRole, TimeSpec } from '@/lib/types';
 
 // 日報まわりの読み取り（RLS 前提）。
 
@@ -21,6 +22,10 @@ export interface ReportHead {
   /** 楽観ロック用（保存時に gn_save_report へ渡す）。PostgREST の文字列のまま持つ（マイクロ秒を落とさない）。 */
   updatedAt: string | null;
   createdBy: string | null;
+  /** 客先確認（確認者名・日時（ISO 8601）・メモ）。日報の保存（gn_save_report）では変わらない。 */
+  clientConfirmedBy: string | null;
+  clientConfirmedAt: string | null;
+  clientConfirmedNote: string | null;
 }
 
 interface ReportHeadRow {
@@ -36,10 +41,13 @@ interface ReportHeadRow {
   man_days_total: number | string | null;
   updated_at: string | null;
   created_by: string | null;
+  client_confirmed_by: string | null;
+  client_confirmed_at: string | null;
+  client_confirmed_note: string | null;
 }
 
 const HEAD_COLUMNS =
-  'id, site_id, report_date, weather, supervisor, status, rejected_reason, output_total, cost_total, man_days_total, updated_at, created_by';
+  'id, site_id, report_date, weather, supervisor, status, rejected_reason, output_total, cost_total, man_days_total, updated_at, created_by, client_confirmed_by, client_confirmed_at, client_confirmed_note';
 
 export function toStatus(s: string): ReportStatus {
   return s === 'submitted' || s === 'approved' || s === 'rejected' ? s : 'draft';
@@ -59,6 +67,9 @@ function toHead(r: ReportHeadRow): ReportHead {
     manDaysTotal: Number(r.man_days_total ?? 0),
     updatedAt: r.updated_at ?? null,
     createdBy: r.created_by ?? null,
+    clientConfirmedBy: r.client_confirmed_by || null,
+    clientConfirmedAt: r.client_confirmed_at ?? null,
+    clientConfirmedNote: r.client_confirmed_note || null,
   };
 }
 
@@ -310,6 +321,13 @@ export interface Issue {
   body: string;
   status: 'open' | 'done';
   doneAt: string | null;
+  /** 種別（追加指示・仕様変更・減・客先都合・やり直し・その他）。表示名は ISSUE_KIND_LABELS。 */
+  kind: IssueKind;
+  /** 指示者（未入力は null）。 */
+  instructedBy: string | null;
+  instructionMethod: InstructionMethod | null;
+  /** 金額見込み（円。未入力は null）。 */
+  amountEstimate: number | null;
 }
 
 interface IssueRow {
@@ -319,10 +337,21 @@ interface IssueRow {
   body: string;
   status: string;
   done_at: string | null;
+  kind: string | null;
+  instructed_by: string | null;
+  instruction_method: string | null;
+  amount_estimate: number | string | null;
   gn_daily_reports: { report_date: string } | { report_date: string }[] | null;
 }
 
-const ISSUE_COLUMNS = 'id, site_id, report_id, body, status, done_at, gn_daily_reports(report_date)';
+const ISSUE_COLUMNS =
+  'id, site_id, report_id, body, status, done_at, kind, instructed_by, instruction_method, amount_estimate, gn_daily_reports(report_date)';
+
+function amountOrNull(v: number | string | null): number | null {
+  if (v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
 
 function toIssue(r: IssueRow): Issue {
   return {
@@ -333,6 +362,10 @@ function toIssue(r: IssueRow): Issue {
     body: r.body,
     status: r.status === 'done' ? 'done' : 'open',
     doneAt: r.done_at ?? null,
+    kind: isIssueKind(r.kind) ? r.kind : 'other',
+    instructedBy: r.instructed_by || null,
+    instructionMethod: isInstructionMethod(r.instruction_method) ? r.instruction_method : null,
+    amountEstimate: amountOrNull(r.amount_estimate),
   };
 }
 

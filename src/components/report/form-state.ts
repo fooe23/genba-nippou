@@ -1,6 +1,7 @@
 import { rateAt, type RateHistory } from '@/lib/calc/rates';
 import { yen } from '@/lib/calc/format';
 import { withoutSaved } from '@/lib/report/rows';
+import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { CashLineInput, CreditLineInput, ReportLineInput, SaveInput } from '@/lib/report/schema';
 import type { FuelLine, LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 
@@ -62,7 +63,7 @@ export const newLine = {
   lease: (): LeaseLine => ({ kind: 'lease', itemId: null, itemName: '', spec: '', unit: '', qty: null, unitPrice: null, note: '' }),
   cash: (): CashLineInput => ({ kind: 'cash', itemName: '', spec: '', unit: '', qty: null, unitPrice: null, vendor: '' }),
   credit: (): CreditLineInput => ({ kind: 'credit', itemName: '', spec: '', unit: '', qty: null, unitPrice: null, supplierId: null, vendor: '' }),
-  work: (): WorkLine => ({ kind: 'work', estimateItemId: null, trade: '', description: '', qty: null, unit: '', manDays: null, unitPrice: null, source: 'extra' }),
+  work: (): WorkLine => ({ kind: 'work', estimateItemId: null, trade: '', description: '', qty: null, unit: '', manDays: null, unitPrice: null, source: 'extra', ...EMPTY_WORK_CHANGE }),
 };
 
 export function row<L>(line: L): Row<L> {

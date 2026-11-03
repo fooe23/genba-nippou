@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import { buildCostReport } from '@/lib/reports/cost-model';
 import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Carryover, Site } from '@/lib/db/sites';
@@ -10,7 +11,7 @@ import type { ReportStatus } from '@/lib/types';
 const site = (o: Partial<Site> = {}): Site => ({
   id: 's1', name: '〇〇邸新築工事', clientName: '〇〇様', projectName: null, projectNo: 'K-001', overview: '木造 2 階建て',
   contractAmount: 1_000_000, startDate: '2026-10-01', endDate: '2027-01-31', contractType: '元請け', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, ...o,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, ...o,
 });
 const touched = { updatedAt: null, updatedBy: null, createdAt: '2026-01-01T00:00:00Z' };
 const worker = (id: string, name: string, trade: string | null): Worker => ({ id, name, trade, note: null, active: true, rates: [], overtimeRate: null, ...touched });
@@ -37,7 +38,7 @@ const credit = (supplierId: string | null, vendor: string, cost: number): SavedR
   kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 1, unitPrice: 1, supplierId, vendor, stored: stored(cost),
 });
 const work = (trade: string, description: string, qty: number | null, unit: string, manDays: number, output: number): SavedReportLine => ({
-  kind: 'work', estimateItemId: null, trade, description, qty, unit, manDays, unitPrice: 1, source: 'extra', stored: stored(output, manDays),
+  kind: 'work', estimateItemId: null, trade, description, qty, unit, manDays, unitPrice: 1, source: 'extra', ...EMPTY_WORK_CHANGE, stored: stored(output, manDays),
 });
 
 /** cost_total・output_total は明細の保存値の合計（DB のトリガーと同じ）。 */
@@ -47,7 +48,8 @@ const report = (date: string, lines: SavedReportLine[], status: ReportStatus = '
   const manDays = lines.filter((l) => l.kind === 'labor').reduce((s, l) => s + l.stored.manDays, 0);
   return {
     id: `r-${date}`, siteId: 's1', reportDate: date, weather: '晴れ', supervisor: null, status, rejectedReason: null,
-    outputTotal: output, costTotal: cost, manDaysTotal: manDays, updatedAt: null, createdBy: null, lines,
+    outputTotal: output, costTotal: cost, manDaysTotal: manDays, updatedAt: null, createdBy: null,
+    clientConfirmedBy: null, clientConfirmedAt: null, clientConfirmedNote: null, lines,
   };
 };
 

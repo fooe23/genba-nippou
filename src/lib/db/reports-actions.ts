@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
+import { issueExtraSchema, type IssueExtraInput } from '@/lib/db/issue-schemas';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
@@ -289,11 +290,14 @@ function revalidateIssuePages(siteId: string, reportDate: string) {
   revalidatePath(`/sites/${siteId}/reports/${reportDate}`);
 }
 
-export async function addIssue(reportId: string, body: string): Promise<AddIssueResult> {
+/** 件を追加する。extra（種別・指示者・指示方法・金額見込み）は省略でき、省略時は種別「その他」・指示なし。 */
+export async function addIssue(reportId: string, body: string, extra?: IssueExtraInput): Promise<AddIssueResult> {
   await requireProfile();
   if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
   const b = issueBodySchema.safeParse(body);
   if (!b.success) return { ok: false, error: b.error.issues[0].message };
+  const x = issueExtraSchema.safeParse(extra ?? {});
+  if (!x.success) return { ok: false, error: x.error.issues[0]?.message ?? '入力内容が正しくありません' };
 
   try {
     const supabase = await createServerSupabase();
@@ -311,7 +315,15 @@ export async function addIssue(reportId: string, body: string): Promise<AddIssue
 
     const { data, error } = await supabase
       .from('gn_report_issues')
-      .insert({ report_id: reportId, site_id: h.site_id, body: b.data })
+      .insert({
+        report_id: reportId,
+        site_id: h.site_id,
+        body: b.data,
+        kind: x.data.kind,
+        instructed_by: x.data.instructedBy,
+        instruction_method: x.data.instructionMethod,
+        amount_estimate: x.data.amountEstimate,
+      })
       .select('id')
       .single();
     if (error) {

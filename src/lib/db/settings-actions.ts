@@ -31,6 +31,11 @@ export async function updateSettings(input: SettingsInput): Promise<SettingsResu
         default_common_end: v.defaultCommonEnd,
         default_common_break_min: v.defaultCommonBreakMin,
         default_common_gap_min: v.defaultCommonGapMin,
+        // 省略（undefined）された項目は変更しない。
+        ...(v.overheadRate !== undefined ? { overhead_rate: v.overheadRate } : {}),
+        ...(v.profitRate !== undefined ? { profit_rate: v.profitRate } : {}),
+        ...(v.companyName !== undefined ? { company_name: v.companyName } : {}),
+        ...(v.companyContact !== undefined ? { company_contact: v.companyContact } : {}),
       })
       .eq('id', 1)
       .select('id');

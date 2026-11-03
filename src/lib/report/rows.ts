@@ -1,5 +1,6 @@
 import { amount, fuelCost, laborLineValues, productivity } from '@/lib/calc/report';
-import type { LaborLine, LaborRule, LaborSaved, ReportLine, TimeSpec } from '@/lib/types';
+import { EMPTY_WORK_CHANGE, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
+import type { ChangeKind, InstructionMethod, LaborLine, LaborRule, LaborSaved, ReportLine, TimeSpec } from '@/lib/types';
 import type { SaveInput } from '@/lib/report/schema';
 
 // 日報の明細と gn_report_lines の列の相互変換（純関数。サーバーの読み書きから使う）。
@@ -37,6 +38,12 @@ export interface LineRow {
   overtime_hours: number | null;
   /** 労務の残業単価の上書き（作業員の残業単価。無ければ null で、DB が標準の計算式を使う）。 */
   overtime_rate: number | null;
+  /** 作業内容の区分・指示（追加・変更・減の記録）。作業内容以外は null（DB は区分を 'contract' にする）。 */
+  change_kind: ChangeKind | null;
+  instructed_by: string | null;
+  instruction_method: InstructionMethod | null;
+  instructed_on: string | null;
+  issue_id: string | null;
 }
 
 /** gn_save_report の p_report。 */
@@ -60,6 +67,7 @@ const EMPTY_ROW: Omit<LineRow, 'kind' | 'sort_order'> = {
   start_time: null, end_time: null, break_min: null, gap_min: null, hours: null, man_days: null,
   km_per_l: null, distance_km: null, price_per_l: null, vendor: null, trade: null, description: null,
   productivity: null, source: null, note: null, overtime_hours: null, overtime_rate: null,
+  change_kind: null, instructed_by: null, instruction_method: null, instructed_on: null, issue_id: null,
 };
 
 function text(v: string | null | undefined): string | null {
@@ -151,6 +159,11 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number,
         amount: clean(amount(line.qty, line.unitPrice)),
         productivity: p === null ? null : clean(p),
         source: line.source,
+        change_kind: line.changeKind,
+        instructed_by: text(line.instructedBy),
+        instruction_method: line.instructionMethod,
+        instructed_on: text(line.instructedOn),
+        issue_id: text(line.issueId),
       };
     }
   }
@@ -193,6 +206,9 @@ function rId(v: unknown): string | null {
 }
 function rTime(v: unknown): string | null {
   return typeof v === 'string' && v !== '' ? v : null;
+}
+function rDate(v: unknown): string | null {
+  return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null;
 }
 
 /** 労務行の DB の計算値（保存時の設定で計算済み）。残業列が無い移行前の行は残業 0 とみなす。実働・人工・金額のどれかが null なら付けない（画面で計算する）。 */
@@ -272,6 +288,12 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         manDays: rNum(r.man_days),
         unitPrice: rNum(r.unit_price),
         source: r.source === 'estimate' ? 'estimate' : 'extra',
+        // 列の無い・移行前の行は契約内・指示なし。
+        changeKind: isChangeKind(r.change_kind) ? r.change_kind : EMPTY_WORK_CHANGE.changeKind,
+        instructedBy: rStr(r.instructed_by),
+        instructionMethod: isInstructionMethod(r.instruction_method) ? r.instruction_method : null,
+        instructedOn: rDate(r.instructed_on),
+        issueId: rId(r.issue_id),
       };
     default:
       return null;

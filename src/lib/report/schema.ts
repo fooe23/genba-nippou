@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { dateSchema } from '@/lib/db/masters-schemas';
+import { CHANGE_KINDS, INSTRUCTION_METHODS } from '@/lib/report/change-labels';
 import type { CashLine, CreditLine, LineKind, ReportLine, TimeSpec } from '@/lib/types';
 
 // 日報の入力検証（保存を止めるエラー）と警告（保存は止めない注意）。
@@ -34,6 +35,7 @@ export const KIND_LABEL: Record<LineKind, string> = {
 const MSG_TIME = '時刻は HH:MM 形式で入力してください';
 const MSG_MIN = '休憩・中抜は0以上の整数（分）で入力してください';
 const MSG_ID = 'IDの形式が正しくありません';
+const MSG_INSTRUCTED_ON = '指示日は YYYY-MM-DD 形式で入力してください';
 
 // 空文字は null として扱う（未入力）。
 const emptyToNull = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? null : v);
@@ -81,6 +83,18 @@ export const timeSpecSchema = z.object({
   breakMin: minutesSchema,
   gapMin: minutesSchema,
 });
+
+/** 指示方法（空欄は null）。重要事項の件（src/lib/db/issue-schemas.ts）と同じ選択肢・文言。 */
+export const instructionMethodSchema = z.preprocess(
+  emptyToNull,
+  z.enum(INSTRUCTION_METHODS, { error: '指示方法は口頭・電話・メール・書面・その他から選んでください' }).nullable(),
+);
+
+// 指示日（YYYY-MM-DD の実在する日付。空欄は null）。
+const instructedOnSchema = z.preprocess(
+  emptyToNull,
+  z.string({ error: MSG_INSTRUCTED_ON }).refine((v) => dateSchema.safeParse(v).success, MSG_INSTRUCTED_ON).nullable(),
+);
 
 const noteSchema = textSchema('備考', 200);
 const unitSchema = textSchema('単位', 50);
@@ -173,6 +187,12 @@ const workSchema = z.object({
   manDays: numSchema('投入人工'),
   unitPrice: numSchema('施工単価'),
   source: z.enum(['estimate', 'extra'], { error: '作業内容の区分が正しくありません' }),
+  // 追加・変更・減の記録。古い下書きには無い項目なので、省略時は契約内・指示なし。
+  changeKind: z.enum(CHANGE_KINDS, { error: '区分は契約内・追加・変更・減から選んでください' }).default('contract'),
+  instructedBy: textSchema('指示者', 100),
+  instructionMethod: instructionMethodSchema.default(null),
+  instructedOn: instructedOnSchema.default(null),
+  issueId: refIdSchema.default(null),
 });
 
 const lineSchema = z.discriminatedUnion('kind', [laborSchema, fuelSchema, leaseSchema, cashSchema, creditSchema, workSchema], {

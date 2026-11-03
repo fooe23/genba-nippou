@@ -3,7 +3,8 @@ import { attendance, costSummary, workerCumulative, type DayTotals, type LaborEn
 
 const zeroDay: DayTotals = {
   id: 'a', siteId: 's', reportDate: '2026-11-01', weather: null, supervisor: null, status: 'draft', rejectedReason: null,
-  outputTotal: 0, costTotal: 0, manDaysTotal: 0, updatedAt: null, createdBy: null, labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, workerCount: 0,
+  outputTotal: 0, costTotal: 0, manDaysTotal: 0, updatedAt: null, createdBy: null,
+    clientConfirmedBy: null, clientConfirmedAt: null, clientConfirmedNote: null, labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, workerCount: 0,
 };
 
 describe('追加ケース', () => {

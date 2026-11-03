@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import {
   hoursBetween, commonHours, effectiveHours, manDays, overtimeHours, overtimeRate, laborCost, laborLineValues,
   fuelCost, amount, productivity, reportTotals, progressRate, DEFAULT_LABOR_RULE,
@@ -87,7 +88,7 @@ describe('日報合計', () => {
       { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '' },
       { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'コメリ' },
       { kind: 'credit', itemName: 'タイル', spec: '', unit: '枚', qty: 50, unitPrice: 250, supplierId: null, vendor: 'ABC建材' },
-      { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra' },
+      { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra', ...EMPTY_WORK_CHANGE },
     ], common, rule);
     expect(t.workerCount).toBe(2);
     expect(t.laborHours).toBe(12);                 // 8 + 4

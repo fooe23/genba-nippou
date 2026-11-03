@@ -11,6 +11,10 @@ export interface Settings {
   rule: LaborRule;
   /** 新しい日報の共通時間の初期値（現場の既定が無いときに使う）。 */
   defaultCommon: TimeSpec;
+  /** 追加・変更の提案金額に掛ける率（経費率・利益率。0.15 = 15%）。 */
+  rates: { overheadRate: number; profitRate: number };
+  /** 提案書などに出す自社の名前・連絡先（未設定は null）。 */
+  company: { name: string | null; contact: string | null };
   updatedAt: string | null;
   /** 最後に更新した人（profiles.id）。DB のトリガーが入れる。 */
   updatedBy: string | null;
@@ -19,7 +23,17 @@ export interface Settings {
 /** gn_settings の列の既定と同じ。行が無い（SQL 未適用）・読めないときに使う。 */
 export const DEFAULT_COMMON: TimeSpec = { start: '08:00', end: '17:30', breakMin: 90, gapMin: 0 };
 
-export const DEFAULT_SETTINGS: Settings = { rule: { ...DEFAULT_LABOR_RULE }, defaultCommon: { ...DEFAULT_COMMON }, updatedAt: null, updatedBy: null };
+/** gn_settings の overhead_rate・profit_rate の既定と同じ。 */
+export const DEFAULT_RATES: Settings['rates'] = { overheadRate: 0.15, profitRate: 0.1 };
+
+export const DEFAULT_SETTINGS: Settings = {
+  rule: { ...DEFAULT_LABOR_RULE },
+  defaultCommon: { ...DEFAULT_COMMON },
+  rates: { ...DEFAULT_RATES },
+  company: { name: null, contact: null },
+  updatedAt: null,
+  updatedBy: null,
+};
 
 interface SettingsRow {
   shotei_hours: number | string | null;
@@ -32,15 +46,22 @@ interface SettingsRow {
   default_common_gap_min: number | string | null;
   updated_at: string | null;
   updated_by?: string | null;
+  overhead_rate?: number | string | null;
+  profit_rate?: number | string | null;
+  company_name?: string | null;
+  company_contact?: string | null;
 }
 
 const LEGACY_COLUMNS =
   'shotei_hours, fixed_overtime_limit, overtime_multiplier, overtime_base_hours, default_common_start, default_common_end, default_common_break_min, default_common_gap_min, updated_at';
-// updated_by は update_2026-11-03c_master_import.sql で追加。未適用（列が無い＝42703）なら LEGACY_COLUMNS で読み直す。
-const COLUMNS = `${LEGACY_COLUMNS}, updated_by`;
+// updated_by は update_2026-11-03c_master_import.sql、率と会社名は update_2026-11-04_change_tracking.sql で追加。
+// 未適用（列が無い＝42703）なら、列の少ない方で順に読み直す（無い列は既定値）。
+const COLUMNS_V2 = `${LEGACY_COLUMNS}, updated_by`;
+const COLUMNS = `${COLUMNS_V2}, overhead_rate, profit_rate, company_name, company_contact`;
+const COLUMN_SETS = [COLUMNS, COLUMNS_V2, LEGACY_COLUMNS];
 
-function numOr(v: number | string | null, fallback: number): number {
-  if (v === null || v === '') return fallback;
+function numOr(v: number | string | null | undefined, fallback: number): number {
+  if (v === null || v === undefined || v === '') return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
 }
@@ -66,6 +87,11 @@ function toSettings(r: SettingsRow): Settings {
       breakMin: intOrNull(r.default_common_break_min),
       gapMin: intOrNull(r.default_common_gap_min),
     },
+    rates: {
+      overheadRate: numOr(r.overhead_rate, DEFAULT_RATES.overheadRate),
+      profitRate: numOr(r.profit_rate, DEFAULT_RATES.profitRate),
+    },
+    company: { name: r.company_name || null, contact: r.company_contact || null },
     updatedAt: r.updated_at ?? null,
     updatedBy: r.updated_by ?? null,
   };
@@ -75,15 +101,16 @@ function toSettings(r: SettingsRow): Settings {
 export const getSettings = cache(async function getSettings(): Promise<Settings> {
   try {
     const supabase = await createServerSupabase();
-    let { data, error } = await supabase.from('gn_settings').select(COLUMNS).eq('id', 1).maybeSingle();
-    if (error && error.code === '42703') {
-      ({ data, error } = await supabase.from('gn_settings').select(LEGACY_COLUMNS).eq('id', 1).maybeSingle());
+    let { data, error } = await supabase.from('gn_settings').select(COLUMN_SETS[0]).eq('id', 1).maybeSingle();
+    for (const columns of COLUMN_SETS.slice(1)) {
+      if (!error || error.code !== '42703') break;
+      ({ data, error } = await supabase.from('gn_settings').select(columns).eq('id', 1).maybeSingle());
     }
     if (error) {
       console.error('[gn_settings]', error.message);
       return structuredClone(DEFAULT_SETTINGS);
     }
-    return data ? toSettings(data as SettingsRow) : structuredClone(DEFAULT_SETTINGS);
+    return data ? toSettings(data as unknown as SettingsRow) : structuredClone(DEFAULT_SETTINGS);
   } catch (e) {
     console.error('[gn_settings]', e);
     return structuredClone(DEFAULT_SETTINGS);
