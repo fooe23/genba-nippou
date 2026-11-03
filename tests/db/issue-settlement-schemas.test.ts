@@ -46,6 +46,16 @@ describe('issueSettlementSchema', () => {
     expect(issueSettlementSchema.safeParse({ settlementMethod: 'lump_sum', fixedAmount: NaN }).success).toBe(false);
     expect(issueSettlementSchema.safeParse({ settlementMethod: 'lump_sum', fixedAmount: 'abc' }).success).toBe(false);
   });
+  it('確定額・常用単価は円単位の整数（小数は不可）', () => {
+    expect(firstError(issueSettlementSchema, { settlementMethod: 'lump_sum', fixedAmount: 1000.5, dailyRate: null, fixedOn: null })).toBe(
+      '確定額は円単位の整数で入力してください',
+    );
+    expect(firstError(issueSettlementSchema, { settlementMethod: 'daily_rate', fixedAmount: null, dailyRate: 25000.1, fixedOn: null })).toBe(
+      '常用単価は円単位の整数で入力してください',
+    );
+    expect(issueSettlementSchema.safeParse({ settlementMethod: 'lump_sum', fixedAmount: 1000 }).success).toBe(true);
+  });
+
   it('確定日は実在する YYYY-MM-DD のみ', () => {
     expect(issueSettlementSchema.safeParse({ settlementMethod: 'undecided', fixedOn: '2026-02-30' }).success).toBe(false);
     expect(issueSettlementSchema.safeParse({ settlementMethod: 'undecided', fixedOn: '2026/11/05' }).success).toBe(false);

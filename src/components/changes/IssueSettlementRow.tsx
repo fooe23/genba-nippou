@@ -14,11 +14,6 @@ import { NumInput, fieldClass } from '@/components/report/inputs';
 import { ErrorText, primaryButtonClass, useRunner } from '@/components/masters/common';
 import { CHANGES_GRID, CHANGES_ROW, Cell, ComputedCells, InputCell, KindTag } from '@/components/changes/cells';
 
-/** 円の入力は整数だけ（Zod の検証のあと、使う方の金額だけ見る）。 */
-function integerError(label: string, v: number | null): string | null {
-  return v !== null && !Number.isInteger(v) ? `${label}は円単位（整数）で入力してください` : null;
-}
-
 /**
  * 件 1 つの行。精算の方法・確定額（一式）または常用単価（常用）・確定日を入れて保存する。
  * 精算額などの計算値はサーバーの値を出し、保存のあと router.refresh() で取り直す。
@@ -64,9 +59,7 @@ export function IssueSettlementRow({
       fixedOn,
     };
     const parsed = issueSettlementSchema.safeParse(input);
-    const message = parsed.success
-      ? (integerError('確定額', input.fixedAmount) ?? integerError('常用単価', input.dailyRate))
-      : (parsed.error.issues[0]?.message ?? '入力内容が正しくありません');
+    const message = parsed.success ? null : (parsed.error.issues[0]?.message ?? '入力内容が正しくありません');
     setSaved(false);
     if (message) {
       setError(message);
@@ -145,13 +138,13 @@ export function IssueSettlementRow({
         />
       </InputCell>
       <ComputedCells row={row} />
-      <div className="col-span-2 md:col-span-1">
+      <div className="col-span-2 xl:col-span-1">
         <button type="button" onClick={save} disabled={readOnly || pending} className={`${primaryButtonClass} w-full px-2`}>
           {pending ? '保存中…' : '保存'}
         </button>
       </div>
       {(saved || error) && (
-        <div className="col-span-2 md:col-span-full md:text-right">
+        <div className="col-span-2 xl:col-span-full xl:text-right">
           {saved && !error && (
             <p role="status" className="text-sm font-medium text-green-700 dark:text-green-400">
               保存しました

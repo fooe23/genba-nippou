@@ -25,18 +25,20 @@ export const issueExtraSchema = z.object({
 export type IssueExtraInput = z.input<typeof issueExtraSchema>;
 
 // 件の精算の項目（精算の方法・確定額・常用単価・確定日）の入力検証。updateIssueSettlement とフォームの両方で使う。
-// 一式は確定額、常用は常用単価が必須。使わない方の金額は保存のときに null にする（アクション側）。
+// 確定額・常用単価は円単位の整数。一式は確定額、常用は常用単価が必須。使わない方の金額は保存のときに null にする（アクション側）。
 
 const MSG_FIXED_AMOUNT = '確定額は0以上の数値で入力してください';
 const MSG_DAILY_RATE = '常用単価は0以上の数値で入力してください';
+const MSG_FIXED_AMOUNT_INT = '確定額は円単位の整数で入力してください';
+const MSG_DAILY_RATE_INT = '常用単価は円単位の整数で入力してください';
 
 export const issueSettlementSchema = z
   .object({
     settlementMethod: z.enum(SETTLEMENT_METHODS, { error: '精算の方法が正しくありません' }).default('undecided'),
     fixedAmount: z
-      .preprocess(emptyToNull, z.number({ error: MSG_FIXED_AMOUNT }).min(0, MSG_FIXED_AMOUNT).nullable())
+      .preprocess(emptyToNull, z.number({ error: MSG_FIXED_AMOUNT }).min(0, MSG_FIXED_AMOUNT).int(MSG_FIXED_AMOUNT_INT).nullable())
       .default(null),
-    dailyRate: z.preprocess(emptyToNull, z.number({ error: MSG_DAILY_RATE }).min(0, MSG_DAILY_RATE).nullable()).default(null),
+    dailyRate: z.preprocess(emptyToNull, z.number({ error: MSG_DAILY_RATE }).min(0, MSG_DAILY_RATE).int(MSG_DAILY_RATE_INT).nullable()).default(null),
     fixedOn: z.preprocess(emptyToNull, dateSchema.nullable()).default(null),
   })
   .superRefine((v, ctx) => {
