@@ -14,6 +14,7 @@ import type { CostReportInput, CostReportModel } from '@/lib/reports/types';
 // 工事原価集計表。GET /api/reports/cost?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx|csv
 // 日報が無い期間も空の帳票（「日報がありません」）を返す。失敗はすべて JSON { ok: false, error }
 // （400 クエリ／401・403 権限／404 現場／500 読み込み・作成失敗）。PDF（react-pdf）は Node で作る。
+// PDF は &disposition=inline のときだけブラウザで開く（inline。プレビュー）。それ以外と xlsx/csv は attachment。
 
 export const runtime = 'nodejs';
 
@@ -36,7 +37,7 @@ async function render(model: CostReportModel, format: CostFormat): Promise<Buffe
 export async function GET(request: Request): Promise<Response> {
   const query = parseCostQuery(request.url);
   if ('error' in query) return fail(400, query.error);
-  const { siteId, period, format } = query;
+  const { siteId, period, format, disposition } = query;
 
   const profile = await getCurrentProfile();
   if (!profile) return fail(401, 'ログインしてください');
@@ -70,7 +71,7 @@ export async function GET(request: Request): Promise<Response> {
     status: 200,
     headers: {
       'Content-Type': CONTENT_TYPES[format],
-      'Content-Disposition': contentDisposition(costReportFileName(site.name, period, now.date, format)),
+      'Content-Disposition': contentDisposition(costReportFileName(site.name, period, now.date, format), { inline: disposition === 'inline' }),
       'Content-Length': String(data.length),
       'Cache-Control': 'no-store',
     },

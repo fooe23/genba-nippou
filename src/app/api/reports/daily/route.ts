@@ -12,6 +12,7 @@ import type { DailyReportModel } from '@/lib/reports/types';
 //          GET /api/reports/daily?site=<uuid>&month=YYYY-MM&format=pdf|csv（月まとめ。日付の昇順、PDF は日ごとに改ページ）
 // 日報が無い日・月も空の帳票（PDF・CSV とも「日報がありません」の 1 行）を返す。失敗はすべて JSON { ok: false, error }
 // （400 クエリ／401・403 権限／404 現場／500 読み込み・作成失敗）。PDF（react-pdf）は Node で作る。
+// PDF は &disposition=inline のときだけブラウザで開く（inline。プレビュー）。それ以外と xlsx/csv は attachment。
 
 export const runtime = 'nodejs';
 
@@ -42,7 +43,7 @@ async function render(models: DailyReportModel[], format: DailyFormat, outputAt:
 export async function GET(request: Request): Promise<Response> {
   const query = parseDailyQuery(request.url);
   if ('error' in query) return fail(400, query.error);
-  const { siteId, target, format } = query;
+  const { siteId, target, format, disposition } = query;
 
   const profile = await getCurrentProfile();
   if (!profile) return fail(401, 'ログインしてください');
@@ -72,7 +73,7 @@ export async function GET(request: Request): Promise<Response> {
     status: 200,
     headers: {
       'Content-Type': CONTENT_TYPES[format],
-      'Content-Disposition': contentDisposition(dailyReportFileName(site.name, target, format)),
+      'Content-Disposition': contentDisposition(dailyReportFileName(site.name, target, format), { inline: disposition === 'inline' }),
       'Content-Length': String(data.length),
       'Cache-Control': 'no-store',
     },

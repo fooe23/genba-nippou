@@ -81,8 +81,11 @@ export interface ReportFormProps {
   createdBy: string | null;
   currentUserId: string;
   isAdmin: boolean;
-  /** 帳票（PDF・CSV）のダウンロード先。保存済みの日報で、出力できる人（社員・管理者）だけに渡す。閲覧専用でも出す。 */
-  exportLinks?: { pdf: string; csv: string };
+  /**
+   * 帳票の出力先。pdfPreview は PDF をブラウザで開く（新しいタブ）、pdf・csv はダウンロード。
+   * 保存済みの日報で、出力できる人（社員・管理者）だけに渡す。閲覧専用でも出す。
+   */
+  exportLinks?: { pdfPreview: string; pdf: string; csv: string };
   /** 客先確認の記録（無ければ null）。保存済みの日報なら、状態・閲覧専用・完了現場に関係なく記録・取り消しできる。 */
   clientConfirmation: DailyClientConfirmation | null;
 }
@@ -586,12 +589,18 @@ function ReportFormBody({
             {reportId !== null && (
               <ClientConfirmationButton reportId={reportId} current={p.clientConfirmation} expected={expected} onChanged={onClientConfirmation} />
             )}
-            {(p.exportLinks ? [['PDF', p.exportLinks.pdf], ['CSV', p.exportLinks.csv]] : []).map(([label, href]) => (
+            {(p.exportLinks
+              ? [
+                  { label: 'PDF', href: p.exportLinks.pdfPreview, newTab: true },
+                  { label: 'PDF 保存', href: p.exportLinks.pdf, newTab: false },
+                  { label: 'CSV', href: p.exportLinks.csv, newTab: false },
+                ]
+              : []
+            ).map(({ label, href, newTab }) => (
               <a
                 key={label}
                 href={href}
-                target="_blank"
-                rel="noopener noreferrer"
+                {...(newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
                 className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-400 px-3 text-sm font-medium dark:border-gray-600"
               >
                 {label}

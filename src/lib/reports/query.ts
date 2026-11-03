@@ -9,10 +9,18 @@ import { isUuid } from '@/lib/uuid';
 export type CostFormat = 'pdf' | 'xlsx' | 'csv';
 const FORMATS: readonly CostFormat[] = ['pdf', 'xlsx', 'csv'];
 
-/** `?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx|csv` を読む。形式が違えばエラーの文。 */
+/** 'inline' はブラウザで開く（PDF のプレビュー）、'attachment' はファイルとして保存。 */
+export type Disposition = 'inline' | 'attachment';
+
+/** `disposition=inline` は PDF のときだけ inline。それ以外（xlsx・csv、指定なし・別の値）は attachment（エラーにしない）。 */
+function readDisposition(params: URLSearchParams, format: string): Disposition {
+  return format === 'pdf' && params.get('disposition') === 'inline' ? 'inline' : 'attachment';
+}
+
+/** `?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx|csv[&disposition=inline]` を読む。形式が違えばエラーの文。 */
 export function parseCostQuery(
   url: URL | string,
-): { siteId: string; period: CostReportPeriod; format: CostFormat } | { error: string } {
+): { siteId: string; period: CostReportPeriod; format: CostFormat; disposition: Disposition } | { error: string } {
   const params = (typeof url === 'string' ? new URL(url) : url).searchParams;
   const siteId = params.get('site') ?? '';
   const period = params.get('period') ?? '';
@@ -24,6 +32,7 @@ export function parseCostQuery(
     siteId,
     period: period === 'all' ? { kind: 'all' } : { kind: 'month', month: period },
     format: format as CostFormat,
+    disposition: readDisposition(params, format),
   };
 }
 
@@ -45,10 +54,10 @@ function periodFileName(siteName: string, title: string, period: CostReportPerio
 
 export type ChangesFormat = 'pdf' | 'xlsx';
 
-/** `?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx` を読む（工事原価集計表と同じ。CSV は無い）。 */
+/** `?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx[&disposition=inline]` を読む（工事原価集計表と同じ。CSV は無い）。 */
 export function parseChangesQuery(
   url: URL | string,
-): { siteId: string; period: CostReportPeriod; format: ChangesFormat } | { error: string } {
+): { siteId: string; period: CostReportPeriod; format: ChangesFormat; disposition: Disposition } | { error: string } {
   const query = parseCostQuery(url);
   if ('error' in query) return query;
   if (query.format === 'csv') return { error: '出力形式の指定が正しくありません' };
@@ -68,10 +77,13 @@ const DAILY_FORMATS: readonly DailyFormat[] = ['pdf', 'csv'];
 /** 1 日分（date）か月まとめ（month）。 */
 export type DailyTarget = { kind: 'date'; date: string } | { kind: 'month'; month: string };
 
-/** `?site=<uuid>&date=YYYY-MM-DD&format=pdf|csv` または `?site=<uuid>&month=YYYY-MM&format=pdf|csv` を読む。 */
+/**
+ * `?site=<uuid>&date=YYYY-MM-DD&format=pdf|csv` または `?site=<uuid>&month=YYYY-MM&format=pdf|csv` を読む
+ * （PDF は `&disposition=inline` でプレビュー）。
+ */
 export function parseDailyQuery(
   url: URL | string,
-): { siteId: string; target: DailyTarget; format: DailyFormat } | { error: string } {
+): { siteId: string; target: DailyTarget; format: DailyFormat; disposition: Disposition } | { error: string } {
   const params = (typeof url === 'string' ? new URL(url) : url).searchParams;
   const siteId = params.get('site') ?? '';
   const date = params.get('date') ?? '';
@@ -86,6 +98,7 @@ export function parseDailyQuery(
     siteId,
     target: date !== '' ? { kind: 'date', date } : { kind: 'month', month },
     format: format as DailyFormat,
+    disposition: readDisposition(params, format),
   };
 }
 

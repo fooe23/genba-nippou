@@ -24,12 +24,14 @@ function encodeRfc5987(value: string): string {
 
 /**
  * 添付の Content-Disposition。日本語のファイル名は filename* に入れ、filename は古いブラウザ向けに
- * ASCII の `export.<拡張子>` にする。
+ * ASCII の `export.<拡張子>` にする。`inline: true` はブラウザで開く（PDF のプレビュー）。ファイル名は同じで、
+ * 開いた先で保存したときの名前になる。
  */
-export function contentDisposition(fileName: string): string {
+export function contentDisposition(fileName: string, opts?: { inline?: boolean }): string {
   const ext = /\.([A-Za-z0-9]+)$/.exec(fileName)?.[1];
   const fallback = ext ? `export.${ext}` : 'export';
-  return `attachment; filename="${fallback}"; filename*=UTF-8''${encodeRfc5987(fileName)}`;
+  const type = opts?.inline ? 'inline' : 'attachment';
+  return `${type}; filename="${fallback}"; filename*=UTF-8''${encodeRfc5987(fileName)}`;
 }
 
 /** 雛形に入りきらない警告（これがあると原本 Excel は出さない）。名前の警告は出力を止めない。 */

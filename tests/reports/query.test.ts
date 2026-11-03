@@ -13,11 +13,17 @@ const url = (q: string) => `http://localhost/api/reports/cost?${q}`;
 
 describe('parseCostQuery', () => {
   it('現場・期間（all か YYYY-MM）・形式を返す', () => {
-    expect(parseCostQuery(url(`site=${SITE}&period=all&format=pdf`))).toEqual({ siteId: SITE, period: { kind: 'all' }, format: 'pdf' });
+    expect(parseCostQuery(url(`site=${SITE}&period=all&format=pdf`))).toEqual({
+      siteId: SITE,
+      period: { kind: 'all' },
+      format: 'pdf',
+      disposition: 'attachment',
+    });
     expect(parseCostQuery(new URL(url(`site=${SITE}&period=2026-11&format=xlsx`)))).toEqual({
       siteId: SITE,
       period: { kind: 'month', month: '2026-11' },
       format: 'xlsx',
+      disposition: 'attachment',
     });
     expect(parseCostQuery(url(`format=csv&period=2026-01&site=${SITE}`))).toMatchObject({ format: 'csv' });
   });
@@ -38,6 +44,15 @@ describe('parseCostQuery', () => {
     for (const f of ['', 'xlsm', 'PDF']) {
       expect(parseCostQuery(url(`site=${SITE}&period=all&format=${f}`))).toEqual({ error: '出力形式の指定が正しくありません' });
     }
+  });
+
+  it('disposition=inline は PDF のときだけ inline、それ以外は attachment（エラーにしない）', () => {
+    expect(parseCostQuery(url(`site=${SITE}&period=all&format=pdf&disposition=inline`))).toMatchObject({ format: 'pdf', disposition: 'inline' });
+    expect(parseCostQuery(url(`site=${SITE}&period=all&format=pdf`))).toMatchObject({ disposition: 'attachment' });
+    expect(parseCostQuery(url(`site=${SITE}&period=all&format=pdf&disposition=attachment`))).toMatchObject({ disposition: 'attachment' });
+    expect(parseCostQuery(url(`site=${SITE}&period=all&format=pdf&disposition=INLINE`))).toMatchObject({ disposition: 'attachment' });
+    expect(parseCostQuery(url(`site=${SITE}&period=all&format=xlsx&disposition=inline`))).toMatchObject({ format: 'xlsx', disposition: 'attachment' });
+    expect(parseCostQuery(url(`site=${SITE}&period=all&format=csv&disposition=inline`))).toMatchObject({ format: 'csv', disposition: 'attachment' });
   });
 });
 
@@ -61,11 +76,13 @@ describe('parseDailyQuery', () => {
       siteId: SITE,
       target: { kind: 'date', date: '2026-11-02' },
       format: 'pdf',
+      disposition: 'attachment',
     });
     expect(parseDailyQuery(new URL(dailyUrl(`format=csv&month=2026-11&site=${SITE}`)))).toEqual({
       siteId: SITE,
       target: { kind: 'month', month: '2026-11' },
       format: 'csv',
+      disposition: 'attachment',
     });
   });
 
@@ -95,6 +112,16 @@ describe('parseDailyQuery', () => {
       expect(parseDailyQuery(dailyUrl(`site=${SITE}&date=2026-11-02&format=${f}`))).toEqual({ error: '出力形式の指定が正しくありません' });
     }
   });
+
+  it('disposition=inline は PDF のときだけ inline、CSV は attachment（エラーにしない）', () => {
+    expect(parseDailyQuery(dailyUrl(`site=${SITE}&date=2026-11-02&format=pdf&disposition=inline`))).toMatchObject({ disposition: 'inline' });
+    expect(parseDailyQuery(dailyUrl(`site=${SITE}&month=2026-11&format=pdf&disposition=inline`))).toMatchObject({ disposition: 'inline' });
+    expect(parseDailyQuery(dailyUrl(`site=${SITE}&date=2026-11-02&format=pdf`))).toMatchObject({ disposition: 'attachment' });
+    expect(parseDailyQuery(dailyUrl(`site=${SITE}&date=2026-11-02&format=csv&disposition=inline`))).toMatchObject({
+      format: 'csv',
+      disposition: 'attachment',
+    });
+  });
 });
 
 describe('dailyReportFileName', () => {
@@ -113,11 +140,17 @@ const changesUrl = (q: string) => `http://localhost/api/reports/changes?${q}`;
 
 describe('parseChangesQuery', () => {
   it('現場・期間（all か YYYY-MM）・形式（pdf・xlsx）を返す', () => {
-    expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=pdf`))).toEqual({ siteId: SITE, period: { kind: 'all' }, format: 'pdf' });
+    expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=pdf`))).toEqual({
+      siteId: SITE,
+      period: { kind: 'all' },
+      format: 'pdf',
+      disposition: 'attachment',
+    });
     expect(parseChangesQuery(new URL(changesUrl(`format=xlsx&period=2026-11&site=${SITE}`)))).toEqual({
       siteId: SITE,
       period: { kind: 'month', month: '2026-11' },
       format: 'xlsx',
+      disposition: 'attachment',
     });
   });
 
@@ -127,6 +160,15 @@ describe('parseChangesQuery', () => {
     for (const f of ['', 'csv', 'xlsm', 'PDF']) {
       expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=${f}`))).toEqual({ error: '出力形式の指定が正しくありません' });
     }
+  });
+
+  it('disposition=inline は PDF のときだけ inline、xlsx は attachment（エラーにしない）', () => {
+    expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=pdf&disposition=inline`))).toMatchObject({ disposition: 'inline' });
+    expect(parseChangesQuery(changesUrl(`site=${SITE}&period=2026-11&format=pdf`))).toMatchObject({ disposition: 'attachment' });
+    expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=xlsx&disposition=inline`))).toMatchObject({
+      format: 'xlsx',
+      disposition: 'attachment',
+    });
   });
 });
 

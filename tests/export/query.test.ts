@@ -42,6 +42,14 @@ describe('contentDisposition', () => {
   it('拡張子が無ければ export だけ', () => {
     expect(contentDisposition('現場')).toBe(`attachment; filename="export"; filename*=UTF-8''%E7%8F%BE%E5%A0%B4`);
   });
+
+  it('inline のときは inline で、ファイル名（ASCII の代わりと UTF-8 名）は同じ', () => {
+    expect(contentDisposition('〇〇邸_日報_2026-11-02.pdf', { inline: true })).toBe(
+      `inline; filename="export.pdf"; filename*=UTF-8''%E3%80%87%E3%80%87%E9%82%B8_%E6%97%A5%E5%A0%B1_2026-11-02.pdf`,
+    );
+    expect(contentDisposition('現場.pdf', { inline: false })).toBe(`attachment; filename="export.pdf"; filename*=UTF-8''%E7%8F%BE%E5%A0%B4.pdf`);
+    expect(contentDisposition('現場.pdf', {})).toMatch(/^attachment; /);
+  });
 });
 
 describe('overflowNotice', () => {

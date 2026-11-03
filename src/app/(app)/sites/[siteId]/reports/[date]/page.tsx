@@ -21,10 +21,13 @@ export default async function ReportPage({ params }: PageProps<'/sites/[siteId]/
   const report = await getReport(siteId, date);
   const props = await loadReportFormProps(profile, site, date, report);
   // 帳票（PDF・CSV）は保存済みの日報だけ。協力会社は出力できない（/api/reports/daily も 403）。
+  // PDF はプレビュー（ブラウザで開く。disposition=inline）と保存（ダウンロード）の 2 つ。
   const exportHref = (format: 'pdf' | 'csv') =>
     `/api/reports/daily?site=${encodeURIComponent(siteId)}&date=${encodeURIComponent(date)}&format=${format}`;
   const exportLinks =
-    report.head && profile.accountType !== 'partner' ? { pdf: exportHref('pdf'), csv: exportHref('csv') } : undefined;
+    report.head && profile.accountType !== 'partner'
+      ? { pdfPreview: `${exportHref('pdf')}&disposition=inline`, pdf: exportHref('pdf'), csv: exportHref('csv') }
+      : undefined;
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4">

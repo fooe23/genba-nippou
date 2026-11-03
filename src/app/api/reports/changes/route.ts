@@ -14,6 +14,7 @@ import type { ChangeLedgerModel, CostReportInput } from '@/lib/reports/types';
 // 変更増減 精算資料（案）。GET /api/reports/changes?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx
 // 追加・増・変更・減の行が無い期間も空の帳票（「追加・増・変更・減の記録はありません」）を返す。失敗はすべて JSON { ok: false, error }
 // （400 クエリ／401・403 権限／404 現場／500 読み込み・作成失敗）。PDF（react-pdf）は Node で作る。
+// PDF は &disposition=inline のときだけブラウザで開く（inline。プレビュー）。それ以外と xlsx/csv は attachment。
 
 export const runtime = 'nodejs';
 
@@ -29,7 +30,7 @@ function fail(status: number, error: string): Response {
 export async function GET(request: Request): Promise<Response> {
   const query = parseChangesQuery(request.url);
   if ('error' in query) return fail(400, query.error);
-  const { siteId, period, format } = query;
+  const { siteId, period, format, disposition } = query;
 
   const profile = await getCurrentProfile();
   if (!profile) return fail(401, 'ログインしてください');
@@ -69,7 +70,7 @@ export async function GET(request: Request): Promise<Response> {
     status: 200,
     headers: {
       'Content-Type': CONTENT_TYPES[format],
-      'Content-Disposition': contentDisposition(changeReportFileName(site.name, period, todayJst(), format)),
+      'Content-Disposition': contentDisposition(changeReportFileName(site.name, period, todayJst(), format), { inline: disposition === 'inline' }),
       'Content-Length': String(data.length),
       'Cache-Control': 'no-store',
     },

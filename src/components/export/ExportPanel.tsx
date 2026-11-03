@@ -16,6 +16,7 @@ export interface ExportMonthOption {
 /**
  * 出力画面：原本 Excel（.xlsm、月ごと）、工事原価集計表（工期全体または月、PDF・Excel・CSV）、
  * 変更増減 精算資料（案）（工期全体または月、PDF・Excel）、日報（1 日分または月まとめ、PDF・CSV）。
+ * PDF は「プレビュー」（新しいタブでブラウザに開く。disposition=inline）と「ダウンロード」の 2 つ。
  * today は日報の日付の初期値（JST の 'YYYY-MM-DD'）。
  */
 export function ExportPanel({ siteId, months, today }: { siteId: string; months: ExportMonthOption[]; today: string }) {
@@ -71,18 +72,70 @@ export function ExportPanel({ siteId, months, today }: { siteId: string; months:
   );
 }
 
-const COST_FORMATS = [
-  { format: 'pdf', label: 'PDF' },
-  { format: 'xlsx', label: 'Excel' },
-  { format: 'csv', label: 'CSV' },
-] as const;
+/** 出力ボタン 1 つ。preview は PDF をブラウザで開く（&disposition=inline、新しいタブ）。 */
+interface FormatButton {
+  format: string;
+  label: string;
+  preview?: boolean;
+}
 
-const CHANGE_FORMATS = [
-  { format: 'pdf', label: 'PDF' },
-  { format: 'xlsx', label: 'Excel' },
-] as const;
+const PDF_BUTTONS: readonly FormatButton[] = [
+  { format: 'pdf', label: 'PDF プレビュー', preview: true },
+  { format: 'pdf', label: 'PDF ダウンロード' },
+];
 
-/** 工事原価集計表：集計期間（工期全体／日報のある月）を選び、PDF・Excel・CSV をダウンロードする。 */
+const COST_FORMATS: readonly FormatButton[] = [...PDF_BUTTONS, { format: 'xlsx', label: 'Excel' }, { format: 'csv', label: 'CSV' }];
+
+const CHANGE_FORMATS: readonly FormatButton[] = [...PDF_BUTTONS, { format: 'xlsx', label: 'Excel' }];
+
+const DAILY_FORMATS: readonly FormatButton[] = [...PDF_BUTTONS, { format: 'csv', label: 'CSV' }];
+
+/**
+ * ボタンの並び。スマホ（375px）は 2 列（4 つなら 2×2）、広い画面は 1 行（4 つは「PDF ダウンロード」が折り返さない md 以上）。
+ * 数が奇数なら、2 列のときは最後の 1 つを横いっぱいにする。Tailwind がクラス名を拾えるよう、文字列はそのまま書く。
+ */
+const GRID_COLS: Record<number, string> = { 2: 'grid-cols-2', 3: 'grid-cols-2 sm:grid-cols-3', 4: 'grid-cols-2 md:grid-cols-4' };
+
+function buttonGridClass(count: number): string {
+  return `mt-3 grid gap-2 ${GRID_COLS[count] ?? 'grid-cols-2'}`;
+}
+
+function buttonClass(b: FormatButton, index: number, count: number): string {
+  const base = b.format === 'pdf' ? primaryButtonClass : secondaryButtonClass;
+  const span = count % 2 === 1 && index === count - 1 ? ' col-span-2 sm:col-span-1' : '';
+  return `${base} flex items-center justify-center${span}`;
+}
+
+/** 出力ボタンの並び。query が null（日付が空など）なら押せないボタン。 */
+function FormatButtons({ endpoint, query, buttons }: { endpoint: string; query: string | null; buttons: readonly FormatButton[] }) {
+  return (
+    <div className={buttonGridClass(buttons.length)}>
+      {buttons.map((b, i) => {
+        const key = `${b.format}:${b.preview ? 'preview' : 'download'}`;
+        const className = buttonClass(b, i, buttons.length);
+        if (query === null) {
+          return (
+            <button key={key} type="button" disabled className={className}>
+              {b.label}
+            </button>
+          );
+        }
+        const href = `${endpoint}?${query}&format=${b.format}${b.preview ? '&disposition=inline' : ''}`;
+        return b.preview ? (
+          <a key={key} href={href} target="_blank" rel="noopener noreferrer" className={className}>
+            {b.label}
+          </a>
+        ) : (
+          <a key={key} href={href} className={className}>
+            {b.label}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 工事原価集計表：集計期間（工期全体／日報のある月）を選び、PDF（プレビュー・ダウンロード）・Excel・CSV を出す。 */
 function CostReportSection({ siteId, months }: { siteId: string; months: ExportMonthOption[] }) {
   return (
     <PeriodReportSection
@@ -97,7 +150,7 @@ function CostReportSection({ siteId, months }: { siteId: string; months: ExportM
   );
 }
 
-/** 変更増減 精算資料（案）：期間（工期全体／日報のある月）を選び、PDF・Excel をダウンロードする。 */
+/** 変更増減 精算資料（案）：期間（工期全体／日報のある月）を選び、PDF（プレビュー・ダウンロード）・Excel を出す。 */
 function ChangeReportSection({ siteId, months }: { siteId: string; months: ExportMonthOption[] }) {
   return (
     <PeriodReportSection
@@ -120,7 +173,7 @@ function ChangeReportSection({ siteId, months }: { siteId: string; months: Expor
   );
 }
 
-/** 期間（工期全体／日報のある月）を選んで、endpoint?site=&period=&format= をダウンロードする帳票の欄。 */
+/** 期間（工期全体／日報のある月）を選んで、endpoint?site=&period=&format=（PDF は &disposition=inline でプレビュー）を出す帳票の欄。 */
 function PeriodReportSection({
   id,
   title,
@@ -137,13 +190,11 @@ function PeriodReportSection({
   /** 説明の下に出す 1 行（関連する画面へのリンクなど）。 */
   note?: ReactNode;
   endpoint: string;
-  formats: readonly { format: string; label: string }[];
+  formats: readonly FormatButton[];
   siteId: string;
   months: ExportMonthOption[];
 }) {
   const [period, setPeriod] = useState('all');
-  const href = (format: string) =>
-    `${endpoint}?site=${encodeURIComponent(siteId)}&period=${encodeURIComponent(period)}&format=${format}`;
   return (
     <section aria-labelledby={id}>
       <h2 id={id} className="mb-1 text-lg font-bold">
@@ -161,47 +212,21 @@ function PeriodReportSection({
           ))}
         </select>
       </Field>
-      <div className={`mt-3 grid gap-2 ${formats.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
-        {formats.map(({ format, label }) => (
-          <a
-            key={format}
-            href={href(format)}
-            className={`${format === 'pdf' ? primaryButtonClass : secondaryButtonClass} flex items-center justify-center`}
-          >
-            {label}
-          </a>
-        ))}
-      </div>
+      <FormatButtons
+        endpoint={endpoint}
+        query={`site=${encodeURIComponent(siteId)}&period=${encodeURIComponent(period)}`}
+        buttons={formats}
+      />
     </section>
   );
 }
 
-const DAILY_FORMATS = [
-  { format: 'pdf', label: 'PDF' },
-  { format: 'csv', label: 'CSV' },
-] as const;
-
-/** PDF・CSV のダウンロード。query が null（日付が空）なら押せないボタン。 */
+/** 日報の PDF（プレビュー・ダウンロード）・CSV。query が null（日付が空）なら押せないボタン。 */
 function DailyButtons({ query }: { query: string | null }) {
-  return (
-    <div className="mt-3 grid grid-cols-2 gap-2">
-      {DAILY_FORMATS.map(({ format, label }) => {
-        const className = format === 'pdf' ? primaryButtonClass : secondaryButtonClass;
-        return query === null ? (
-          <button key={format} type="button" disabled className={className}>
-            {label}
-          </button>
-        ) : (
-          <a key={format} href={`/api/reports/daily?${query}&format=${format}`} className={`${className} flex items-center justify-center`}>
-            {label}
-          </a>
-        );
-      })}
-    </div>
-  );
+  return <FormatButtons endpoint="/api/reports/daily" query={query} buttons={DAILY_FORMATS} />;
 }
 
-/** 日報：1 日分（日付を選ぶ）と月まとめ（日報のある月を選ぶ。日ごとに改ページ）を PDF・CSV でダウンロードする。 */
+/** 日報：1 日分（日付を選ぶ）と月まとめ（日報のある月を選ぶ。日ごとに改ページ）を PDF（プレビュー・ダウンロード）・CSV で出す。 */
 function DailyReportSection({ siteId, months, today }: { siteId: string; months: ExportMonthOption[]; today: string }) {
   const [date, setDate] = useState(today);
   const [month, setMonth] = useState(months[0]?.month ?? '');
