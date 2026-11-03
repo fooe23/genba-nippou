@@ -293,7 +293,13 @@ export function ReportForm(p: ReportFormProps) {
   }
   const onOwnVersion = useCallback((v: string) => setOwn((o) => [...o, v]), []);
   // 承認解除のあとは版が進んで入力欄が作り直されるので、完了の表示は作り直しで消えないここで覚えておく。
+  // 下書きから次の状態（承認待ちなど）に進んだら消す。
   const [reopened, setReopened] = useState(false);
+  const [prevStatus, setPrevStatus] = useState(p.status);
+  if (p.status !== prevStatus) {
+    setPrevStatus(p.status);
+    if (prevStatus === 'draft') setReopened(false);
+  }
   const onReopened = useCallback(() => setReopened(true), []);
   return <ReportFormBody key={generation} {...p} onOwnVersion={onOwnVersion} reopened={reopened} onReopened={onReopened} />;
 }
@@ -619,7 +625,7 @@ function ReportFormBody({
           {p.isAdmin && !p.review && !p.siteClosed && reportId !== null && <ReopenApprovalButton reportId={reportId} onDone={onReopened} />}
         </div>
       )}
-      {reopened && p.status !== 'approved' && (
+      {reopened && p.status === 'draft' && (
         <p role="status" className="mb-4 rounded-lg border border-green-500 bg-green-50 p-3 font-bold text-green-900 dark:bg-green-950 dark:text-green-50">
           {REOPENED_MESSAGE}
         </p>
