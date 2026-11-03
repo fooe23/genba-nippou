@@ -16,6 +16,7 @@ export const GUIDE_CHAPTERS: { slug: string; title: string }[] = [
   { slug: 'migration', title: '移行時の繰越初期値の登録' },
   { slug: 'excel', title: 'Excel 出力と帳票（PDF・CSV）' },
   { slug: 'pdf', title: 'PDF の見方' },
+  { slug: 'changes', title: '追加・変更の精算' },
   { slug: 'estimate', title: '積算書の連携（第3計画で追記）' },
   { slug: 'photos', title: '写真の添付（第4計画で追記）' },
 ];

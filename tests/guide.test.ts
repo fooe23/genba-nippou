@@ -20,6 +20,7 @@ describe('ガイド', () => {
       'migration',
       'excel',
       'pdf',
+      'changes',
       'estimate',
       'photos',
     ]);
@@ -36,6 +37,19 @@ describe('ガイド', () => {
       const html = await loadChapter(c.slug);
       expect(html, c.slug).toContain('<h1');
     }
+  });
+
+  it('追加・変更の精算の章が、3 つの精算方法・種別の数え方・精算資料の読み方に触れている', async () => {
+    expect(GUIDE_CHAPTERS.find((c) => c.slug === 'changes')?.title).toBe('追加・変更の精算');
+    const html = await loadChapter('changes');
+    expect(html).toContain('追加・変更の一覧');
+    expect(html).toContain('一式');
+    expect(html).toContain('常用単価');
+    expect(html).toContain('客先都合');
+    expect(html).toContain('やり直し');
+    expect(html).toContain('精算額（累計）');
+    expect(html).toContain('実績原価は出ません');
+    expect(html).toContain('プレビュー');
   });
 
   it('前月繰越の章に必須の3点が入っている', async () => {
