@@ -87,7 +87,7 @@ export function WorkTable({
       rows={rows}
       columns={columns}
       gridClass="md:grid-cols-[minmax(7rem,1fr)_5.5rem_minmax(9rem,2fr)_6rem_5rem_5.5rem_6.5rem_4.5rem_6.5rem_4.5rem]"
-      minWidthClass="md:min-w-[62rem]"
+      minWidthClass="md:min-w-[65rem]"
       rowExtra={(l, i) =>
         l.changeKind === 'contract' ? null : (
           <div role="group" aria-label={`${i + 1}行目の${CHANGE_KIND_LABELS[l.changeKind]}の指示`} className="grid grid-cols-2 gap-2 md:grid-cols-4">

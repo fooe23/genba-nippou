@@ -121,8 +121,8 @@ export function LaborTable({
       title="作業員"
       rows={rows}
       columns={columns}
-      gridClass="md:grid-cols-[minmax(9rem,2fr)_7rem_7rem_5rem_5rem_minmax(6rem,1.5fr)_3.5rem_3.5rem_3.5rem_5.5rem_6rem_4.5rem]"
-      minWidthClass="md:min-w-[70rem]"
+      gridClass="md:grid-cols-[minmax(8.5rem,2fr)_6.5rem_6.5rem_5rem_5rem_minmax(5rem,1.5fr)_3.5rem_3.5rem_3.5rem_5.5rem_6rem_4.5rem]"
+      minWidthClass="md:min-w-[69rem]"
       onAdd={() => onChange((rs) => [...rs, row(newLine.labor())])}
       onRemove={(i) => onChange((rs) => removeRow(rs, i))}
       subtotalLabel="労務費 小計"
