@@ -1,7 +1,7 @@
 import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
-import type { ReportHead } from '@/lib/db/reports';
+import type { Issue, ReportHead } from '@/lib/db/reports';
 import type { Carryover, Site } from '@/lib/db/sites';
-import type { ReportLine } from '@/lib/types';
+import type { ReportLine, TimeSpec } from '@/lib/types';
 
 // 帳票（第2計画（改）Task 2〜5）の型。モデルは数値だけを持ち、文字列の整形（#,##0・%・「—」・「（手入力）」）は
 // レンダラー（PDF・Excel・CSV）が行う。計画書で「—」と書かれている値は null。
@@ -238,4 +238,157 @@ export interface CostReportModel {
   signature: { createdBy: string; checkedBy: null; approvedBy: null };
   /** 脚注「日報 N 件（承認済み M 件）から自動集計 出力日時」。ページ番号はレンダラー。 */
   footer: { reportCount: number; approvedCount: number; outputDate: string; outputAt: string | null };
+}
+
+// ─── 日報（第2計画（改）Task 4・5） ───
+
+/**
+ * 日報 1 件（見出し＋保存値つき明細）に、日報の帳票だけが使う gn_daily_reports の列を足したもの。
+ * Task 5 のローダーが gn_daily_reports の 1 行と gn_report_lines（stored・労務の saved つき）から作る。
+ */
+export interface DailyReportSource extends ReportWithLines {
+  /** 共通時間（common_start・common_end・common_break_min・common_gap_min。空は null）。 */
+  common: TimeSpec;
+  /** 重要事項の本文（issues_text。空は ''）。 */
+  issuesText: string;
+  /** 連絡事項（notes_text。空は ''）。 */
+  notesText: string;
+  /** 確認者・承認者（profiles.id）と承認日時（ISO 8601）。無ければ null。 */
+  reviewedBy: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+}
+
+/** buildDailyReport の入力（日報のある日）。日報の無い日は buildEmptyDailyReport(site, date) を使う。 */
+export interface DailyReportInput {
+  site: Site;
+  report: DailyReportSource;
+  /** 現場の全日報の日付（順不同可。当月 N 回目／通算 M 回目を visitNumbers で出す。自分が無くても数える）。 */
+  reportDates: string[];
+  /** この日報の件（listIssuesForReport(report.id)。並びはそのまま出す）。 */
+  issues: Issue[];
+  /** profiles.id → 表示名（createdBy・reviewedBy・approvedBy）。読めない id は入れない。 */
+  names: Record<string, string>;
+  /** この日より前の日報の output_total の合計（進捗率 =（これ + 本日出来高）÷ 請負金額）。 */
+  cumulativeOutputBefore: number;
+}
+
+// ─── 出力（DailyReportModel）。並びは雛形の日報シートと同じ ───
+
+export interface DailyHeader {
+  siteName: string;
+  projectNo: string | null;
+  date: string;
+  /** 当月 N 回目・通算 M 回目（日報の無い日は null）。 */
+  monthIndex: number | null;
+  totalIndex: number | null;
+  weather: string | null;
+  /** 作業責任者。 */
+  supervisor: string | null;
+  /** 共通時間（日報の保存値。日報の無い日はすべて null）。 */
+  common: TimeSpec;
+}
+
+/** 作業員の 1 行。時刻はアプリの計算（effectiveHours）と同じ規則で共通時間を補った値。 */
+export interface DailyWorkerRow {
+  workerId: string | null;
+  name: string;
+  /** workerId が無い（手入力）。レンダラーが名前に「（手入力）」を付ける。 */
+  manual: boolean;
+  start: string | null;
+  end: string | null;
+  breakMin: number | null;
+  gapMin: number | null;
+  /** 実働 H（労務の saved.hours。保存値が無ければ null）。 */
+  hours: number | null;
+  /** 人工・残業 H・労務費（stored の man_days・overtime_hours・amount）。 */
+  manDays: number;
+  overtimeHours: number;
+  /** 日当（行に保存された値）。 */
+  dailyRate: number | null;
+  cost: number;
+  note: string;
+}
+
+export interface DailyVehicleRow {
+  vehicleId: string | null;
+  name: string;
+  manual: boolean;
+  kmPerL: number | null;
+  distanceKm: number | null;
+  /** 燃料単価（円/L）。 */
+  pricePerL: number | null;
+  /** 燃料費（stored.amount）。 */
+  cost: number;
+  note: string;
+}
+
+export interface DailyLeaseRow {
+  itemId: string | null;
+  name: string;
+  manual: boolean;
+  spec: string;
+  unit: string;
+  qty: number | null;
+  unitPrice: number | null;
+  /** リース費（stored.amount）。 */
+  amount: number;
+  note: string;
+}
+
+/** 現金購入・買掛の 1 行。 */
+export interface DailyPurchaseRow {
+  name: string;
+  spec: string;
+  unit: string;
+  qty: number | null;
+  unitPrice: number | null;
+  /** 購入額（stored.amount）。 */
+  amount: number;
+  /** 購入先・仕入先（'' は未記入）。 */
+  vendor: string;
+  /** 買掛で仕入先マスターの参照が無い（手入力）。現金購入は常に false。レンダラーが「（手入力）」を付ける。 */
+  vendorManual: boolean;
+}
+
+export interface DailyWorkRow {
+  trade: string;
+  description: string;
+  qty: number | null;
+  unit: string;
+  /** 投入人工（stored.man_days）。 */
+  manDays: number;
+  /** 歩掛 = 数量 ÷ 投入人工（数量 null・人工 0 なら null）。 */
+  productivity: number | null;
+  unitPrice: number | null;
+  /** 出来高（stored.amount）。 */
+  amount: number;
+}
+
+export interface DailyReportModel {
+  /** その日の日報が無い（buildEmptyDailyReport）。CSV はレコードを出さず、PDF は「日報がありません」。 */
+  isEmpty: boolean;
+  header: DailyHeader;
+  /** 合計の実働 H は保存値のある行だけを足す。 */
+  workers: { rows: DailyWorkerRow[]; total: { hours: number; manDays: number; overtimeHours: number; cost: number } };
+  vehicles: { rows: DailyVehicleRow[]; total: { distanceKm: number; cost: number } };
+  leases: { rows: DailyLeaseRow[]; total: { amount: number } };
+  cash: { rows: DailyPurchaseRow[]; total: { amount: number } };
+  credit: { rows: DailyPurchaseRow[]; total: { amount: number } };
+  /** 本日原価集計。5 費目と total は明細の stored.amount の合計、costTotal は見出しの cost_total（一致するはず）。 */
+  costs: { labor: number; fuel: number; lease: number; cash: number; credit: number; total: number; costTotal: number };
+  /**
+   * 本日出来高（output_total）と進捗率。cumulative = 前日までの出来高 + 本日（日報の無い日は null）。
+   * progress = cumulative ÷ 請負金額（請負金額が null・0、または日報の無い日は null）。
+   */
+  output: { today: number; cumulative: number | null; contractAmount: number | null; progress: number | null };
+  work: { rows: DailyWorkRow[]; total: { manDays: number; amount: number } };
+  /** 重要事項（本文と、この日報の件）。 */
+  issues: { text: string; items: { body: string; status: Issue['status']; doneAt: string | null }[] };
+  /** 連絡事項。 */
+  notes: string;
+  /**
+   * 作成者（名前が読めなければ作業責任者、それも無ければ null）・確認者・承認者（読めなければ null）・承認日時（ISO）。
+   */
+  signature: { createdBy: string | null; reviewedBy: string | null; approvedBy: string | null; approvedAt: string | null };
 }

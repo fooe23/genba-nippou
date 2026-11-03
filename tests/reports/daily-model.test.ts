@@ -1,0 +1,133 @@
+import { describe, it, expect } from 'vitest';
+import { buildDailyReport, buildEmptyDailyReport } from '@/lib/reports/daily-model';
+import { COST_TOTAL, dailyInput, report, sampleDaily, site } from './daily-fixture';
+
+describe('buildDailyReport', () => {
+  it('見出し：現場名・工事番号・日付・当月 N 回目／通算 M 回目・天候・作業責任者・共通時間', () => {
+    const m = sampleDaily();
+    expect(m.isEmpty).toBe(false);
+    expect(m.header).toEqual({
+      siteName: '〇〇邸新築工事',
+      projectNo: 'K-001',
+      date: '2026-11-02',
+      monthIndex: 2,
+      totalIndex: 4,
+      weather: '晴れ',
+      supervisor: '大江',
+      common: { start: '08:00', end: '17:30', breakMin: 90, gapMin: 0 },
+    });
+  });
+
+  it('回目は reportDates に自分が無くても自分を含めて数える', () => {
+    const m = sampleDaily({ reportDates: ['2026-10-20'] });
+    expect([m.header.monthIndex, m.header.totalIndex]).toEqual([1, 2]);
+  });
+
+  it('作業員：時刻は行の値（無ければアプリと同じく共通時間）、実働・人工・残業・労務費は保存値', () => {
+    const m = sampleDaily();
+    expect(m.workers.rows).toEqual([
+      {
+        workerId: 'w1', name: '田中', manual: false, start: '08:00', end: '17:30', breakMin: 90, gapMin: 0,
+        hours: 8, manDays: 1, overtimeHours: 0, dailyRate: 18000, cost: 18001, note: '',
+      },
+      {
+        workerId: null, name: '飛び込み 鈴木', manual: true, start: '07:00', end: '19:00', breakMin: 90, gapMin: 30,
+        hours: 9, manDays: 1, overtimeHours: 1.5, dailyRate: 15000, cost: 17344, note: '残業あり',
+      },
+      {
+        // 終了が空 → 実働は共通時間で計算されるので、時刻も共通時間を出す。saved が無いので実働は null。
+        workerId: 'w2', name: '佐藤', manual: false, start: '08:00', end: '17:30', breakMin: 90, gapMin: 0,
+        hours: null, manDays: 0, overtimeHours: 0, dailyRate: null, cost: 0, note: '',
+      },
+    ]);
+    expect(m.workers.total).toEqual({ hours: 17, manDays: 2, overtimeHours: 1.5, cost: 35345 });
+  });
+
+  it('車両・リース・現金購入・買掛：金額は保存値、参照の無い行は手入力', () => {
+    const m = sampleDaily();
+    expect(m.vehicles.rows).toEqual([
+      { vehicleId: 'v1', name: '2t ダンプ', manual: false, kmPerL: 10, distanceKm: 42, pricePerL: 170, cost: 714, note: '残土運搬' },
+      { vehicleId: null, name: '借用車', manual: true, kmPerL: null, distanceKm: 10, pricePerL: null, cost: 0, note: '' },
+    ]);
+    expect(m.vehicles.total).toEqual({ distanceKm: 52, cost: 714 });
+    expect(m.leases.rows.map((r) => [r.name, r.manual, r.spec, r.unit, r.qty, r.unitPrice, r.amount, r.note])).toEqual([
+      ['足場', false, '枠組', '日', 3, 1000, 3000, ''],
+      ['発電機', true, '', '台', 1, 5000, 5000, '持込'],
+    ]);
+    expect(m.leases.total).toEqual({ amount: 8000 });
+    expect(m.cash.rows).toEqual([{ name: '釘', spec: 'N65', unit: '箱', qty: 1, unitPrice: 1200, amount: 1200, vendor: '=ホームセンター', vendorManual: false }]);
+    expect(m.credit.rows.map((r) => [r.name, r.vendor, r.vendorManual, r.amount])).toEqual([
+      ['合板', '山田商店', false, 15000],
+      ['金物', '川村金物', true, 800],
+    ]);
+    expect(m.credit.total).toEqual({ amount: 15800 });
+  });
+
+  it('本日原価集計：明細の保存値を費目ごとに足し、見出しの cost_total も出す', () => {
+    const m = sampleDaily();
+    expect(m.costs).toEqual({ labor: 35345, fuel: 714, lease: 8000, cash: 1200, credit: 15800, total: COST_TOTAL, costTotal: COST_TOTAL });
+  });
+
+  it('本日出来高と進捗率 = (前日までの出来高 + 本日) ÷ 請負金額', () => {
+    const m = sampleDaily();
+    expect(m.output).toEqual({ today: 100000, cumulative: 250000, contractAmount: 1_000_000, progress: 0.25 });
+  });
+
+  it('請負金額が無い（null・0）なら進捗率は null', () => {
+    expect(sampleDaily({ site: { ...site, contractAmount: null } }).output.progress).toBeNull();
+    expect(sampleDaily({ site: { ...site, contractAmount: 0 } }).output.progress).toBeNull();
+  });
+
+  it('作業内容：投入人工は保存値、歩掛 = 数量 ÷ 投入人工（決められなければ null）', () => {
+    const m = sampleDaily();
+    expect(m.work.rows).toEqual([
+      { trade: '大工', description: '床下地, "1 階"', qty: 20, unit: 'm2', manDays: 2, productivity: 10, unitPrice: 5000, amount: 100000 },
+      { trade: '', description: '片付け', qty: null, unit: '', manDays: 0.5, productivity: null, unitPrice: null, amount: 0 },
+    ]);
+    expect(m.work.total).toEqual({ manDays: 2.5, amount: 100000 });
+  });
+
+  it('重要事項（本文＋件）・連絡事項・署名欄', () => {
+    const m = sampleDaily();
+    expect(m.issues).toEqual({
+      text: '施主より追加の依頼あり',
+      items: [
+        { body: '棚の追加', status: 'open', doneAt: null },
+        { body: '窓の変更', status: 'done', doneAt: '2026-11-04T03:00:00Z' },
+      ],
+    });
+    expect(m.notes).toBe('明日は雨天予報');
+    expect(m.signature).toEqual({ createdBy: '作成 太郎', reviewedBy: '確認 次郎', approvedBy: '承認 三郎', approvedAt: '2026-11-03T01:00:00Z' });
+  });
+
+  it('名前が読めない作成者は作業責任者で代える。確認者・承認者は null', () => {
+    const m = sampleDaily({ names: {} });
+    expect(m.signature).toEqual({ createdBy: '大江', reviewedBy: null, approvedBy: null, approvedAt: '2026-11-03T01:00:00Z' });
+    const none = buildDailyReport(dailyInput({ names: {}, report: report('2026-11-02', { supervisor: null, reviewedBy: null, approvedBy: null, approvedAt: null }) }));
+    expect(none.signature).toEqual({ createdBy: null, reviewedBy: null, approvedBy: null, approvedAt: null });
+  });
+
+  it('明細が無い日報は空の表（日報としては存在する）', () => {
+    const m = buildDailyReport(dailyInput({ report: report('2026-11-02', { lines: [], costTotal: 0, outputTotal: 0 }), issues: [] }));
+    expect(m.isEmpty).toBe(false);
+    expect(m.workers).toEqual({ rows: [], total: { hours: 0, manDays: 0, overtimeHours: 0, cost: 0 } });
+    expect(m.costs.total).toBe(0);
+    expect(m.output.progress).toBe(0.15);
+  });
+});
+
+describe('buildEmptyDailyReport', () => {
+  it('日報の無い日は空のモデル（エラーにしない）', () => {
+    const m = buildEmptyDailyReport(site, '2026-11-03');
+    expect(m.isEmpty).toBe(true);
+    expect(m.header).toEqual({
+      siteName: '〇〇邸新築工事', projectNo: 'K-001', date: '2026-11-03', monthIndex: null, totalIndex: null,
+      weather: null, supervisor: null, common: { start: null, end: null, breakMin: null, gapMin: null },
+    });
+    expect(m.workers.rows).toEqual([]);
+    expect(m.work.rows).toEqual([]);
+    expect(m.costs).toEqual({ labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, total: 0, costTotal: 0 });
+    expect(m.output).toEqual({ today: 0, cumulative: null, contractAmount: 1_000_000, progress: null });
+    expect(m.signature).toEqual({ createdBy: null, reviewedBy: null, approvedBy: null, approvedAt: null });
+  });
+});
