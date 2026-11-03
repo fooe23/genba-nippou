@@ -672,6 +672,8 @@ create trigger gn_report_lines_compute before insert or update on public.gn_repo
 -- 現場メンバーのみ）が効くので、他現場の日報は見つからず report_not_found になる。
 -- 念のため gn_is_site_member でも明示的に確認する。
 -- BEFORE トリガーは RLS の with check より先に走るので、強制後の site_id が検査される。
+-- 更新で精算の項目（settlement_method・fixed_amount・daily_rate・fixed_on）を変えるのは社員（管理者を含む）だけ。
+-- 協力会社が変えようとすると not_employee（同じ内容の単独ファイル：update_2026-11-05b_issue_settlement_guard.sql）。
 create or replace function public.gn_report_issues_guard()
 returns trigger language plpgsql security invoker set search_path = public as $$
 declare
@@ -683,6 +685,17 @@ begin
   end if;
   if public.gn_site_closed(v_site) then
     raise exception using message = 'site_closed';
+  end if;
+  -- 精算の項目（精算の方法・確定額・常用単価・確定日）は社員（管理者を含む）だけが変えられる。協力会社は not_employee。
+  -- （SQL Editor など auth.uid() が無い呼び出しは対象外）
+  if tg_op = 'UPDATE' then
+    if (new.settlement_method is distinct from old.settlement_method
+        or new.fixed_amount is distinct from old.fixed_amount
+        or new.daily_rate is distinct from old.daily_rate
+        or new.fixed_on is distinct from old.fixed_on)
+       and exists (select 1 from public.profiles p where p.id = auth.uid() and p.account_type = 'partner') then
+      raise exception using message = 'not_employee';
+    end if;
   end if;
   new.site_id := v_site;
   return new;

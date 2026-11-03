@@ -58,6 +58,9 @@ describe('buildChangeXlsx', () => {
     const ws = await read(await buildChangeXlsx(sampleChangeModel(), changeMeta()));
     expect(ws.getColumn(1).width).toBeGreaterThan(0);
     expect(ws.getColumn(15).width).toBeGreaterThan(0);
+    // 件ごとの精算の精算額（I 列。「（参考）¥8,000」）と確定額・単価（D 列。「常用 0.5人工 × ¥30,000」）は 1 行に収まる幅
+    expect(ws.getColumn(9).width).toBe(16);
+    expect(ws.getColumn(4).width).toBe(24);
     expect(ws.pageSetup.paperSize).toBe(9);
     expect(ws.pageSetup.orientation).toBe('portrait');
     expect(ws.pageSetup.fitToWidth).toBe(1);
@@ -80,11 +83,11 @@ describe('buildChangeXlsx', () => {
     expect(head.getCell(1).value).toBe('件');
     expect(head.getCell(9).value).toBe('精算額(円)');
     expect(ws.getRow(title.number + 2).getCell(9).value).toBe(39706);
-    const lump = rowOf(ws, '11/05 追加指示 玄関収納の追加');
+    const lump = rowOf(ws, '11/05-1 追加指示 玄関収納の追加');
     expect(lump.getCell(4).value).toBe(100000);
     expect(lump.getCell(5).value).toBe('2026/11/08');
-    expect(rowOf(ws, '11/05 やり直し 巾木の手直し').getCell(9).value).toBe('（参考）¥8,000');
-    expect(rowOf(ws, '11/05 減 外壁塗装の一部取りやめ').getCell(9).value).toBe(-20000);
+    expect(rowOf(ws, '11/05-4 やり直し 巾木の手直し').getCell(9).value).toBe('（参考）¥8,000');
+    expect(rowOf(ws, '11/05-3 減 外壁塗装の一部取りやめ').getCell(9).value).toBe(-20000);
     expect(rowOf(ws, '件なし（根拠の件を選んでいない行）').getCell(9).value).toBe(13236);
     const total = rowOf(ws, '合計');
     expect(total.getCell(9).value).toBe(147942);

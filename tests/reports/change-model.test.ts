@@ -394,6 +394,11 @@ describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary
   it('載せる件：一式・常用の件と、行が紐づく未定の件（日付順、同じ日は登録順）。未定で行の無い件は載らない', () => {
     expect(m.issues.map((i) => i.id)).toEqual(['iU', 'iL', 'iM', 'iD', 'iR']);
   });
+  it('件の番号は根拠の件（ChangeIssueRef.number）と同じ：その日報の件の中での登録順', () => {
+    expect(m.issues.map((i) => i.number)).toEqual([1, 2, 1, 2, 3]);
+    const ref = m.rows.find((r) => r.issue?.id === 'iD')?.issue;
+    expect(ref?.number).toBe(m.issues.find((i) => i.id === 'iD')?.number);
+  });
   it('件の項目（本文は先頭 40 字）と、紐づく行の件数・人工・実績原価・提案額', () => {
     const [u, l, mi, d] = m.issues;
     expect(u).toMatchObject({

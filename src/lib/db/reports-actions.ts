@@ -387,9 +387,13 @@ export type AddIssueResult = { ok: true; id: string } | { ok: false; error: stri
 const issueBodySchema = z.string().trim().min(1, '件の内容を入力してください').max(500, '件の内容は500文字以内で入力してください');
 const NOT_FOUND = '日報が見つからないか、権限がありません';
 
+const PARTNER_SETTLEMENT_MESSAGE = '協力会社は精算の項目を変更できません';
+
 function issueErrorMessage(dbMessage: string | null | undefined): string {
   const m = dbMessage ?? '';
   if (m.includes('site_closed')) return SITE_CLOSED_MESSAGE;
+  // 協力会社が精算の項目（精算の方法・確定額・常用単価・確定日）を変えようとした（gn_report_issues_guard）
+  if (m.includes('not_employee')) return PARTNER_SETTLEMENT_MESSAGE;
   return m.includes('report_not_found') ? NOT_FOUND : GENERIC_ERROR;
 }
 
@@ -481,11 +485,11 @@ export type IssueSettlementResult = { ok: true } | { ok: false; error: string };
 /**
  * 件の精算の項目（精算の方法・確定額・常用単価・確定日）を変える。社員（管理者を含む）だけ。協力会社は拒否する。
  * 一式でないときは確定額、常用でないときは常用単価を null にして保存する（方法を切り替えると他方は消える）。
- * 完了した現場の件は DB のガード（site_closed）が止める。
+ * 完了した現場の件は DB のガード（site_closed）が止める。協力会社の直接の更新も DB のガード（not_employee）が止める。
  */
 export async function updateIssueSettlement(issueId: string, input: IssueSettlementInput): Promise<IssueSettlementResult> {
   const profile = await requireProfile();
-  if (profile.accountType === 'partner') return { ok: false, error: '協力会社は精算の項目を変更できません' };
+  if (profile.accountType === 'partner') return { ok: false, error: PARTNER_SETTLEMENT_MESSAGE };
   if (!z.guid().safeParse(issueId).success) return { ok: false, error: '件の指定が正しくありません' };
   const parsed = issueSettlementSchema.safeParse(input ?? {});
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
@@ -505,7 +509,7 @@ export async function updateIssueSettlement(issueId: string, input: IssueSettlem
       .select('site_id');
     if (error) {
       console.error('[updateIssueSettlement]', error.message);
-      return { ok: false, error: stateErrorMessage(error.message) };
+      return { ok: false, error: issueErrorMessage(error.message) };
     }
     const row = (data ?? [])[0] as { site_id: string } | undefined;
     if (!row) return { ok: false, error: '件が見つからないか、権限がありません' };

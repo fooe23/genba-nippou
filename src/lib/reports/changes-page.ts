@@ -1,4 +1,4 @@
-import { settlementCategory } from '@/lib/report/change-labels';
+import { issueNumbers, settleIssue } from '@/lib/reports/change-model';
 import type { Issue } from '@/lib/db/reports';
 import type { ChangeIssueSettlement, ChangeLedgerModel } from '@/lib/reports/types';
 
@@ -8,7 +8,7 @@ import type { ChangeIssueSettlement, ChangeLedgerModel } from '@/lib/reports/typ
 
 type ComputedFields = Pick<
   ChangeIssueSettlement,
-  'category' | 'lineCount' | 'manDays' | 'actualCost' | 'proposal' | 'settled' | 'settledBasis' | 'countsToward'
+  'number' | 'category' | 'lineCount' | 'manDays' | 'actualCost' | 'proposal' | 'settled' | 'settledBasis' | 'countsToward'
 >;
 
 /** 件 1 つの行：件の保存値と、台帳の計算値（工期全体）。 */
@@ -39,13 +39,14 @@ export interface ChangesTotal {
  */
 export function joinChangesRows(issues: Issue[], ledger: Pick<ChangeLedgerModel, 'issues' | 'unlinked'>): ChangesRow[] {
   const byId = new Map(ledger.issues.map((i) => [i.id, i]));
+  const numbers = issueNumbers(issues);
   const rows: ChangesRow[] = [...issues]
     .sort((a, b) => a.reportDate.localeCompare(b.reportDate))
     .map((issue) => {
       const s = byId.get(issue.id);
-      const category = settlementCategory(issue.kind);
       const computed: ComputedFields = s
         ? {
+            number: s.number,
             category: s.category,
             lineCount: s.lineCount,
             manDays: s.manDays,
@@ -55,15 +56,14 @@ export function joinChangesRows(issues: Issue[], ledger: Pick<ChangeLedgerModel,
             settledBasis: s.settledBasis,
             countsToward: s.countsToward,
           }
-        : {
-            category,
+        : // 台帳に無い件（未定で行の無い件）も精算の規則は settleIssue（紐づく行なし）のまま
+          {
+            ...settleIssue(issue, []),
+            number: numbers.get(issue.id) ?? 0,
             lineCount: 0,
             manDays: 0,
             actualCost: 0,
             proposal: 0,
-            settled: 0,
-            settledBasis: 'proposal',
-            countsToward: category !== null,
           };
       return { ...issue, ...computed, unlinked: false };
     });

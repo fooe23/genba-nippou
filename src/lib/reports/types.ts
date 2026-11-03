@@ -535,6 +535,8 @@ export interface ChangeIssueSettlement {
   id: string;
   /** 件を書いた日報の日付。 */
   reportDate: string;
+  /** その日報の件の中での番号（登録順、1 始まり。ChangeIssueRef.number と同じ）。 */
+  number: number;
   kind: IssueKind;
   /** 本文の先頭 40 字（前後の空白は除く。ChangeIssueRef と同じ）。 */
   bodyHead: string;

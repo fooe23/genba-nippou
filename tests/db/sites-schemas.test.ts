@@ -174,5 +174,6 @@ describe('siteInputSchema（常用単価の既定）', () => {
   it('負の数・数値でない値は日本語の文言で弾く', () => {
     expect(firstError(siteInputSchema, { ...base, defaultDailyRate: -1 })).toBe('常用単価の既定は0以上の数値で入力してください');
     expect(firstError(siteInputSchema, { ...base, defaultDailyRate: NaN })).toBe('常用単価の既定は0以上の数値で入力してください');
+    expect(firstError(siteInputSchema, { ...base, defaultDailyRate: 30000.5 })).toBe('常用単価の既定は円単位の整数で入力してください');
   });
 });

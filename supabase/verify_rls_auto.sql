@@ -311,6 +311,28 @@ begin
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 6-6b エラー: %s\n', sqlerrm);
   end;
+  -- 件の精算の項目（update_2026-11-05b のガード）：6-6b の件（X の 11-02 の日報）を使う
+  select id into u from public.gn_report_issues where report_id = rid2 and body = '正しい現場に補正される';
+  begin
+    perform pg_temp.as_user(v_a);  -- A は協力会社・X の担当
+    update public.gn_report_issues set settlement_method = 'lump_sum', fixed_amount = 50000 where id = u;
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 6-6c 協力会社Aが件の精算の方法を変えられた\n';
+  exception when others then
+    perform pg_temp.as_editor();
+    if sqlerrm like '%not_employee%' then rep := rep || E'PASS 6-6c 協力会社は担当現場でも件の精算の項目を変えられない（not_employee）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 6-6c 想定外: %s\n', sqlerrm); end if;
+  end;
+  begin
+    perform pg_temp.as_user(v_c);  -- C は社員（X の割り当てなし）
+    update public.gn_report_issues set settlement_method = 'lump_sum', fixed_amount = 50000, fixed_on = '2026-11-05' where id = u;
+    get diagnostics n = row_count;
+    perform pg_temp.as_editor();
+    select settlement_method, fixed_amount into t, num from public.gn_report_issues where id = u;
+    if n = 1 and t = 'lump_sum' and num = 50000 then rep := rep || E'PASS 6-6d 社員は件の精算の項目を変えられる\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 6-6d 更新件数=%s method=%s amount=%s\n', n, t, num); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 6-6d エラー: %s\n', sqlerrm);
+  end;
   begin
     perform pg_temp.as_user(v_a);
     update public.gn_daily_reports set output_total = 99999999 where id = rid2;

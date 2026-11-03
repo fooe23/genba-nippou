@@ -147,7 +147,7 @@ export function changeIssues(model: ChangeLedgerModel): SectionTable | null {
     ],
     rows: [
       ...issues.map((i): Cell[] => [
-        `${i.reportDate.slice(5).replace('-', '/')} ${ISSUE_KIND_LABELS[i.kind]} ${i.bodyHead}`.trim(),
+        `${i.reportDate.slice(5).replace('-', '/')}-${i.number} ${ISSUE_KIND_LABELS[i.kind]} ${i.bodyHead}`.trim(),
         cell.yen(i.amountEstimate),
         SETTLEMENT_METHOD_LABELS[i.settlementMethod],
         settlementTerms(i),

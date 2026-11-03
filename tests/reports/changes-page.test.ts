@@ -13,7 +13,7 @@ const issue = (id: string, reportDate: string, kind: IssueKind = 'extra', o: Par
 });
 
 const settled = (i: Issue, o: Partial<ChangeIssueSettlement> = {}): ChangeIssueSettlement => ({
-  id: i.id, reportDate: i.reportDate, kind: i.kind, bodyHead: i.body, instructedBy: i.instructedBy, amountEstimate: i.amountEstimate,
+  id: i.id, reportDate: i.reportDate, number: 1, kind: i.kind, bodyHead: i.body, instructedBy: i.instructedBy, amountEstimate: i.amountEstimate,
   settlementMethod: i.settlementMethod, fixedAmount: i.fixedAmount, dailyRate: i.dailyRate, fixedOn: i.fixedOn,
   category: i.kind === 'rework' ? null : 'extra', lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, settled: 0,
   settledBasis: 'proposal', countsToward: i.kind !== 'rework', ...o,
@@ -31,9 +31,23 @@ describe('joinChangesRows', () => {
     expect(r.unlinked).toBe(false);
     if (r.unlinked) return;
     expect(r).toMatchObject({
-      id: 'a', body: '件aの本文', reportDate: '2026-10-05', category: 'change',
+      id: 'a', body: '件aの本文', reportDate: '2026-10-05', number: 1, category: 'change',
       lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, settled: 0, settledBasis: 'proposal', countsToward: true,
     });
+  });
+
+  it('台帳に無い件も番号は根拠の件と同じ数え方（その日報の件の中での登録順）', () => {
+    const a = issue('a', '2026-10-05');
+    const b = issue('b', '2026-10-05');
+    const c = issue('c', '2026-10-06');
+    const rows = joinChangesRows([a, b, c], { issues: [], unlinked: NO_UNLINKED });
+    expect(rows.map((r) => (r.unlinked ? 0 : r.number))).toEqual([1, 2, 1]);
+  });
+
+  it('台帳に無い一式の件の精算額も settleIssue のまま（確定額）', () => {
+    const a = issue('a', '2026-10-05', 'minus', { settlementMethod: 'lump_sum', fixedAmount: 5_000 });
+    const rows = joinChangesRows([a], { issues: [], unlinked: NO_UNLINKED });
+    expect(rows[0]).toMatchObject({ category: 'minus', settled: -5_000, settledBasis: 'fixed', lineCount: 0, proposal: 0 });
   });
 
   it('やり直しの件は、台帳に無くても合計に入れない（countsToward false）', () => {

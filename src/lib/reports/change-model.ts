@@ -142,14 +142,24 @@ export function siteBaseAmount(site: Site): { amount: number | null; basis: 'con
 const BODY_HEAD = 40;
 const bodyHead = (body: string) => [...body.trim()].slice(0, BODY_HEAD).join('');
 
-/** 件 id → 根拠の件（番号はその件を書いた日報の件の中での登録順。input.issues の並びのまま数える）。 */
-function issueRefs(issues: Issue[]): Map<string, ChangeIssueRef> {
+/** 件 id → 件の番号（その件を書いた日報の件の中での登録順、1 始まり。issues の並びのまま数える）。 */
+export function issueNumbers(issues: Issue[]): Map<string, number> {
   const countByReport = new Map<string, number>();
-  const refs = new Map<string, ChangeIssueRef>();
+  const numbers = new Map<string, number>();
   for (const i of issues) {
     const number = (countByReport.get(i.reportId) ?? 0) + 1;
     countByReport.set(i.reportId, number);
-    refs.set(i.id, { id: i.id, reportDate: i.reportDate, number, kind: i.kind, bodyHead: bodyHead(i.body) });
+    numbers.set(i.id, number);
+  }
+  return numbers;
+}
+
+/** 件 id → 根拠の件（番号は issueNumbers。input.issues の並びのまま数える）。 */
+function issueRefs(issues: Issue[]): Map<string, ChangeIssueRef> {
+  const numbers = issueNumbers(issues);
+  const refs = new Map<string, ChangeIssueRef>();
+  for (const i of issues) {
+    refs.set(i.id, { id: i.id, reportDate: i.reportDate, number: numbers.get(i.id) ?? 0, kind: i.kind, bodyHead: bodyHead(i.body) });
   }
   return refs;
 }
@@ -171,7 +181,12 @@ function sumRows(rows: ChangeLedgerRow[]): { lineCount: number; manDays: number;
  * 精算資料に載せる件と、その精算（期間末 through まで）。一式・常用の件は件の日報日が through 以前なら載せ、
  * 未定の件は through までに行が紐づくときだけ載せる。並びは件の日報日順、同じ日は input.issues の並び。
  */
-function settleIssues(issues: Issue[], throughRows: ChangeLedgerRow[], through: string | null): ChangeIssueSettlement[] {
+function settleIssues(
+  issues: Issue[],
+  throughRows: ChangeLedgerRow[],
+  through: string | null,
+  refs: Map<string, ChangeIssueRef>,
+): ChangeIssueSettlement[] {
   const rowsByIssue = new Map<string, ChangeLedgerRow[]>();
   for (const row of throughRows) {
     if (row.issue === null) continue;
@@ -187,6 +202,7 @@ function settleIssues(issues: Issue[], throughRows: ChangeLedgerRow[], through: 
     settled.push({
       id: issue.id,
       reportDate: issue.reportDate,
+      number: refs.get(issue.id)?.number ?? 0,
       kind: issue.kind,
       bodyHead: bodyHead(issue.body),
       instructedBy: issue.instructedBy,
@@ -272,7 +288,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
 
   const rows = throughRows.filter((row) => inPeriod(row.date));
   const summary = summarize(rows);
-  const issues = settleIssues(input.issues, throughRows, through);
+  const issues = settleIssues(input.issues, throughRows, through, refs);
   const unlinkedRows = throughRows.filter((row) => row.issue === null);
   // 区分ごとの精算額（期間末までの累計）= 件の精算額 ＋ 件に紐づかない行の提案額
   for (const i of issues) if (i.countsToward && i.category !== null) summary[i.category].settled += i.settled;
