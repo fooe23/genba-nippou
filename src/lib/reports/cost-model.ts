@@ -8,7 +8,7 @@ import {
   type MonthlyRow,
   type Period,
 } from '@/lib/calc/aggregate';
-import { daysBetween } from '@/lib/calc/calendar';
+import { daysBetween, monthEnd } from '@/lib/calc/calendar';
 import { monthKey } from '@/lib/calc/format';
 import type { Site } from '@/lib/db/sites';
 import { buildChangeLedger, siteBaseAmount } from '@/lib/reports/change-model';
@@ -47,20 +47,11 @@ import type {
 // - ③ は工期全体なら日報のある月ごと、月なら日報のある週ごと（月曜始まり。月をまたぐ週はその月の中に切り詰める）
 //
 // 粗利・粗利率・進捗率（② と ③）の基準額は、契約が確定なら請負金額、未確定なら概算金額（profitBasis）。
+// 進捗率は、確定なら累計出来高 ÷ 請負金額、未確定なら累計原価 ÷ 概算金額（概算に対する見込み）。
 // ② の追加・変更・減の提案額は変更増減の一覧（change-model.ts の buildChangeLedger）と同じ計算で、期間末までの累計。
 
 function round2(x: number): number {
   return Math.round(x * 100) / 100;
-}
-
-function pad2(n: number): string {
-  return String(n).padStart(2, '0');
-}
-
-/** 'YYYY-MM' の末日 'YYYY-MM-DD'。 */
-function monthEnd(month: string): string {
-  const [y, m] = month.split('-').map(Number);
-  return `${month}-${pad2(new Date(Date.UTC(y, m, 0)).getUTCDate())}`;
 }
 
 /** date を含む週の月曜日。 */
@@ -160,7 +151,6 @@ function buildProfit(
 ): Profitability {
   const base = profitBasis(site);
   const s = costSummary(cumulativeDays, base.amount);
-  const hasContract = base.amount !== null;
   const totalManDays = round2(laborEntries(cumulativeReports).reduce((sum, e) => sum + e.manDays, 0));
   const dayCount = cumulativeDays.length;
   return {
@@ -171,7 +161,8 @@ function buildProfit(
     grossProfit: s.grossProfit,
     grossMargin: s.grossMargin,
     cumulativeOutput: cumulativeDays.reduce((sum, d) => sum + d.outputTotal, 0),
-    progress: hasContract ? s.progress : null,
+    // 契約確定：累計出来高 ÷ 請負金額。未確定：累計原価（総原価）÷ 概算金額
+    progress: base.amount === null ? null : base.basis === 'estimate' ? s.cost / base.amount : s.progress,
     totalManDays,
     costPerManDay: totalManDays === 0 ? null : s.cost / totalManDays,
     costPerDay: dayCount === 0 ? null : s.cost / dayCount,
@@ -192,9 +183,13 @@ function changeProposalTotal(input: CostReportInput, cumulativeReports: ReportWi
 
 interface Bucket { key: string; from: string; to: string; }
 
-function buildTrend(allDays: DayTotals[], period: CostReportPeriod, periodMonths: string[], contractTotal: number | null): Trend {
-  const hasContract = contractTotal !== null && contractTotal !== 0;
-  // 日ごとの行（progress は現場の全日報での累計出来高ベース）。
+/**
+ * ③。進捗率は ② と同じ基準：契約確定なら to までの累計出来高 ÷ 請負金額、未確定なら to までの累計原価 ÷ 概算金額。
+ */
+function buildTrend(allDays: DayTotals[], period: CostReportPeriod, periodMonths: string[], base: ReturnType<typeof profitBasis>): Trend {
+  const contractTotal = base.amount;
+  const hasContract = contractTotal !== null;
+  // 日ごとの行（progress は現場の全日報での累計出来高ベース。未確定の現場では使わない）。
   const daily: MonthlyRow[] = periodMonths.flatMap((m) => monthlyRows(allDays, m, contractTotal));
 
   const buckets: Bucket[] = [];
@@ -232,7 +227,11 @@ function buildTrend(allDays: DayTotals[], period: CostReportPeriod, periodMonths
       cost: s.cost,
       output: s.output,
       cumulativeCost: cumulativeCostTo(b.to),
-      progress: hasContract ? inBucket[inBucket.length - 1].progress : null,
+      progress: !hasContract
+        ? null
+        : base.basis === 'estimate'
+          ? cumulativeCostTo(b.to) / contractTotal
+          : inBucket[inBucket.length - 1].progress,
     };
   });
 
@@ -456,8 +455,8 @@ function buildTrades(periodReports: ReportWithLines[]): TradeSection {
 
 /** rates は追加・変更の提案金額に掛ける率（gn_settings の経費率・利益率）。② の changeProposal に使う。 */
 export function buildCostReport(input: CostReportInput, period: CostReportPeriod, now: CostReportNow, rates: ChangeRates): CostReportModel {
-  // 進捗率（③）の基準額。② と同じ（契約確定なら請負金額、未確定なら概算金額）。
-  const contractTotal = profitBasis(input.site).amount;
+  // 進捗率（③）の基準。② と同じ（契約確定なら請負金額、未確定なら概算金額）。
+  const base = profitBasis(input.site);
   const allReports = [...input.reports].sort((a, b) => a.reportDate.localeCompare(b.reportDate));
   const periodEnd = period.kind === 'month' ? monthEnd(period.month) : null;
   const inPeriod = (date: string) => period.kind === 'all' || monthKey(date) === period.month;
@@ -470,7 +469,7 @@ export function buildCostReport(input: CostReportInput, period: CostReportPeriod
   const periodMonths = [...new Set(periodDays.map((d) => monthKey(d.reportDate)))];
 
   const header = buildHeader(input, allReports, periodReports, period, now);
-  const c = costSummary(periodDays, contractTotal);
+  const c = costSummary(periodDays, base.amount);
   const workerPeriod: Period = period.kind === 'month' ? { from: `${period.month}-01`, to: periodEnd } : { from: null, to: null };
 
   return {
@@ -478,7 +477,7 @@ export function buildCostReport(input: CostReportInput, period: CostReportPeriod
     header,
     costs: { labor: c.labor, fuel: c.fuel, lease: c.lease, cash: c.cash, credit: c.credit, total: c.cost, shares: c.shares },
     profit: buildProfit(input.site, cumulativeReports, cumulativeDays, changeProposalTotal(input, cumulativeReports, rates)),
-    trend: buildTrend(allDays, period, periodMonths, contractTotal),
+    trend: buildTrend(allDays, period, periodMonths, base),
     workers: buildWorkers(input, allReports, workerPeriod),
     vendors: buildVendors(input, periodReports),
     equipment: buildEquipment(input, periodReports),

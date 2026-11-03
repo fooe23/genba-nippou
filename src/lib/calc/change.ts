@@ -1,7 +1,7 @@
 import { workAmount } from '@/lib/calc/report';
 import type { WorkLine } from '@/lib/types';
 
-/** その日の作業内容の 追加・変更・減 の金額（円）。minus は 0 以下、net = extra + change + minus。 */
+/** その日の作業内容の 追加・変更・減 の金額（円）。minus は減の行の金額（workAmount。正で入れた行は負）の合計、net = extra + change + minus。 */
 export interface ChangeTotals { extra: number; change: number; minus: number; net: number; }
 
 /**

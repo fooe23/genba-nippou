@@ -149,7 +149,7 @@ export function costSections(model: CostReportModel): CostSection[] {
           ['粗利益(円)', yen(profit.grossProfit)],
           ['粗利率(%)', pct(profit.grossMargin)],
           ['累計出来高(円)', yen(profit.cumulativeOutput)],
-          [estimate ? '進捗率（出来高÷概算）(%)' : '進捗率（出来高÷請負）(%)', pct(profit.progress)],
+          [estimate ? '進捗率（累計原価÷概算）(%)' : '進捗率（出来高÷請負）(%)', pct(profit.progress)],
           ['総人工', dec1(profit.totalManDays)],
           ['1 人工あたり原価(円)', yen(profit.costPerManDay)],
           [`1 日あたり原価（日報日数 ${profit.dayCount} 日）(円)`, yen(profit.costPerDay)],

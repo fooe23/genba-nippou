@@ -12,6 +12,12 @@ function pad2(n: number): string {
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
+/** 'YYYY-MM' の末日 'YYYY-MM-DD'。 */
+export function monthEnd(month: string): string {
+  const { y, m } = parseMonth(month);
+  return `${month}-${pad2(new Date(Date.UTC(y, m, 0)).getUTCDate())}`;
+}
+
 /** 'YYYY-MM-DD' の曜日（「日」〜「土」）。 */
 export function weekday(date: string): string {
   const [y, m, d] = date.split('-').map(Number);

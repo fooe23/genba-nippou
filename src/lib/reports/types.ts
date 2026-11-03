@@ -88,6 +88,7 @@ export interface CostTotals {
 /**
  * ② 採算（集計期間の末日までの累計。工期全体なら全日報）。
  * 粗利・粗利率・進捗率の基準額は、契約が確定（fixed）なら請負金額、未確定（tentative）なら概算金額（basis）。
+ * 進捗率は、basis 'contract' なら累計出来高 ÷ 請負金額、'estimate' なら累計原価（totalCost）÷ 概算金額。
  * 基準額が無い（null・0）ときの比率は null。
  */
 export interface Profitability {
@@ -133,7 +134,10 @@ export interface TrendRow {
   output: number;
   /** 現場の最初の日報から to までの cost_total の累計。 */
   cumulativeCost: number;
-  /** to までの累計出来高 ÷ 請負金額（請負金額が無ければ null）。 */
+  /**
+   * 進捗率（② と同じ基準）。契約確定なら to までの累計出来高 ÷ 請負金額、未確定なら to までの累計原価 ÷ 概算金額。
+   * 基準額が無ければ null。
+   */
   progress: number | null;
 }
 
@@ -454,6 +458,7 @@ export interface ChangeLedgerRow {
   changeKind: ChangeLedgerKind;
   trade: string;
   description: string;
+  /** 施工数量（入力値。減も正のまま。減は表示で負にする（レンダラー））。 */
   qty: number | null;
   unit: string;
   unitPrice: number | null;
@@ -469,7 +474,10 @@ export interface ChangeLedgerRow {
   issue: ChangeIssueRef | null;
   /** 日報に客先確認（client_confirmed_at）がある。 */
   clientConfirmed: boolean;
-  /** 実績原価（円未満は丸めない。表示はレンダラー）。 */
+  /**
+   * 実績原価（円未満は丸めない。表示はレンダラー）。減の行は 0（提案額は申告額で、原価を積み上げないため）。
+   * 減の行の投入人工も、その日の按分の分母（作業内容の人工の合計）には入る。
+   */
   actualCost: AllocatedCost;
   /** 提案金額（円）。追加・変更は実績原価から（basis 'cost'、円未満切り上げ）、減は申告額そのまま（'declared'、負）。 */
   proposal: number;
@@ -485,21 +493,26 @@ export interface ChangeKindSummary {
 }
 
 export interface ChangeLedgerModel {
-  /** 集計期間に追加・変更・減の行が 1 行も無い。 */
+  /** 集計期間（rows）に追加・変更・減の行が 1 行も無い。 */
   isEmpty: boolean;
   period: { kind: 'all' | 'month'; month: string | null };
   rates: ChangeRates;
+  /** 集計期間の行（月ならその月だけ）。 */
   rows: ChangeLedgerRow[];
+  /** 集計期間（rows）の区分ごとの集計。 */
   summary: Record<ChangeLedgerKind, ChangeKindSummary>;
   /** 集計期間の契約内の作業内容の出来高（保存値 amount の合計）。 */
   contractOutput: number;
   /**
    * 精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 変更 ＋ 減（減は負）。各区分は提案額の合計。
-   * 当初が無ければ base・proposed は null。
+   * 範囲は through までの全部の行（月の期間でも、その月だけではなく現場の最初の日報から月末まで。工事原価集計表 ②
+   * の changeProposal と同じ）。当初が無ければ base・proposed は null。
    */
   settlement: {
     base: number | null;
     baseBasis: 'contract' | 'estimate';
+    /** 精算に入れた最後の日（月の期間なら月末 'YYYY-MM-DD'、工期全体なら null = すべて）。 */
+    through: string | null;
     extra: number;
     change: number;
     minus: number;

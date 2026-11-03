@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
+import { buildChangeLedger } from '@/lib/reports/change-model';
 import { buildCostReport } from '@/lib/reports/cost-model';
 import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Carryover, Site } from '@/lib/db/sites';
@@ -408,12 +409,23 @@ describe('② 採算の基準（契約未確定の現場）と追加・変更・
     expect(p.progress).toBeCloseTo(175_000 / 1_000_000, 12);
   });
 
-  it('契約未確定：粗利・粗利率・進捗率（② と ③）は概算金額が基準（basis estimate）、請負金額は登録値のまま', () => {
+  it('契約未確定：粗利・粗利率は概算金額が基準（basis estimate）、② の進捗率は累計原価 ÷ 概算、請負金額は登録値のまま', () => {
     const m = buildCostReport(input(reports, { site: site({ contractStatus: 'tentative', estimatedAmount: 500_000 }) }), ALL, now, RATES);
     expect(m.profit).toMatchObject({ basis: 'estimate', contractTotal: 1_000_000, estimatedAmount: 500_000, grossProfit: 420_000 });
     expect(m.profit.grossMargin).toBeCloseTo(420_000 / 500_000, 12);
-    expect(m.profit.progress).toBeCloseTo(175_000 / 500_000, 12);
-    expect(m.trend.total.progress).toBeCloseTo(175_000 / 500_000, 12);
+    expect(m.profit.progress).toBeCloseTo(80_000 / 500_000, 12); // 総原価 ÷ 概算（出来高 175,000 ではない）
+  });
+
+  it('契約未確定：③ の各行の進捗率は to までの累計原価 ÷ 概算、合計は最後の行と同じ', () => {
+    const t = buildCostReport(input(reports, { site: site({ contractStatus: 'tentative', estimatedAmount: 500_000 }) }), ALL, now, RATES).trend;
+    expect(t.rows.map((r) => [r.key, r.cumulativeCost])).toEqual([['2026-10', 20_000], ['2026-11', 40_000], ['2026-12', 80_000]]);
+    expect(t.rows[0].progress).toBeCloseTo(20_000 / 500_000, 12);
+    expect(t.rows[1].progress).toBeCloseTo(40_000 / 500_000, 12);
+    expect(t.rows[2].progress).toBeCloseTo(80_000 / 500_000, 12);
+    expect(t.total.progress).toBeCloseTo(80_000 / 500_000, 12);
+    // 契約確定の現場は今までどおり累計出来高 ÷ 請負金額
+    const fixed = buildCostReport(input(reports), ALL, now, RATES).trend;
+    expect(fixed.rows[1].progress).toBeCloseTo((30_000 + 95_000) / 1_000_000, 12);
   });
 
   it('基準額が無ければ basis null、粗利・比率は null（未確定で概算なし）', () => {
@@ -425,6 +437,14 @@ describe('② 採算の基準（契約未確定の現場）と追加・変更・
     // 追加：労務 20,000 ÷ 1 人工 × 1 → 20,000 × 1.265 = 25,300。変更：40,000 × 1.265 = 50,600。減：−5,000（申告額）
     expect(buildCostReport(input(reports), ALL, now, RATES).profit.changeProposal).toBe(25_300 + 50_600 - 5_000);
     expect(buildCostReport(input(reports), NOV, now, RATES).profit.changeProposal).toBe(25_300 - 5_000); // 11 月末まで
+  });
+
+  it('② の提案額と変更増減の一覧の精算（追加＋変更＋減）は、どの期間でも一致する', () => {
+    for (const period of [ALL, NOV, { kind: 'month', month: '2026-10' } as const, { kind: 'month', month: '2026-12' } as const]) {
+      const p = buildCostReport(input(reports), period, now, RATES).profit;
+      const s = buildChangeLedger(input(reports), RATES, period).settlement;
+      expect(p.changeProposal).toBe(s.extra + s.change + s.minus);
+    }
   });
 
   it('追加・変更・減の行が無ければ null', () => {
