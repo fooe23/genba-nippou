@@ -15,9 +15,9 @@ import type { CostReportModel } from '@/lib/reports/types';
 // 工事原価集計表の Excel（数式なしの xlsx）。1 シートに見出しと ①〜⑦ を縦に並べる。
 // 見出しは太字、金額は #,##0、比率は 0.0%（値は 0..1）、人工・歩掛は 0.0。列幅は固定、A4 縦で横 1 ページに収める。
 
-const NAVY = 'FF1F3A5F';
+export const NAVY = 'FF1F3A5F';
 const RULE = 'FFC9D1DC';
-const BAND = 'FFEEF2F7';
+export const BAND = 'FFEEF2F7';
 const TOTAL_BAND = 'FFF6F8FB';
 
 /** A 列（名前）・B 列（2 列目の文字）・C〜K 列（数値）。③ が 11 列で最も広い。 */
@@ -33,8 +33,8 @@ const NUM_FMT: Record<NumFmt, string | undefined> = {
 };
 
 const thin = { style: 'thin', color: { argb: RULE } } as const;
-const box: Partial<ExcelJS.Borders> = { top: thin, left: thin, bottom: thin, right: thin };
-const fill = (argb: string): ExcelJS.Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
+export const box: Partial<ExcelJS.Borders> = { top: thin, left: thin, bottom: thin, right: thin };
+export const fill = (argb: string): ExcelJS.Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } });
 
 function writeCell(target: ExcelJS.Cell, c: Cell, numeric: boolean): void {
   if (c === null || (typeof c === 'object' && c.value === null)) {
@@ -50,7 +50,8 @@ function writeCell(target: ExcelJS.Cell, c: Cell, numeric: boolean): void {
   target.alignment = numeric ? { horizontal: 'right', vertical: 'middle' } : { vertical: 'middle', wrapText: true };
 }
 
-function writeTable(ws: ExcelJS.Worksheet, t: SectionTable): void {
+/** 表（太字の列見出し・罫線・数値の書式・太字の合計行）を 1 列目から書く（変更増減 精算資料でも使う）。 */
+export function writeTable(ws: ExcelJS.Worksheet, t: SectionTable): void {
   const head = ws.addRow(t.columns.map((c) => c.label));
   t.columns.forEach((col, i) => {
     const cell = head.getCell(i + 1);

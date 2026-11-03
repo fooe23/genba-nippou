@@ -4,7 +4,7 @@ import { MONTH_RE } from '@/lib/export/query';
 import type { CostReportPeriod } from '@/lib/reports/types';
 import { isUuid } from '@/lib/uuid';
 
-// /api/reports/cost・/api/reports/daily の入口まわりの純関数（Next・Supabase に依存しない）：クエリの検証と添付ファイル名。
+// /api/reports/cost・/api/reports/daily・/api/reports/changes の入口まわりの純関数（Next・Supabase に依存しない）：クエリの検証と添付ファイル名。
 
 export type CostFormat = 'pdf' | 'xlsx' | 'csv';
 const FORMATS: readonly CostFormat[] = ['pdf', 'xlsx', 'csv'];
@@ -32,8 +32,32 @@ export function parseCostQuery(
  * 現場名の禁止文字は原本 Excel と同じ規則（fileNameStem）。
  */
 export function costReportFileName(siteName: string, period: CostReportPeriod, outputDate: string, ext: CostFormat): string {
+  return periodFileName(siteName, '工事原価集計表', period, outputDate, ext);
+}
+
+/** `現場名_帳票名_YYYYMMDD.拡張子`（工期全体。日付は出力日）、月は `現場名_帳票名_YYYY年MM月.拡張子`。 */
+function periodFileName(siteName: string, title: string, period: CostReportPeriod, outputDate: string, ext: string): string {
   const when = period.kind === 'all' ? outputDate.replaceAll('-', '') : `${period.month.slice(0, 4)}年${period.month.slice(5, 7)}月`;
-  return `${fileNameStem(siteName)}_工事原価集計表_${when}.${ext}`;
+  return `${fileNameStem(siteName)}_${title}_${when}.${ext}`;
+}
+
+// ─── 変更増減 精算資料（/api/reports/changes） ───
+
+export type ChangesFormat = 'pdf' | 'xlsx';
+
+/** `?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx` を読む（工事原価集計表と同じ。CSV は無い）。 */
+export function parseChangesQuery(
+  url: URL | string,
+): { siteId: string; period: CostReportPeriod; format: ChangesFormat } | { error: string } {
+  const query = parseCostQuery(url);
+  if ('error' in query) return query;
+  if (query.format === 'csv') return { error: '出力形式の指定が正しくありません' };
+  return { ...query, format: query.format };
+}
+
+/** `現場名_変更増減精算資料_YYYYMMDD.拡張子`、月は `現場名_変更増減精算資料_YYYY年MM月.拡張子`。 */
+export function changeReportFileName(siteName: string, period: CostReportPeriod, outputDate: string, ext: ChangesFormat): string {
+  return periodFileName(siteName, '変更増減精算資料', period, outputDate, ext);
 }
 
 // ─── 日報（/api/reports/daily） ───

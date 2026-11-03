@@ -13,7 +13,8 @@ export interface ExportMonthOption {
 }
 
 /**
- * 出力画面：原本 Excel（.xlsm、月ごと）、工事原価集計表（工期全体または月、PDF・Excel・CSV）、日報（1 日分または月まとめ、PDF・CSV）。
+ * 出力画面：原本 Excel（.xlsm、月ごと）、工事原価集計表（工期全体または月、PDF・Excel・CSV）、
+ * 変更増減 精算資料（案）（工期全体または月、PDF・Excel）、日報（1 日分または月まとめ、PDF・CSV）。
  * today は日報の日付の初期値（JST の 'YYYY-MM-DD'）。
  */
 export function ExportPanel({ siteId, months, today }: { siteId: string; months: ExportMonthOption[]; today: string }) {
@@ -63,6 +64,7 @@ export function ExportPanel({ siteId, months, today }: { siteId: string; months:
       </section>
 
       <CostReportSection siteId={siteId} months={months} />
+      <ChangeReportSection siteId={siteId} months={months} />
       <DailyReportSection siteId={siteId} months={months} today={today} />
     </div>
   );
@@ -74,19 +76,68 @@ const COST_FORMATS = [
   { format: 'csv', label: 'CSV' },
 ] as const;
 
+const CHANGE_FORMATS = [
+  { format: 'pdf', label: 'PDF' },
+  { format: 'xlsx', label: 'Excel' },
+] as const;
+
 /** 工事原価集計表：集計期間（工期全体／日報のある月）を選び、PDF・Excel・CSV をダウンロードする。 */
 function CostReportSection({ siteId, months }: { siteId: string; months: ExportMonthOption[] }) {
+  return (
+    <PeriodReportSection
+      id="export-cost"
+      title="工事原価集計表"
+      description="原価・採算・推移・作業員・取引先・工種別出来高をまとめた集計表です。"
+      endpoint="/api/reports/cost"
+      formats={COST_FORMATS}
+      siteId={siteId}
+      months={months}
+    />
+  );
+}
+
+/** 変更増減 精算資料（案）：期間（工期全体／日報のある月）を選び、PDF・Excel をダウンロードする。 */
+function ChangeReportSection({ siteId, months }: { siteId: string; months: ExportMonthOption[] }) {
+  return (
+    <PeriodReportSection
+      id="export-changes"
+      title="変更増減 精算資料（案）"
+      description="追加・変更・減の記録と実績原価から、客先に出す精算のご提案（案）を作ります。"
+      endpoint="/api/reports/changes"
+      formats={CHANGE_FORMATS}
+      siteId={siteId}
+      months={months}
+    />
+  );
+}
+
+/** 期間（工期全体／日報のある月）を選んで、endpoint?site=&period=&format= をダウンロードする帳票の欄。 */
+function PeriodReportSection({
+  id,
+  title,
+  description,
+  endpoint,
+  formats,
+  siteId,
+  months,
+}: {
+  id: string;
+  title: string;
+  description: string;
+  endpoint: string;
+  formats: readonly { format: string; label: string }[];
+  siteId: string;
+  months: ExportMonthOption[];
+}) {
   const [period, setPeriod] = useState('all');
   const href = (format: string) =>
-    `/api/reports/cost?site=${encodeURIComponent(siteId)}&period=${encodeURIComponent(period)}&format=${format}`;
+    `${endpoint}?site=${encodeURIComponent(siteId)}&period=${encodeURIComponent(period)}&format=${format}`;
   return (
-    <section aria-labelledby="export-cost">
-      <h2 id="export-cost" className="mb-1 text-lg font-bold">
-        工事原価集計表
+    <section aria-labelledby={id}>
+      <h2 id={id} className="mb-1 text-lg font-bold">
+        {title}
       </h2>
-      <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">
-        原価・採算・推移・作業員・取引先・工種別出来高をまとめた集計表です。
-      </p>
+      <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">{description}</p>
       <Field label="集計期間">
         <select value={period} onChange={(e) => setPeriod(e.target.value)} className={inputClass}>
           <option value="all">工期全体</option>
@@ -97,8 +148,8 @@ function CostReportSection({ siteId, months }: { siteId: string; months: ExportM
           ))}
         </select>
       </Field>
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {COST_FORMATS.map(({ format, label }) => (
+      <div className={`mt-3 grid gap-2 ${formats.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`}>
+        {formats.map(({ format, label }) => (
           <a
             key={format}
             href={href(format)}

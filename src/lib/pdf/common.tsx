@@ -120,7 +120,8 @@ export function InfoGrid({ lines }: { lines: [string, string | null][][] }) {
 function TableRow({ table, cells, kind, compact }: { table: SectionTable; cells: Cell[]; kind: 'head' | 'body' | 'total'; compact: boolean }) {
   const rowStyle = [s.row, ...(kind === 'head' ? [s.headRow] : kind === 'total' ? [s.totalRow] : [])];
   return (
-    <View style={rowStyle} wrap={false} fixed={kind === 'head'}>
+    // fixed は列見出しにだけ付ける（fixed={false} でも props に fixed があると react-pdf は改ページ送りをせず、行を途中で切る）
+    <View style={rowStyle} wrap={false} {...(kind === 'head' ? { fixed: true } : {})}>
       {cells.map((c, i) => {
         const col = table.columns[i];
         const style = [

@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { costReportFileName, dailyReportFileName, parseCostQuery, parseDailyQuery } from '@/lib/reports/query';
+import {
+  changeReportFileName,
+  costReportFileName,
+  dailyReportFileName,
+  parseChangesQuery,
+  parseCostQuery,
+  parseDailyQuery,
+} from '@/lib/reports/query';
 
 const SITE = '0b6c2f9e-1a2b-4c3d-8e9f-0123456789ab';
 const url = (q: string) => `http://localhost/api/reports/cost?${q}`;
@@ -99,5 +106,38 @@ describe('dailyReportFileName', () => {
   it('禁止文字は _、空なら「現場」（原本 Excel と同じ規則）', () => {
     expect(dailyReportFileName(' A/B:C*? ', { kind: 'date', date: '2026-11-02' }, 'pdf')).toBe('A_B_C___日報_2026-11-02.pdf');
     expect(dailyReportFileName('  ', { kind: 'month', month: '2026-11' }, 'csv')).toBe('現場_日報_2026年11月.csv');
+  });
+});
+
+const changesUrl = (q: string) => `http://localhost/api/reports/changes?${q}`;
+
+describe('parseChangesQuery', () => {
+  it('現場・期間（all か YYYY-MM）・形式（pdf・xlsx）を返す', () => {
+    expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=pdf`))).toEqual({ siteId: SITE, period: { kind: 'all' }, format: 'pdf' });
+    expect(parseChangesQuery(new URL(changesUrl(`format=xlsx&period=2026-11&site=${SITE}`)))).toEqual({
+      siteId: SITE,
+      period: { kind: 'month', month: '2026-11' },
+      format: 'xlsx',
+    });
+  });
+
+  it('現場・期間・形式（csv は無い）が違えばエラー', () => {
+    expect(parseChangesQuery(changesUrl('site=abc&period=all&format=pdf'))).toEqual({ error: '現場の指定が正しくありません' });
+    expect(parseChangesQuery(changesUrl(`site=${SITE}&period=2026-13&format=pdf`))).toEqual({ error: '集計期間の指定が正しくありません' });
+    for (const f of ['', 'csv', 'xlsm', 'PDF']) {
+      expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=${f}`))).toEqual({ error: '出力形式の指定が正しくありません' });
+    }
+  });
+});
+
+describe('changeReportFileName', () => {
+  it('工期全体は出力日（YYYYMMDD）、月は YYYY年MM月', () => {
+    expect(changeReportFileName('〇〇邸新築工事', { kind: 'all' }, '2026-11-03', 'pdf')).toBe('〇〇邸新築工事_変更増減精算資料_20261103.pdf');
+    expect(changeReportFileName('〇〇邸', { kind: 'month', month: '2026-01' }, '2026-11-03', 'xlsx')).toBe('〇〇邸_変更増減精算資料_2026年01月.xlsx');
+  });
+
+  it('禁止文字は _、空なら「現場」', () => {
+    expect(changeReportFileName(' A/B:C*? ', { kind: 'all' }, '2026-11-03', 'pdf')).toBe('A_B_C___変更増減精算資料_20261103.pdf');
+    expect(changeReportFileName('  ', { kind: 'all' }, '2026-11-03', 'xlsx')).toBe('現場_変更増減精算資料_20261103.xlsx');
   });
 });
