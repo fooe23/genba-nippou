@@ -166,6 +166,22 @@ describe('toSaveInput', () => {
     expect(notes).toEqual(['読み取りの注記', '天候「霧」は選択肢に無いため、そのまま取り込みました']);
   });
 
+  it('同じ注記は 1 回だけ（同じ知らない仕入先の買掛が 2 行）', () => {
+    const { input, notes } = toSaveInput(
+      parse({
+        credit: [
+          { name: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 500, vendor: '△△商店' },
+          { name: '砂', spec: '', unit: '袋', qty: 1, unitPrice: 300, vendor: '△△商店' },
+        ],
+      }),
+      SITE,
+      '2026-11-03',
+      masters,
+    );
+    expect(input.lines.filter((l) => l.kind === 'credit')).toHaveLength(2);
+    expect(notes).toEqual(['買掛の仕入先「△△商店」はマスターに無いので手入力として取り込みました']);
+  });
+
   it('施工内容が空の作業内容は注記する（保存の前に入れてもらう）', () => {
     const { notes } = toSaveInput(
       parse({ work: [{ trade: '大工', description: '', qty: null, unit: '', manDays: 1, unitPrice: null }] }),

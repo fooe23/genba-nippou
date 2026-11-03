@@ -188,9 +188,10 @@ export function ImportDaySheet({
     } catch (err) {
       console.error('[import-day] read', err);
       setError(err instanceof ReadError ? err.message : 'ファイルを読み取れませんでした。1 日分の雛形の Excel か確認してください。');
-      setInputKey((k) => k + 1);
     } finally {
       setReading(false);
+      // 成功・失敗どちらでも選択を空にする（直した同じファイルを選び直しても change が起き、読み直せるように）。
+      setInputKey((k) => k + 1);
     }
   }
 
@@ -236,8 +237,8 @@ export function ImportDaySheet({
             <div role="status" className="rounded-lg border border-yellow-400 bg-yellow-50 p-3 text-yellow-950 dark:border-yellow-600 dark:bg-yellow-950 dark:text-yellow-50">
               <p className="font-bold">確認してください</p>
               <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm [overflow-wrap:anywhere]">
-                {result.notes.map((n) => (
-                  <li key={n}>{n}</li>
+                {result.notes.map((n, i) => (
+                  <li key={i}>{n}</li>
                 ))}
               </ul>
             </div>

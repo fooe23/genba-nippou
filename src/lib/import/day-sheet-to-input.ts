@@ -127,6 +127,7 @@ export function toSaveInput(
       notesText: parse.notesText,
       lines,
     },
-    notes,
+    // 同じ注記（同じ仕入先の行が複数など）は 1 回だけ出す。
+    notes: [...new Set(notes)],
   };
 }
