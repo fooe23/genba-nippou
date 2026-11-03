@@ -11,6 +11,9 @@ import { SiteSummary } from '@/components/site/SiteSummary';
 
 export const metadata = { title: '現場' };
 
+const siteLinkClass =
+  'flex min-h-12 min-w-0 flex-1 items-center justify-center rounded-lg border border-blue-700 px-2 text-center text-base font-bold text-blue-700 dark:border-blue-400 dark:text-blue-400';
+
 export default async function SiteDetailPage({ params }: PageProps<'/sites/[siteId]'>) {
   const profile = await requireProfile();
   const { siteId } = await params;
@@ -45,21 +48,21 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
         <ReportCalendar siteId={siteId} heads={heads} today={today} />
       </div>
 
-      <div className="mt-6 flex gap-3">
-        <Link
-          href={`/sites/${siteId}/summary`}
-          className="flex min-h-12 flex-1 items-center justify-center rounded-lg border border-blue-700 text-base font-bold text-blue-700 dark:border-blue-400 dark:text-blue-400"
-        >
+      {/* 3 つ並んでも 375px に収まるよう、幅を等分して文字が折り返さない大きさにする */}
+      <div className="mt-6 flex gap-2">
+        <Link href={`/sites/${siteId}/summary`} className={siteLinkClass}>
           集計を見る
         </Link>
-        {/* 協力会社は出力しない（/api/export も 403） */}
+        {/* 協力会社は出力しない（/api/export も 403）。追加・変更の一覧（実績原価・精算額）も社内だけ */}
         {profile.accountType !== 'partner' && (
-          <Link
-            href={`/sites/${siteId}/export`}
-            className="flex min-h-12 flex-1 items-center justify-center rounded-lg border border-blue-700 text-base font-bold text-blue-700 dark:border-blue-400 dark:text-blue-400"
-          >
-            出力
-          </Link>
+          <>
+            <Link href={`/sites/${siteId}/export`} className={siteLinkClass}>
+              出力
+            </Link>
+            <Link href={`/sites/${siteId}/changes`} className={siteLinkClass}>
+              追加・変更
+            </Link>
+          </>
         )}
       </div>
 

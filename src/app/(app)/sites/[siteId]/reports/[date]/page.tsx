@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
+import { SITE_CLOSED_NOTICE } from '@/lib/constants';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { requireProfile } from '@/lib/db/profile';
 import { getReport } from '@/lib/db/reports';
@@ -8,8 +9,6 @@ import { loadReportFormProps } from '@/lib/report/form-props';
 import { ReportForm } from '@/components/report/ReportForm';
 
 export const metadata = { title: '日報' };
-
-const CLOSED_NOTICE = 'この現場は完了しているため閲覧のみです。直す必要があるときは管理者が『進行中に戻す』を押してください。';
 
 export default async function ReportPage({ params }: PageProps<'/sites/[siteId]/reports/[date]'>) {
   const profile = await requireProfile();
@@ -34,7 +33,7 @@ export default async function ReportPage({ params }: PageProps<'/sites/[siteId]/
         {...props}
         readOnly={report.head?.status === 'approved' || closed}
         siteClosed={closed}
-        readOnlyNotice={closed ? CLOSED_NOTICE : undefined}
+        readOnlyNotice={closed ? SITE_CLOSED_NOTICE : undefined}
         exportLinks={exportLinks}
       />
     </main>

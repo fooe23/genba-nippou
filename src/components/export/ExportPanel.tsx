@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import Link from 'next/link';
+import { useState, type ReactNode } from 'react';
 import { Field, inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/masters/common';
 
 /** 出力できる月（日報のある月）。notice は原本 Excel に入りきらないときの案内文。 */
@@ -103,6 +104,14 @@ function ChangeReportSection({ siteId, months }: { siteId: string; months: Expor
       id="export-changes"
       title="変更増減 精算資料（案）"
       description="追加・増・変更・減の記録と実績原価から、客先に出す精算のご提案（案）を作ります。"
+      note={
+        <Link
+          href={`/sites/${siteId}/changes`}
+          className="inline-flex min-h-11 items-center text-sm font-medium text-blue-700 underline dark:text-blue-400"
+        >
+          確定額や常用単価は「追加・変更の一覧」で入れます →
+        </Link>
+      }
       endpoint="/api/reports/changes"
       formats={CHANGE_FORMATS}
       siteId={siteId}
@@ -116,6 +125,7 @@ function PeriodReportSection({
   id,
   title,
   description,
+  note,
   endpoint,
   formats,
   siteId,
@@ -124,6 +134,8 @@ function PeriodReportSection({
   id: string;
   title: string;
   description: string;
+  /** 説明の下に出す 1 行（関連する画面へのリンクなど）。 */
+  note?: ReactNode;
   endpoint: string;
   formats: readonly { format: string; label: string }[];
   siteId: string;
@@ -138,6 +150,7 @@ function PeriodReportSection({
         {title}
       </h2>
       <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">{description}</p>
+      {note && <p className="-mt-1 mb-2">{note}</p>}
       <Field label="集計期間">
         <select value={period} onChange={(e) => setPeriod(e.target.value)} className={inputClass}>
           <option value="all">工期全体</option>
