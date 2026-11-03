@@ -10,6 +10,14 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0');
 }
 
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+
+/** 'YYYY-MM-DD' の曜日（「日」〜「土」）。 */
+export function weekday(date: string): string {
+  const [y, m, d] = date.split('-').map(Number);
+  return WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
+}
+
 /** 日曜始まりの月カレンダー。日付のない先頭・末尾のマスは null。7 の倍数（35 または 42）。 */
 export function monthGrid(month: string): { dates: (string | null)[] } {
   const { y, m } = parseMonth(month);

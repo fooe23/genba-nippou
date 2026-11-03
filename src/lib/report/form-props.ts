@@ -1,4 +1,5 @@
 import 'server-only';
+import { weekday } from '@/lib/calc/calendar';
 import { jpDate, todayJst } from '@/lib/calc/format';
 import { visitLabel, visitNumbers } from '@/lib/calc/visit';
 import { listLeaseItems, listSuppliers, listUnits, listVehicles, listWeather, listWorkers } from '@/lib/db/masters';
@@ -12,16 +13,9 @@ import { newReportCommon, type ReportMasters } from '@/components/report/form-st
 
 // 日報入力画面と承認画面で共通の、ReportForm に渡す props の組み立て。
 
-const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
-
 function shiftDate(date: string, days: number): string {
   const [y, m, d] = date.split('-').map(Number);
   return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
-}
-
-function weekday(date: string): string {
-  const [y, m, d] = date.split('-').map(Number);
-  return WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()];
 }
 
 // 現場で使う（選択済みの）マスターのうち有効なもの＋この日報ですでに使っているもの。並びは現場の選択順。

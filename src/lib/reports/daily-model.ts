@@ -167,7 +167,10 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
   };
 }
 
-/** 日報の無い日の帳票データ（エラーにしない。isEmpty: true、表はすべて空）。 */
+/**
+ * 日報の無い日の帳票データ（エラーにしない。isEmpty: true、表はすべて空）。日報の無い月の帳票では date に 'YYYY-MM' を渡す
+ * （PDF の見出しは「YYYY年MM月」。dailyDateLabel）。
+ */
 export function buildEmptyDailyReport(site: Site, date: string): DailyReportModel {
   return {
     isEmpty: true,

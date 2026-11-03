@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
-import { monthKey } from '@/lib/calc/format';
+import { monthKey, todayJst } from '@/lib/calc/format';
 import { loadExportInput, loadMonthReports } from '@/lib/db/export';
 import { requireProfile } from '@/lib/db/profile';
 import { listReportHeads } from '@/lib/db/reports';
@@ -59,7 +59,7 @@ export default async function ExportPage({ params }: PageProps<'/sites/[siteId]/
       {months.length === 0 ? (
         <p className="text-base text-gray-600 dark:text-gray-400">日報がありません</p>
       ) : (
-        <ExportPanel siteId={siteId} months={months} />
+        <ExportPanel siteId={siteId} months={months} today={todayJst()} />
       )}
     </main>
   );

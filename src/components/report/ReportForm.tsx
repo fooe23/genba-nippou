@@ -70,6 +70,8 @@ export interface ReportFormProps {
   createdBy: string | null;
   currentUserId: string;
   isAdmin: boolean;
+  /** 帳票（PDF・CSV）のダウンロード先。保存済みの日報で、出力できる人（社員・管理者）だけに渡す。閲覧専用でも出す。 */
+  exportLinks?: { pdf: string; csv: string };
 }
 
 const SUBMIT_FAILED = '提出に失敗しました。通信状況を確認してもう一度お試しください。';
@@ -486,6 +488,24 @@ function ReportFormBody({ onOwnVersion, ...p }: ReportFormProps & { onOwnVersion
       <div className="mb-4 flex flex-wrap items-center gap-x-3 gap-y-1">
         <h1 className="text-xl font-bold">{p.heading}</h1>
         <span className={`rounded border px-2 py-0.5 text-sm font-bold ${STATUS_COLOR[p.status]}`}>{STATUS_LABEL[p.status]}</span>
+        {p.exportLinks && (
+          <span className="ml-auto flex gap-2">
+            {[
+              ['PDF', p.exportLinks.pdf],
+              ['CSV', p.exportLinks.csv],
+            ].map(([label, href]) => (
+              <a
+                key={label}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-400 px-3 text-sm font-medium dark:border-gray-600"
+              >
+                {label}
+              </a>
+            ))}
+          </span>
+        )}
       </div>
 
       {p.review && <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">{p.siteName}</p>}

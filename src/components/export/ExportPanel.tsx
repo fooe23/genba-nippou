@@ -12,8 +12,11 @@ export interface ExportMonthOption {
   notice: string | null;
 }
 
-/** 出力画面：原本 Excel（.xlsm、月ごと）と工事原価集計表（工期全体または月、PDF・Excel・CSV）。日報は後の Task で入れる。 */
-export function ExportPanel({ siteId, months }: { siteId: string; months: ExportMonthOption[] }) {
+/**
+ * 出力画面：原本 Excel（.xlsm、月ごと）、工事原価集計表（工期全体または月、PDF・Excel・CSV）、日報（1 日分または月まとめ、PDF・CSV）。
+ * today は日報の日付の初期値（JST の 'YYYY-MM-DD'）。
+ */
+export function ExportPanel({ siteId, months, today }: { siteId: string; months: ExportMonthOption[]; today: string }) {
   const [month, setMonth] = useState(months[0]?.month ?? '');
   const current = months.find((m) => m.month === month) ?? months[0];
   if (!current) return null;
@@ -60,7 +63,7 @@ export function ExportPanel({ siteId, months }: { siteId: string; months: Export
       </section>
 
       <CostReportSection siteId={siteId} months={months} />
-      <Placeholder title="日報" />
+      <DailyReportSection siteId={siteId} months={months} today={today} />
     </div>
   );
 }
@@ -109,14 +112,60 @@ function CostReportSection({ siteId, months }: { siteId: string; months: ExportM
   );
 }
 
-/** 後の Task で入れる出力の置き場。 */
-function Placeholder({ title }: { title: string }) {
+const DAILY_FORMATS = [
+  { format: 'pdf', label: 'PDF' },
+  { format: 'csv', label: 'CSV' },
+] as const;
+
+/** PDF・CSV のダウンロード。query が null（日付が空）なら押せないボタン。 */
+function DailyButtons({ query }: { query: string | null }) {
   return (
-    <section>
-      <h2 className="mb-2 text-lg font-bold">{title}</h2>
-      <button type="button" disabled className={`${secondaryButtonClass} w-full`}>
-        準備中
-      </button>
+    <div className="mt-3 grid grid-cols-2 gap-2">
+      {DAILY_FORMATS.map(({ format, label }) => {
+        const className = format === 'pdf' ? primaryButtonClass : secondaryButtonClass;
+        return query === null ? (
+          <button key={format} type="button" disabled className={className}>
+            {label}
+          </button>
+        ) : (
+          <a key={format} href={`/api/reports/daily?${query}&format=${format}`} className={`${className} flex items-center justify-center`}>
+            {label}
+          </a>
+        );
+      })}
+    </div>
+  );
+}
+
+/** 日報：1 日分（日付を選ぶ）と月まとめ（日報のある月を選ぶ。日ごとに改ページ）を PDF・CSV でダウンロードする。 */
+function DailyReportSection({ siteId, months, today }: { siteId: string; months: ExportMonthOption[]; today: string }) {
+  const [date, setDate] = useState(today);
+  const [month, setMonth] = useState(months[0]?.month ?? '');
+  const site = `site=${encodeURIComponent(siteId)}`;
+  return (
+    <section aria-labelledby="export-daily">
+      <h2 id="export-daily" className="mb-1 text-lg font-bold">
+        日報
+      </h2>
+      <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">
+        1 日分、または 1 か月分（日ごとに改ページ）の日報です。日報の無い日は「日報がありません」と出ます。
+      </p>
+      <Field label="1 日分（日付）">
+        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
+      </Field>
+      <DailyButtons query={date ? `${site}&date=${encodeURIComponent(date)}` : null} />
+      <div className="mt-4">
+        <Field label="1 か月分（月）">
+          <select value={month} onChange={(e) => setMonth(e.target.value)} className={inputClass}>
+            {months.map((m) => (
+              <option key={m.month} value={m.month}>
+                {m.label}（日報 {m.reportCount} 件）
+              </option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <DailyButtons query={month ? `${site}&month=${encodeURIComponent(month)}` : null} />
     </section>
   );
 }

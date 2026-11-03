@@ -44,6 +44,10 @@ const pct = (value: number | null): Cell => ({ value, fmt: 'pct' });
 const text = (label: string, w = 3): Column => ({ label, num: false, w });
 const num = (label: string, w = 2): Column => ({ label, num: true, w });
 
+/** セル・列の作り方（日報の表 daily-sections.ts でも使う）。 */
+export const cell = { yen, int, dec1, qty, pct };
+export const col = { text, num };
+
 /** 'YYYY-MM-DD' → 'YYYY/MM/DD'。 */
 export function slashDate(date: string): string {
   return date.replaceAll('-', '/');

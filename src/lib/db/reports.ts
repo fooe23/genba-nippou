@@ -362,3 +362,17 @@ export async function listIssuesForReport(reportId: string): Promise<Issue[]> {
   if (error) throw new Error(error.message);
   return ((data ?? []) as unknown as IssueRow[]).map(toIssue);
 }
+
+/** 複数の日報の件（対応中・完了とも。帳票の月まとめ用）。登録順（同時刻は id 順）。1 か月分（31 件以下）を 1 回で読む。 */
+export async function listIssuesForReports(reportIds: string[]): Promise<Issue[]> {
+  if (reportIds.length === 0) return [];
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_report_issues')
+    .select(ISSUE_COLUMNS)
+    .in('report_id', reportIds)
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as IssueRow[]).map(toIssue);
+}
