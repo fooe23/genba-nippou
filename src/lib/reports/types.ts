@@ -112,8 +112,8 @@ export interface Profitability {
   /** 1 日あたり原価の分母（累計の日報件数）。 */
   dayCount: number;
   /**
-   * 追加・変更・減の提案額の合計（追加 ＋ 変更 ＋ 減。減は負）。変更増減の一覧（buildChangeLedger）と同じ計算で、
-   * 期間の末日までの累計。追加・変更・減の行が無ければ null。
+   * 追加・増・変更・減の提案額の合計（追加 ＋ 増 ＋ 変更 ＋ 減。減は負）。変更増減の一覧（buildChangeLedger）と同じ計算で、
+   * 期間の末日までの累計。追加・増・変更・減の行が無ければ null。
    */
   changeProposal: number | null;
 }
@@ -384,7 +384,7 @@ export interface DailyWorkRow {
   unitPrice: number | null;
   /** 出来高（stored.amount。減の行は負）。 */
   amount: number;
-  /** 区分（契約内・追加・変更・減）。追加・変更・減の行は帳票で太字にし、施工内容の頭に【区分】を付ける。 */
+  /** 区分（契約内・追加・増・変更・減）。追加・増・変更・減の行は帳票で太字にし、施工内容の頭に【区分】を付ける。 */
   changeKind: ChangeKind;
 }
 
@@ -425,8 +425,8 @@ export interface DailyReportModel {
     estimatedAmount: number | null;
   };
   /**
-   * 作業内容。changes は「本日の追加・変更・減」：区分ごとの保存値（stored.amount）の合計（減は負、net = 3 つの和）。
-   * 追加・変更・減の行が無い日は null。
+   * 作業内容。changes は「本日の追加・増・変更・減」：区分ごとの保存値（stored.amount）の合計（減は負、net = 4 つの和）。
+   * 追加・増・変更・減の行が無い日は null。
    */
   work: { rows: DailyWorkRow[]; total: { manDays: number; amount: number }; changes: ChangeTotals | null };
   /** 重要事項（本文と、この日報の件）。 */
@@ -452,7 +452,7 @@ export interface ChangeRates {
   profitRate: number;
 }
 
-/** 契約内を除いた区分（追加・変更・減）。 */
+/** 契約内を除いた区分（追加・増・変更・減）。 */
 export type ChangeLedgerKind = Exclude<ChangeKind, 'contract'>;
 
 /** 行の「根拠の件」。 */
@@ -476,7 +476,7 @@ export interface AllocatedCost {
   total: number;
 }
 
-/** 一覧の 1 行（追加・変更・減の作業内容の行）。日付順、同じ日は日報の行の順。 */
+/** 一覧の 1 行（追加・増・変更・減の作業内容の行）。日付順、同じ日は日報の行の順。 */
 export interface ChangeLedgerRow {
   date: string;
   reportId: string;
@@ -507,7 +507,7 @@ export interface ChangeLedgerRow {
    * 減の行の投入人工も、その日の按分の分母（作業内容の人工の合計）には入る。
    */
   actualCost: AllocatedCost;
-  /** 提案金額（円）。追加・変更は実績原価から（basis 'cost'、円未満切り上げ）、減は申告額そのまま（'declared'、負）。 */
+  /** 提案金額（円）。追加・増・変更は実績原価から（basis 'cost'、円未満切り上げ）、減は申告額そのまま（'declared'、負）。 */
   proposal: number;
   proposalBasis: 'cost' | 'declared';
 }
@@ -521,7 +521,7 @@ export interface ChangeKindSummary {
 }
 
 export interface ChangeLedgerModel {
-  /** 集計期間（rows）に追加・変更・減の行が 1 行も無い。 */
+  /** 集計期間（rows）に追加・増・変更・減の行が 1 行も無い。 */
   isEmpty: boolean;
   period: { kind: 'all' | 'month'; month: string | null };
   rates: ChangeRates;
@@ -532,7 +532,7 @@ export interface ChangeLedgerModel {
   /** 集計期間の契約内の作業内容の出来高（保存値 amount の合計）。 */
   contractOutput: number;
   /**
-   * 精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 変更 ＋ 減（減は負）。各区分は提案額の合計。
+   * 精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 増 ＋ 変更 ＋ 減（減は負）。各区分は提案額の合計。
    * 範囲は through までの全部の行（月の期間でも、その月だけではなく現場の最初の日報から月末まで。工事原価集計表 ②
    * の changeProposal と同じ）。当初が無ければ base・proposed は null。
    */
@@ -542,6 +542,7 @@ export interface ChangeLedgerModel {
     /** 精算に入れた最後の日（月の期間なら月末 'YYYY-MM-DD'、工期全体なら null = すべて）。 */
     through: string | null;
     extra: number;
+    increase: number;
     change: number;
     minus: number;
     proposed: number | null;

@@ -253,14 +253,15 @@ create table if not exists public.gn_report_issues (
 );
 create index if not exists gn_report_issues_report_idx on public.gn_report_issues (report_id);
 
--- 既存環境向け（2026-11-04 追加列。update_2026-11-04_change_tracking.sql）：追加・変更・減の記録
+-- 既存環境向け（2026-11-04 追加列。update_2026-11-04_change_tracking.sql）：追加・増・変更・減の記録
+-- 区分・種別の「増」（increase）は 2026-11-04d（update_2026-11-04d_increase_kind.sql。既存環境は check 制約を付け直す）
 -- 日報の客先確認（確認者名・日時・メモ）。日報の保存（gn_save_report）では変えない。
 alter table public.gn_daily_reports add column if not exists client_confirmed_by   text;
 alter table public.gn_daily_reports add column if not exists client_confirmed_at   timestamptz;
 alter table public.gn_daily_reports add column if not exists client_confirmed_note text;
 -- 作業内容の行（kind = 'work'）の区分・指示者・指示方法・指示日・根拠の件。作業内容以外の行の区分は 'contract' のまま使わない。
 alter table public.gn_report_lines add column if not exists change_kind text not null default 'contract'
-  check (change_kind in ('contract','extra','change','minus'));
+  check (change_kind in ('contract','extra','increase','change','minus'));
 alter table public.gn_report_lines add column if not exists instructed_by text;
 alter table public.gn_report_lines add column if not exists instruction_method text
   check (instruction_method in ('oral','phone','email','document','other'));
@@ -269,7 +270,7 @@ alter table public.gn_report_lines add column if not exists issue_id uuid
   references public.gn_report_issues(id) on delete set null;
 -- 重要事項の件の種別・指示者・指示方法・金額見込み
 alter table public.gn_report_issues add column if not exists kind text not null default 'other'
-  check (kind in ('extra','change','minus','client_delay','rework','other'));
+  check (kind in ('extra','increase','change','minus','client_delay','rework','other'));
 alter table public.gn_report_issues add column if not exists instructed_by text;
 alter table public.gn_report_issues add column if not exists instruction_method text
   check (instruction_method in ('oral','phone','email','document','other'));

@@ -187,8 +187,8 @@ const workSchema = z.object({
   manDays: numSchema('投入人工'),
   unitPrice: numSchema('施工単価'),
   source: z.enum(['estimate', 'extra'], { error: '作業内容の区分が正しくありません' }),
-  // 追加・変更・減の記録。古い下書きには無い項目なので、省略時は契約内・指示なし。
-  changeKind: z.enum(CHANGE_KINDS, { error: '区分は契約内・追加・変更・減から選んでください' }).default('contract'),
+  // 追加・増・変更・減の記録。古い下書きには無い項目なので、省略時は契約内・指示なし。
+  changeKind: z.enum(CHANGE_KINDS, { error: '区分は契約内・追加・増・変更・減から選んでください' }).default('contract'),
   instructedBy: textSchema('指示者', 100),
   instructionMethod: instructionMethodSchema.default(null),
   instructedOn: instructedOnSchema.default(null),

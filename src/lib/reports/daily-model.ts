@@ -47,16 +47,17 @@ function workerRow(line: LaborLine & { stored: StoredLineValues }, common: TimeS
 }
 
 /**
- * 本日の追加・変更・減：作業内容の行の保存値（stored.amount。減は負で保存）を区分ごとに足す（changeTotals と同じ形。
- * あちらは画面の入力から計算し直すので、帳票では使わない）。追加・変更・減の行が無ければ null。
+ * 本日の追加・増・変更・減：作業内容の行の保存値（stored.amount。減は負で保存）を区分ごとに足す（changeTotals と同じ形。
+ * あちらは画面の入力から計算し直すので、帳票では使わない）。追加・増・変更・減の行が無ければ null。
  */
 function storedChangeTotals(rows: DailyWorkRow[]): ChangeTotals | null {
   const of = (k: DailyWorkRow['changeKind']) => sum(rows.filter((r) => r.changeKind === k).map((r) => r.amount));
   if (!rows.some((r) => r.changeKind !== 'contract')) return null;
   const extra = of('extra');
+  const increase = of('increase');
   const change = of('change');
   const minus = of('minus');
-  return { extra, change, minus, net: extra + change + minus };
+  return { extra, increase, change, minus, net: extra + increase + change + minus };
 }
 
 /** 日報のある日の帳票データ。 */

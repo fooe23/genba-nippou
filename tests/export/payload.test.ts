@@ -190,7 +190,7 @@ describe('buildExportPayload: マスターの並びと上限', () => {
     ]);
   });
 
-  it('作業内容の減の行は数量を負（単価は正）にし、施工内容の頭に【追加】【変更】【減】を付ける（雛形の J＝E×I と出来高を揃える）', () => {
+  it('作業内容の減の行は数量を負（単価は正）にし、施工内容の頭に【追加】【増】【変更】【減】を付ける（増の数量は正のまま）（雛形の J＝E×I と出来高を揃える）', () => {
     const w = (o: Partial<WorkLine>): WorkLine => ({
       kind: 'work', estimateItemId: null, trade: '内装', description: '石膏ボード', qty: 10, unit: 'm2', manDays: 1, unitPrice: 2000, source: 'extra',
       ...EMPTY_WORK_CHANGE, ...o,
@@ -198,15 +198,17 @@ describe('buildExportPayload: マスターの並びと上限', () => {
     const reports = [report('2026-11-02', [
       w({}),
       w({ changeKind: 'extra', description: '開口補強' }),
+      w({ changeKind: 'increase', description: '石膏ボード 追加張り', qty: 3 }),
       w({ changeKind: 'change', description: '仕様変更' }),
       w({ changeKind: 'minus', description: '天井撤去取りやめ', qty: 5, unitPrice: 3000 }),
       w({ changeKind: 'minus', description: '', qty: null }),
-    ], { outputTotal: 20000 + 20000 + 20000 - 15000 })];
+    ], { outputTotal: 20000 + 20000 + 6000 + 20000 - 15000 })];
     const { payload } = buildExportPayload(input({ reports }));
     const rows = payload.days[0].work;
     expect(rows.map((r) => [r.description, r.qty, r.unit_price])).toEqual([
       ['石膏ボード', 10, 2000],
       ['【追加】開口補強', 10, 2000],
+      ['【増】石膏ボード 追加張り', 3, 2000],
       ['【変更】仕様変更', 10, 2000],
       ['【減】天井撤去取りやめ', -5, 3000],
       ['【減】', null, 2000],

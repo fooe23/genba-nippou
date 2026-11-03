@@ -15,7 +15,7 @@ describe('issueExtraSchema', () => {
     expect(issueExtraSchema.parse({ kind: 'extra', instructedBy: '  ', instructionMethod: '', amountEstimate: '' })).toEqual({
       kind: 'extra', instructedBy: null, instructionMethod: null, amountEstimate: null,
     });
-    for (const kind of ['extra', 'change', 'minus', 'client_delay', 'rework', 'other']) {
+    for (const kind of ['extra', 'increase', 'change', 'minus', 'client_delay', 'rework', 'other']) {
       expect(issueExtraSchema.safeParse({ kind }).success).toBe(true);
     }
   });

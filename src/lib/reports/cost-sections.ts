@@ -26,7 +26,7 @@ export interface SectionTable {
   rows: Cell[][];
   /** 合計行（太字）。 */
   total?: Cell[];
-  /** 太字にする行（rows の添字。日報の作業内容の追加・変更・減の行）。PDF だけが使う。 */
+  /** 太字にする行（rows の添字。日報の作業内容の追加・増・変更・減の行）。PDF だけが使う。 */
   boldRows?: number[];
 }
 
@@ -155,7 +155,7 @@ export function costSections(model: CostReportModel): CostSection[] {
           ['総人工', dec1(profit.totalManDays)],
           ['1 人工あたり原価(円)', yen(profit.costPerManDay)],
           [`1 日あたり原価（日報日数 ${profit.dayCount} 日）(円)`, yen(profit.costPerDay)],
-          ['追加・変更・減の提案額（円）', yen(profit.changeProposal)],
+          ['追加・増・変更・減の提案額（円）', yen(profit.changeProposal)],
         ]),
       ],
     },

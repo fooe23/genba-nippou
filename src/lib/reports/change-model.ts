@@ -16,14 +16,15 @@ import type {
   ReportWithLines,
 } from '@/lib/reports/types';
 
-// 変更増減（追加・変更・減）の一覧と実績原価の積み上げ（純関数。DB・Next に依存しない）。
+// 変更増減（追加・増・変更・減）の一覧と実績原価の積み上げ（純関数。DB・Next に依存しない）。
 // 金額・人工はすべて保存値（明細の amount・man_days）から計算する。減の amount は DB のトリガーが負で保存している。
 //
 //   実績原価 = 行の投入人工 × その日の平均日当 ＋ その日の材料等の按分（allocateDayCost）。減の行は 0
 //              （減の行の人工も、その日の按分の分母には入れる。現場で人工を使っているため）
-//   提案金額 = 追加・変更：実績原価 ×（1＋経費率）×（1＋利益率）を円未満切り上げ（proposalFromCost）
+//   提案金額 = 追加・増・変更：実績原価 ×（1＋経費率）×（1＋利益率）を円未満切り上げ（proposalFromCost）
 //              減：申告額（入力の施工単価 × 数量。負）そのまま。減は原価を積み上げるものではないため
-//   精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 変更 ＋ 減（各区分の提案額の合計。減は負）
+//   精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 増 ＋ 変更 ＋ 減（各区分の提案額の合計。減は負）
+//   増（同じ流れの中で数量が増えたもの）の計算・集計は追加（新しく別の仕事が増えたもの）と同じ。
 //
 // 期間が月のときは、一覧（rows）・区分ごとの集計（summary）・契約内の出来高はその月の日報の行だけ（回目は現場の全日報で
 // 数える）。精算提案額（settlement）はその月末までの全部の行で計算する（工事原価集計表 ② の提案額と同じ範囲）。
@@ -114,7 +115,12 @@ function issueRefs(issues: Issue[]): Map<string, ChangeIssueRef> {
 const emptySummary = (): ChangeKindSummary => ({ count: 0, declared: 0, actualCost: 0, proposal: 0 });
 
 function summarize(rows: ChangeLedgerRow[]): Record<ChangeLedgerKind, ChangeKindSummary> {
-  const summary: Record<ChangeLedgerKind, ChangeKindSummary> = { extra: emptySummary(), change: emptySummary(), minus: emptySummary() };
+  const summary: Record<ChangeLedgerKind, ChangeKindSummary> = {
+    extra: emptySummary(),
+    increase: emptySummary(),
+    change: emptySummary(),
+    minus: emptySummary(),
+  };
   for (const row of rows) {
     const s = summary[row.changeKind];
     s.count += 1;
@@ -181,6 +187,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
 
   const base = siteBaseAmount(input.site);
   const extra = settled.extra.proposal;
+  const increase = settled.increase.proposal;
   const change = settled.change.proposal;
   const minus = settled.minus.proposal;
   return {
@@ -195,9 +202,10 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
       baseBasis: base.basis,
       through,
       extra,
+      increase,
       change,
       minus,
-      proposed: base.amount === null ? null : base.amount + extra + change + minus,
+      proposed: base.amount === null ? null : base.amount + extra + increase + change + minus,
     },
   };
 }

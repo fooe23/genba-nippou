@@ -48,7 +48,7 @@ import type {
 //
 // 粗利・粗利率・進捗率（② と ③）の基準額は、契約が確定なら請負金額、未確定なら概算金額（profitBasis）。
 // 進捗率は、確定なら累計出来高 ÷ 請負金額、未確定なら累計原価 ÷ 概算金額（概算に対する見込み）。
-// ② の追加・変更・減の提案額は変更増減の一覧（change-model.ts の buildChangeLedger）と同じ計算で、期間末までの累計。
+// ② の追加・増・変更・減の提案額は変更増減の一覧（change-model.ts の buildChangeLedger）と同じ計算で、期間末までの累計。
 
 function round2(x: number): number {
   return Math.round(x * 100) / 100;
@@ -171,12 +171,12 @@ function buildProfit(
   };
 }
 
-/** 期間末までの日報の 追加 ＋ 変更 ＋ 減 の提案額（変更増減の一覧と同じ計算）。行が無ければ null。 */
+/** 期間末までの日報の 追加 ＋ 増 ＋ 変更 ＋ 減 の提案額（変更増減の一覧と同じ計算）。行が無ければ null。 */
 function changeProposalTotal(input: CostReportInput, cumulativeReports: ReportWithLines[], rates: ChangeRates): number | null {
   const ledger = buildChangeLedger({ site: input.site, reports: cumulativeReports, issues: input.issues }, rates, { kind: 'all' });
   if (ledger.isEmpty) return null;
-  const { extra, change, minus } = ledger.settlement;
-  return extra + change + minus;
+  const { extra, increase, change, minus } = ledger.settlement;
+  return extra + increase + change + minus;
 }
 
 // ─── ③ 月別推移（週ごと） ───
@@ -453,7 +453,7 @@ function buildTrades(periodReports: ReportWithLines[]): TradeSection {
 
 // ─── 本体 ───
 
-/** rates は追加・変更の提案金額に掛ける率（gn_settings の経費率・利益率）。② の changeProposal に使う。 */
+/** rates は追加・増・変更の提案金額に掛ける率（gn_settings の経費率・利益率）。② の changeProposal に使う。 */
 export function buildCostReport(input: CostReportInput, period: CostReportPeriod, now: CostReportNow, rates: ChangeRates): CostReportModel {
   // 進捗率（③）の基準。② と同じ（契約確定なら請負金額、未確定なら概算金額）。
   const base = profitBasis(input.site);

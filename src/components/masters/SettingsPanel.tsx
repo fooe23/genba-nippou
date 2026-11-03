@@ -118,7 +118,7 @@ export function SettingsPanel({ settings, updaters }: { settings: Settings; upda
         <div className="space-y-3 rounded-lg bg-gray-100 p-3 dark:bg-gray-900">
           <p className="text-sm font-bold">追加分の提案金額</p>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            追加・変更の工事を客先に提案するときの金額の計算と、提案書に載せる自社の名前に使います。
+            追加・増・変更の工事を客先に提案するときの金額の計算と、提案書に載せる自社の名前に使います。
           </p>
           <div className="grid grid-cols-2 gap-3">
             <Field label="経費率（%）">

@@ -321,7 +321,7 @@ export interface Issue {
   body: string;
   status: 'open' | 'done';
   doneAt: string | null;
-  /** 種別（追加指示・仕様変更・減・客先都合・やり直し・その他）。表示名は ISSUE_KIND_LABELS。 */
+  /** 種別（追加指示・増（数量増）・仕様変更・減・客先都合・やり直し・その他）。表示名は ISSUE_KIND_LABELS。 */
   kind: IssueKind;
   /** 指示者（未入力は null）。 */
   instructedBy: string | null;

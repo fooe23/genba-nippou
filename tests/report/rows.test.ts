@@ -77,7 +77,7 @@ describe('toLineRows', () => {
   });
 });
 
-describe('作業内容の区分・指示（追加・変更・減の記録）', () => {
+describe('作業内容の区分・指示（追加・増・変更・減の記録）', () => {
   const ISSUE = '22222222-2222-4222-8222-222222222222';
   const work: WorkLine = {
     ...(lines[5] as WorkLine),
@@ -95,7 +95,7 @@ describe('作業内容の区分・指示（追加・変更・減の記録）', (
     expect(
       fromLineRow({ kind: 'work', change_kind: 'plus', instructed_by: null, instruction_method: 'fax', instructed_on: '', issue_id: '' }),
     ).toMatchObject(EMPTY_WORK_CHANGE);
-    for (const k of ['contract', 'extra', 'change', 'minus'] as const) {
+    for (const k of ['contract', 'extra', 'increase', 'change', 'minus'] as const) {
       expect(fromLineRow({ kind: 'work', change_kind: k })).toMatchObject({ changeKind: k });
     }
   });

@@ -18,10 +18,11 @@ function signed(n: number): string {
   return `${n < 0 ? '−' : '+'}${yen(Math.abs(n)).replace('¥', '')}`;
 }
 
-/** 「追加 +12,000 ／ 変更 +3,000 ／ 減 −5,000」（0 の区分は出さない。全部 0 なら null）。 */
+/** 「追加 +12,000 ／ 増 +2,000 ／ 変更 +3,000 ／ 減 −5,000」（0 の区分は出さない。全部 0 なら null）。 */
 function changeText(c: ChangeTotals): string | null {
   const parts = [
     ['追加', c.extra],
+    ['増', c.increase],
     ['変更', c.change],
     ['減', c.minus],
   ] as const;
@@ -76,7 +77,7 @@ export function ReportSummary({
           <Line label="本日出来高" value={money(totals.output)} />
           {changeLine && (
             <div className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-sm">
-              <dt>本日の追加・変更・減</dt>
+              <dt>本日の追加・増・変更・減</dt>
               <dd className="font-bold tabular-nums">{changeLine}</dd>
             </div>
           )}

@@ -50,16 +50,23 @@ describe('宛先・見出し', () => {
 });
 
 describe('changeSummary（サマリー表と注記）', () => {
-  it('当初請負金額・契約内出来高・追加・変更・減（負）・精算提案額の順', () => {
+  it('当初請負金額・契約内出来高・追加・増・変更・減（負）・精算提案額の順（行が無い区分も 0 で出す）', () => {
     const m = sampleChangeModel();
     const { table } = changeSummary(m);
-    expect(table.rows.map((r) => r[0])).toEqual(['当初請負金額', '契約内出来高', '追加', '変更', '減']);
+    expect(table.rows.map((r) => r[0])).toEqual(['当初請負金額', '契約内出来高', '追加', '増', '変更', '減']);
     expect(texts(table.rows[0])).toEqual(['当初請負金額', '', '', '1,000,000']);
     expect(texts(table.rows[1])).toEqual(['契約内出来高', '', '', '200,000']);
     expect(texts(table.rows[2])).toEqual(['追加', '1', '36,000', '40,756']);
-    expect(texts(table.rows[3])).toEqual(['変更', '1', '8,000', '13,586']);
-    expect(texts(table.rows[4])).toEqual(['減', '1', '-25,000', '-25,000']);
+    expect(texts(table.rows[3])).toEqual(['増', '0', '0', '0']);
+    expect(texts(table.rows[4])).toEqual(['変更', '1', '8,000', '13,586']);
+    expect(texts(table.rows[5])).toEqual(['減', '1', '-25,000', '-25,000']);
     expect(texts(table.total!)).toEqual(['精算提案額', '', '', '1,029,342']);
+  });
+
+  it('増の行：件数・申告額・提案額（モデルの summary.increase）', () => {
+    const m = sampleChangeModel();
+    const withIncrease = { ...m, summary: { ...m.summary, increase: { count: 2, declared: 12_000, actualCost: 10_000, proposal: 12_650 } } };
+    expect(texts(changeSummary(withIncrease).table.rows[3])).toEqual(['増', '2', '12,000', '12,650']);
   });
 
   it('契約未確定なら「当初見積（概算）」', () => {

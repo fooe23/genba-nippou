@@ -77,7 +77,7 @@ function dayRecords(m: DailyReportModel): CsvRecord[] {
       金額: r.amount,
       人工: r.manDays,
       工種: r.trade,
-      // 追加・変更・減は頭に【区分】（列は増やさない）。
+      // 追加・増・変更・減は頭に【区分】（列は増やさない）。
       施工内容: workDescription(r),
     })),
   ];

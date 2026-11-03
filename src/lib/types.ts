@@ -9,15 +9,18 @@ export interface FuelLine   { kind: 'fuel';   vehicleId: string | null; vehicleN
 export interface LeaseLine  { kind: 'lease';  itemId: string | null; itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; note: string; }
 export interface CashLine   { kind: 'cash';   itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; vendor: string; }
 export interface CreditLine { kind: 'credit'; itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; supplierId: string | null; vendor: string; }
-/** 作業内容の区分（契約内・追加・変更・減）。表示名は src/lib/report/change-labels.ts。 */
-export type ChangeKind = 'contract' | 'extra' | 'change' | 'minus';
+/**
+ * 作業内容の区分（契約内・追加・増・変更・減）。表示名は src/lib/report/change-labels.ts。
+ * 追加（extra）は新しく別の仕事が増えたもの、増（increase）は同じ流れの中で数量が増えたもの。計算・集計は増も追加と同じ。
+ */
+export type ChangeKind = 'contract' | 'extra' | 'increase' | 'change' | 'minus';
 /** 指示方法（口頭・電話・メール・書面・その他）。 */
 export type InstructionMethod = 'oral' | 'phone' | 'email' | 'document' | 'other';
-/** 重要事項の件の種別（追加指示・仕様変更・減・客先都合・やり直し・その他）。 */
-export type IssueKind = 'extra' | 'change' | 'minus' | 'client_delay' | 'rework' | 'other';
+/** 重要事項の件の種別（追加指示・増（数量増）・仕様変更・減・客先都合・やり直し・その他）。 */
+export type IssueKind = 'extra' | 'increase' | 'change' | 'minus' | 'client_delay' | 'rework' | 'other';
 /**
  * 作業内容の行。source は見積の行との対応（estimate＝見積の行から、extra＝見積に無い行）で、
- * changeKind が追加・変更・減の区分。instructedBy〜issueId は追加・変更・減の根拠（誰が・どう・いつ指示したか、根拠の件）。
+ * changeKind が追加・増・変更・減の区分。instructedBy〜issueId は追加・増・変更・減の根拠（誰が・どう・いつ指示したか、根拠の件）。
  */
 export interface WorkLine   {
   kind: 'work'; estimateItemId: string | null; trade: string; description: string; qty: number | null; unit: string; manDays: number | null; unitPrice: number | null; source: 'estimate' | 'extra';

@@ -10,7 +10,7 @@ import type { ChangeLedgerKind, ChangeLedgerModel, ChangeLedgerRow } from '@/lib
 export const CHANGE_REPORT_TITLE = '変更増減 精算資料（案）';
 export const CHANGE_SUBJECT = '追加・変更工事 精算のご提案（案）';
 export const CHANGE_SHEET_NAME = '変更増減精算資料';
-export const NO_CHANGES = '追加・変更・減の記録はありません';
+export const NO_CHANGES = '追加・増・変更・減の記録はありません';
 export const NO_BASE_NOTE = '当初金額が未設定のため算出できません';
 /** 客先確認欄の 3 つの枠（どれも空欄）。 */
 export const CLIENT_CHECK_BOXES = ['確認者', '確認日', 'サイン'] as const;
@@ -59,7 +59,7 @@ export function changeInfoRows(model: ChangeLedgerModel, meta: ChangeReportMeta)
   ];
 }
 
-const KINDS: ChangeLedgerKind[] = ['extra', 'change', 'minus'];
+const KINDS: ChangeLedgerKind[] = ['extra', 'increase', 'change', 'minus'];
 
 /** 率の表示（0.15 → '15'、0.125 → '12.5'）。 */
 function ratePercent(rate: number): string {
@@ -67,8 +67,8 @@ function ratePercent(rate: number): string {
 }
 
 /**
- * サマリー表（当初／契約内出来高／追加・変更・減（件数・申告額・提案額）／精算提案額）と注記。
- * 月の期間では、追加・変更・減・契約内出来高は当月分、精算提案額は月末までの累計（モデルの settlement）。
+ * サマリー表（当初／契約内出来高／追加・増・変更・減（件数・申告額・提案額）／精算提案額）と注記。
+ * 月の期間では、追加・増・変更・減・契約内出来高は当月分、精算提案額は月末までの累計（モデルの settlement）。
  */
 export function changeSummary(model: ChangeLedgerModel): { table: SectionTable; notes: string[] } {
   const st = model.settlement;
@@ -90,7 +90,7 @@ export function changeSummary(model: ChangeLedgerModel): { table: SectionTable; 
     `提案額＝実績原価×(1＋経費率 ${ratePercent(overheadRate)}%)×(1＋利益率 ${ratePercent(profitRate)}%)、円未満切り上げ。減は申告額。` +
       '実績原価＝投入人工×その日の平均日当＋その日の材料・リース・燃料を人工比で按分。',
     ...(st.through
-      ? ['追加・変更・減と契約内出来高は当月分。精算提案額は最初の日報から月末までの累計で計算しています。']
+      ? ['追加・増・変更・減と契約内出来高は当月分。精算提案額は最初の日報から月末までの累計で計算しています。']
       : []),
     ...(st.proposed === null ? [NO_BASE_NOTE] : []),
   ];

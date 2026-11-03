@@ -99,22 +99,23 @@ describe('buildDailyReport', () => {
       { trade: '', description: '片付け', qty: null, unit: '', manDays: 0.5, productivity: null, unitPrice: null, amount: 0, changeKind: 'contract' },
     ]);
     expect(m.work.total).toEqual({ manDays: 2.5, amount: 100000 });
-    // 追加・変更・減の行が無い日は小計なし。
+    // 追加・増・変更・減の行が無い日は小計なし。
     expect(m.work.changes).toBeNull();
   });
 
-  it('作業内容の区分と「本日の追加・変更・減」：区分ごとの保存値（stored.amount）の合計。減は負のまま', () => {
+  it('作業内容の区分と「本日の追加・増・変更・減」：区分ごとの保存値（stored.amount）の合計。減は負のまま', () => {
     const m = withChanges();
     expect(m.work.rows.map((r) => [r.description, r.changeKind, r.amount])).toEqual([
       ['床下地, "1 階"', 'contract', 100000],
       ['片付け', 'contract', 0],
       ['棚の追加', 'extra', 60001],
+      ['棚板の増', 'increase', 4004],
       ['窓の変更', 'change', 20002],
       ['照明の減', 'minus', -15003],
     ]);
-    // 数量 × 単価（60000・20000・−15000）ではなく保存値。
-    expect(m.work.changes).toEqual({ extra: 60001, change: 20002, minus: -15003, net: 65000 });
-    expect(m.work.total).toEqual({ manDays: 4, amount: 165000 });
+    // 数量 × 単価（60000・4000・20000・−15000）ではなく保存値。
+    expect(m.work.changes).toEqual({ extra: 60001, increase: 4004, change: 20002, minus: -15003, net: 69004 });
+    expect(m.work.total).toEqual({ manDays: 4.5, amount: 169004 });
   });
 
   it('客先確認：記録があれば確認者名・日時・メモ、無ければ null。日報の無い日も null', () => {

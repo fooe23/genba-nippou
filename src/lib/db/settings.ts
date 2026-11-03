@@ -11,7 +11,7 @@ export interface Settings {
   rule: LaborRule;
   /** 新しい日報の共通時間の初期値（現場の既定が無いときに使う）。 */
   defaultCommon: TimeSpec;
-  /** 追加・変更の提案金額に掛ける率（経費率・利益率。0.15 = 15%）。 */
+  /** 追加・増・変更の提案金額に掛ける率（経費率・利益率。0.15 = 15%）。 */
   rates: { overheadRate: number; profitRate: number };
   /** 提案書などに出す自社の名前・連絡先（未設定は null）。 */
   company: { name: string | null; contact: string | null };

@@ -12,7 +12,7 @@ import { changeReportFileName, parseChangesQuery, type ChangesFormat } from '@/l
 import type { ChangeLedgerModel, CostReportInput } from '@/lib/reports/types';
 
 // 変更増減 精算資料（案）。GET /api/reports/changes?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx
-// 追加・変更・減の行が無い期間も空の帳票（「追加・変更・減の記録はありません」）を返す。失敗はすべて JSON { ok: false, error }
+// 追加・増・変更・減の行が無い期間も空の帳票（「追加・増・変更・減の記録はありません」）を返す。失敗はすべて JSON { ok: false, error }
 // （400 クエリ／401・403 権限／404 現場／500 読み込み・作成失敗）。PDF（react-pdf）は Node で作る。
 
 export const runtime = 'nodejs';

@@ -50,7 +50,7 @@ function text(v: string | null | undefined): string | null {
 }
 /**
  * 作業内容の行。雛形の金額（J = 数量 E × 単価 I）と本日出来高（H60 に書く output_total。減は DB で負）を揃えるため、
- * 減の行は数量を負にする（単価は正のまま）。施工内容の頭に【追加】【変更】【減】を付ける（日報の PDF・CSV と同じ）。
+ * 減の行は数量を負にする（単価は正のまま）。施工内容の頭に【追加】【増】【変更】【減】を付ける（日報の PDF・CSV と同じ）。
  */
 function workRow(l: WorkLine): ExportWorkRow {
   const qty = l.changeKind === 'minus' && l.qty !== null && l.qty !== 0 ? -l.qty : l.qty;

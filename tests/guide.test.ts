@@ -95,6 +95,14 @@ describe('ガイド', () => {
     expect(html).toContain('J 列');
   });
 
+  it('入力の章が区分の「増」と「追加」の違いに触れている', async () => {
+    const html = await loadChapter('input');
+    expect(html).toContain('追加・増・変更・減の記録');
+    expect(html).toContain('同じ流れの中で数量が増えた');
+    expect(html).toContain('新しく別の仕事が増えた');
+    expect(html).toContain('増（数量増）');
+  });
+
   it('入力の章が 1 日分の雛形の取り込みと、上書きの確認に触れている', async () => {
     const html = await loadChapter('input');
     expect(html).toContain('Excel（1 日分の雛形）から取り込む');

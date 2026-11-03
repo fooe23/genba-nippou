@@ -42,11 +42,12 @@ export const lines: SavedReportLine[] = [
 ];
 
 /**
- * 追加・変更・減の作業内容の行（保存値の金額は 数量 × 単価 とわざと違えてある。減の保存値は負）。
+ * 追加・増・変更・減の作業内容の行（保存値の金額は 数量 × 単価 とわざと違えてある。減の保存値は負）。
  * withChanges() で通常の明細の後ろに足す。
  */
 export const changeWorkLines: SavedReportLine[] = [
   { kind: 'work', estimateItemId: null, trade: '大工', description: '棚の追加', qty: 2, unit: '台', manDays: 1, unitPrice: 30000, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'extra', stored: stored(60001, 1) },
+  { kind: 'work', estimateItemId: null, trade: '大工', description: '棚板の増', qty: 1, unit: '枚', manDays: 0.5, unitPrice: 4000, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'increase', stored: stored(4004, 0.5) },
   { kind: 'work', estimateItemId: null, trade: '建具', description: '窓の変更', qty: 1, unit: '式', manDays: 0.5, unitPrice: 20000, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'change', stored: stored(20002, 0.5) },
   { kind: 'work', estimateItemId: null, trade: '電気', description: '照明の減', qty: 3, unit: '台', manDays: 0, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'minus', stored: stored(-15003) },
 ];
@@ -84,7 +85,7 @@ export function dailyInput(over: Partial<DailyReportInput> = {}): DailyReportInp
   };
 }
 
-/** 追加・変更・減の行と客先確認のある日（PDF・CSV のテストと見本用）。 */
+/** 追加・増・変更・減の行と客先確認のある日（PDF・CSV のテストと見本用）。 */
 export function withChanges(over: Partial<DailyReportSource> = {}): DailyReportModel {
   return sampleDaily({
     report: report('2026-11-02', {

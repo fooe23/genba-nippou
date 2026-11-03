@@ -126,28 +126,32 @@ describe('dailyTables', () => {
     expect(t.total?.map(formatCell)).toEqual(['合計', '', '', '', '2.5', '', '', '100,000']);
   });
 
-  it('作業内容：追加・変更・減の行は施工内容の頭に【区分】を付けて太字。契約内はそのまま', () => {
+  it('作業内容：追加・増・変更・減の行は施工内容の頭に【区分】を付けて太字。契約内はそのまま', () => {
     const t = dailyTables(withChanges()).work;
     expect(text(t).map((r) => [r[1], r[7]])).toEqual([
       ['床下地, "1 階"', '100,000'],
       ['片付け', '0'],
       ['【追加】棚の追加', '60,001'],
+      ['【増】棚板の増', '4,004'],
       ['【変更】窓の変更', '20,002'],
       ['【減】照明の減', '-15,003'],
     ]);
-    expect(t.boldRows).toEqual([2, 3, 4]);
+    expect(t.boldRows).toEqual([2, 3, 4, 5]);
     expect(dailyTables(sampleDaily()).work.boldRows).toEqual([]);
   });
 
   it('施工内容の【区分】は PDF・CSV 共通の 1 つの関数', () => {
     expect(workDescription({ changeKind: 'extra', description: '棚' })).toBe('【追加】棚');
+    expect(workDescription({ changeKind: 'increase', description: '棚板' })).toBe('【増】棚板');
     expect(workDescription({ changeKind: 'minus', description: '' })).toBe('【減】');
     expect(workDescription({ changeKind: 'contract', description: '床' })).toBe('床');
   });
 
-  it('本日の追加・変更・減：保存値の合計（追加 +／変更 +／減 −）', () => {
-    expect(changeTotalsText({ extra: 60001, change: 20002, minus: -15003, net: 65000 })).toBe('追加 +60,001／変更 +20,002／減 −15,003');
-    expect(changeTotalsText({ extra: 0, change: -2000, minus: 0, net: -2000 })).toBe('追加 0／変更 −2,000／減 0');
+  it('本日の追加・増・変更・減：保存値の合計（追加 +／増 +／変更 +／減 −）', () => {
+    expect(changeTotalsText({ extra: 60001, increase: 4004, change: 20002, minus: -15003, net: 69004 })).toBe(
+      '追加 +60,001／増 +4,004／変更 +20,002／減 −15,003',
+    );
+    expect(changeTotalsText({ extra: 0, increase: 0, change: -2000, minus: 0, net: -2000 })).toBe('追加 0／増 0／変更 −2,000／減 0');
   });
 
   it('客先確認の枠：記録が無ければ 確認者名／日付／サイン の空欄、あれば確認者名と確認日時（日本時間）', () => {

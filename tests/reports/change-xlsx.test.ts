@@ -62,10 +62,10 @@ describe('buildChangeXlsx', () => {
     expect(ws.pageSetup.fitToWidth).toBe(1);
   });
 
-  it('変更行 0 件：見出しと「追加・変更・減の記録はありません」だけ', async () => {
+  it('変更行 0 件：見出しと「追加・増・変更・減の記録はありません」だけ', async () => {
     const ws = await read(await buildChangeXlsx(emptyChangeModel(), changeMeta({ site: { ...changeMeta().site, clientName: null } })));
     expect(ws.getCell('A2').value).toBe('（客先名未設定）');
-    rowOf(ws, '追加・変更・減の記録はありません');
+    rowOf(ws, '追加・増・変更・減の記録はありません');
     expect(() => rowOf(ws, '精算提案額')).toThrow();
     expect(() => rowOf(ws, '日付（当月N回目）')).toThrow();
   });

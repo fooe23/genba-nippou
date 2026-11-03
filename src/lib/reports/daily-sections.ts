@@ -38,7 +38,7 @@ export function withManual(name: string, manual: boolean): string {
 }
 
 /**
- * 作業内容の施工内容。追加・変更・減の行は頭に【追加】【変更】【減】を付ける（PDF の表と CSV の「施工内容」で共通。
+ * 作業内容の施工内容。追加・増・変更・減の行は頭に【追加】【増】【変更】【減】を付ける（PDF の表と CSV の「施工内容」で共通。
  * CSV の列は増やさない）。契約内はそのまま。
  */
 export function workDescription(r: Pick<DailyWorkRow, 'changeKind' | 'description'>): string {
@@ -49,7 +49,7 @@ export function workDescription(r: Pick<DailyWorkRow, 'changeKind' | 'descriptio
 export const CONTRACT_TENTATIVE_LABEL = '請負金額（未確定）(円)';
 
 /** 作業内容の表の下に出す小計の見出し。 */
-export const CHANGE_TOTALS_TITLE = '本日の追加・変更・減';
+export const CHANGE_TOTALS_TITLE = '本日の追加・増・変更・減';
 
 /** 符号つきの金額（+1,000・−1,000・0）。 */
 function signedYen(n: number): string {
@@ -58,9 +58,9 @@ function signedYen(n: number): string {
   return n > 0 ? `+${abs}` : `−${abs}`;
 }
 
-/** 「追加 +x／変更 +y／減 −z」（保存値の合計。DailyReportModel.work.changes）。 */
+/** 「追加 +x／増 +y／変更 +z／減 −w」（保存値の合計。DailyReportModel.work.changes）。 */
 export function changeTotalsText(t: ChangeTotals): string {
-  return `追加 ${signedYen(t.extra)}／変更 ${signedYen(t.change)}／減 ${signedYen(t.minus)}`;
+  return `追加 ${signedYen(t.extra)}／増 ${signedYen(t.increase)}／変更 ${signedYen(t.change)}／減 ${signedYen(t.minus)}`;
 }
 
 /** 客先確認の欄の見出し。 */
@@ -132,7 +132,7 @@ const kv = (rows: [string, Cell][], total?: [string, Cell]): SectionTable => ({
 
 /**
  * 日報の表（雛形の並び）。金額・人工・残業・実働は保存値のまま。本日原価集計の合計は見出しの cost_total。
- * 手入力の名前には「（手入力）」。作業内容の追加・変更・減の行は【区分】つきで太字（boldRows）。行が無い表は rows が空（PDF は「なし」の 1 行を出す）。
+ * 手入力の名前には「（手入力）」。作業内容の追加・増・変更・減の行は【区分】つきで太字（boldRows）。行が無い表は rows が空（PDF は「なし」の 1 行を出す）。
  */
 export function dailyTables(m: DailyReportModel): Record<
   'workers' | 'vehicles' | 'leases' | 'cash' | 'credit' | 'costs' | 'output' | 'work' | 'issues',

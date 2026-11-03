@@ -38,7 +38,7 @@ export interface LineRow {
   overtime_hours: number | null;
   /** 労務の残業単価の上書き（作業員の残業単価。無ければ null で、DB が標準の計算式を使う）。 */
   overtime_rate: number | null;
-  /** 作業内容の区分・指示（追加・変更・減の記録）。作業内容以外は null（DB は区分を 'contract' にする）。 */
+  /** 作業内容の区分・指示（追加・増・変更・減の記録）。作業内容以外は null（DB は区分を 'contract' にする）。 */
   change_kind: ChangeKind | null;
   instructed_by: string | null;
   instruction_method: InstructionMethod | null;

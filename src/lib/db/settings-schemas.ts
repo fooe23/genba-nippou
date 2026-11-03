@@ -42,7 +42,7 @@ export const settingsInputSchema = z.object({
   defaultCommonEnd: optionalTimeSchema,
   defaultCommonBreakMin: optionalMinutesSchema,
   defaultCommonGapMin: optionalMinutesSchema,
-  // 追加・変更の提案金額の率と自社の名前・連絡先。省略時は変更しない。
+  // 追加・増・変更の提案金額の率と自社の名前・連絡先。省略時は変更しない。
   overheadRate: rangeSchema('経費率', 0, 1).optional(),
   profitRate: rangeSchema('利益率', 0, 1).optional(),
   companyName: optionalTextSchema('会社名', 100).optional(),

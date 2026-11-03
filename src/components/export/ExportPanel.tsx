@@ -102,7 +102,7 @@ function ChangeReportSection({ siteId, months }: { siteId: string; months: Expor
     <PeriodReportSection
       id="export-changes"
       title="変更増減 精算資料（案）"
-      description="追加・変更・減の記録と実績原価から、客先に出す精算のご提案（案）を作ります。"
+      description="追加・増・変更・減の記録と実績原価から、客先に出す精算のご提案（案）を作ります。"
       endpoint="/api/reports/changes"
       formats={CHANGE_FORMATS}
       siteId={siteId}
