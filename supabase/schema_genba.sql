@@ -414,10 +414,13 @@ begin
   end if;
 
   -- update
-  -- 客先確認の3列だけの変更（updated_at は gn_daily_reports_touch が進める）は、承認済み・完了現場でも通す
+  -- 客先確認の3列だけの変更（updated_at は gn_daily_reports_touch が進める）は、承認済み・完了現場でも通す。
+  -- 3列のどれかが実際に変わったときだけ（何も変えない更新はこの例外に入れない）
   if (to_jsonb(new) - 'client_confirmed_by' - 'client_confirmed_at' - 'client_confirmed_note' - 'updated_at')
      is not distinct from
-     (to_jsonb(old) - 'client_confirmed_by' - 'client_confirmed_at' - 'client_confirmed_note' - 'updated_at') then
+     (to_jsonb(old) - 'client_confirmed_by' - 'client_confirmed_at' - 'client_confirmed_note' - 'updated_at')
+     and (new.client_confirmed_by, new.client_confirmed_at, new.client_confirmed_note)
+         is distinct from (old.client_confirmed_by, old.client_confirmed_at, old.client_confirmed_note) then
     return new;
   end if;
   -- 完了・削除済みの現場：承認／差戻し（状態と確認列だけの変更）以外は不可

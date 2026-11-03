@@ -278,10 +278,22 @@ export async function deleteReport(reportId: string): Promise<ReportStateResult>
 
 export type ClientConfirmationResult = { ok: true; updatedAt: string | null } | { ok: false; error: string; stale?: boolean };
 
+type ClientConfirmationColumns = { client_confirmed_by: string | null; client_confirmed_at: string | null; client_confirmed_note: string | null };
+
+/** 3 列が同じか（日時は時刻として比べる。'' と null は同じ）。 */
+function sameClientConfirmation(a: ClientConfirmationColumns, b: ClientConfirmationColumns): boolean {
+  const time = (v: string | null) => (v ? new Date(v).getTime() : null);
+  return (
+    (a.client_confirmed_by || null) === (b.client_confirmed_by || null) &&
+    (a.client_confirmed_note || null) === (b.client_confirmed_note || null) &&
+    time(a.client_confirmed_at) === time(b.client_confirmed_at)
+  );
+}
+
 async function writeClientConfirmation(
   tag: string,
   reportId: string,
-  patch: { client_confirmed_by: string | null; client_confirmed_at: string | null; client_confirmed_note: string | null },
+  patch: ClientConfirmationColumns,
   expectedUpdatedAt: string | null | undefined,
 ): Promise<ClientConfirmationResult> {
   if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
@@ -292,7 +304,7 @@ async function writeClientConfirmation(
     const supabase = await createServerSupabase();
     const { data: head, error: headError } = await supabase
       .from('gn_daily_reports')
-      .select('site_id, report_date')
+      .select('site_id, report_date, updated_at, client_confirmed_by, client_confirmed_at, client_confirmed_note')
       .eq('id', reportId)
       .maybeSingle();
     if (headError) {
@@ -300,7 +312,20 @@ async function writeClientConfirmation(
       return { ok: false, error: GENERIC_ERROR };
     }
     if (!head) return { ok: false, error: NOT_FOUND };
-    const h = head as { site_id: string; report_date: string };
+    const h = head as {
+      site_id: string;
+      report_date: string;
+      updated_at: string | null;
+      client_confirmed_by: string | null;
+      client_confirmed_at: string | null;
+      client_confirmed_note: string | null;
+    };
+    // 同じ内容の記録し直し・記録の無い日報の取り消しは書かずに成功とする（何も変えない更新は gn_report_guard の
+    // 客先確認の例外に入らず、承認済み・完了現場では拒否されるため）。
+    if (sameClientConfirmation(h, patch)) {
+      if (expected !== null && h.updated_at !== expected) return { ok: false, error: STALE_REPORT_MESSAGE, stale: true };
+      return { ok: true, updatedAt: h.updated_at };
+    }
 
     // 楽観ロック：画面を開いた（前回保存した）ときの版と同じときだけ書く（saveReport と同じ）。
     let q = supabase.from('gn_daily_reports').update(patch).eq('id', reportId);
