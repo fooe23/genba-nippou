@@ -334,6 +334,25 @@ begin
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 6-6d エラー: %s\n', sqlerrm);
   end;
   begin
+    perform pg_temp.as_user(v_a);  -- A は協力会社・X の担当
+    insert into public.gn_report_issues (site_id, report_id, body, settlement_method, fixed_amount)
+      values (x, rid2, '協力会社が一式で追加', 'lump_sum', 50000);
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 6-6e 協力会社Aが精算の列つきの件を追加できた\n';
+  exception when others then
+    perform pg_temp.as_editor();
+    if sqlerrm like '%not_employee%' then rep := rep || E'PASS 6-6e 協力会社は精算の列つきの件を追加できない（not_employee）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 6-6e 想定外: %s\n', sqlerrm); end if;
+  end;
+  begin
+    perform pg_temp.as_user(v_a);
+    insert into public.gn_report_issues (site_id, report_id, body) values (x, rid2, '協力会社の普通の件') returning settlement_method into t;
+    perform pg_temp.as_editor();
+    if t = 'undecided' then rep := rep || E'PASS 6-6f 協力会社も精算の列の無い件は追加できる（未定）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 6-6f method=%s\n', t); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 6-6f エラー: %s\n', sqlerrm);
+  end;
+  begin
     perform pg_temp.as_user(v_a);
     update public.gn_daily_reports set output_total = 99999999 where id = rid2;
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 6-8 Aが合計を直接書けた\n';

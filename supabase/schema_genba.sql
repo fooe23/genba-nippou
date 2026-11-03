@@ -672,12 +672,13 @@ create trigger gn_report_lines_compute before insert or update on public.gn_repo
 -- 現場メンバーのみ）が効くので、他現場の日報は見つからず report_not_found になる。
 -- 念のため gn_is_site_member でも明示的に確認する。
 -- BEFORE トリガーは RLS の with check より先に走るので、強制後の site_id が検査される。
--- 更新で精算の項目（settlement_method・fixed_amount・daily_rate・fixed_on）を変えるのは社員（管理者を含む）だけ。
--- 協力会社が変えようとすると not_employee（同じ内容の単独ファイル：update_2026-11-05b_issue_settlement_guard.sql）。
+-- 精算の項目（settlement_method・fixed_amount・daily_rate・fixed_on）を入れる（insert で既定以外）・変える（update）のは
+-- 社員か管理者だけ。協力会社・profiles の行が無いユーザーは not_employee（同じ内容の単独ファイル：update_2026-11-05b_issue_settlement_guard.sql）。
 create or replace function public.gn_report_issues_guard()
 returns trigger language plpgsql security invoker set search_path = public as $$
 declare
   v_site uuid;
+  v_settles boolean;
 begin
   select r.site_id into v_site from public.gn_daily_reports r where r.id = new.report_id;
   if v_site is null or not public.gn_is_site_member(v_site) then
@@ -686,16 +687,27 @@ begin
   if public.gn_site_closed(v_site) then
     raise exception using message = 'site_closed';
   end if;
-  -- 精算の項目（精算の方法・確定額・常用単価・確定日）は社員（管理者を含む）だけが変えられる。協力会社は not_employee。
-  -- （SQL Editor など auth.uid() が無い呼び出しは対象外）
-  if tg_op = 'UPDATE' then
-    if (new.settlement_method is distinct from old.settlement_method
-        or new.fixed_amount is distinct from old.fixed_amount
-        or new.daily_rate is distinct from old.daily_rate
-        or new.fixed_on is distinct from old.fixed_on)
-       and exists (select 1 from public.profiles p where p.id = auth.uid() and p.account_type = 'partner') then
-      raise exception using message = 'not_employee';
-    end if;
+  -- 精算の項目（精算の方法・確定額・常用単価・確定日）を入れる（insert で既定［未定・空］以外の値）・変える（update）のは
+  -- 社員（account_type = 'employee'）か管理者だけ。それ以外（協力会社・profiles の行が無いユーザー）は not_employee。
+  -- auth.uid() が無い呼び出し（SQL Editor・service role。RLS の外）は対象外。
+  -- （insert では old を参照しないよう、insert と update を分けて判定する）
+  if tg_op = 'INSERT' then
+    v_settles := new.settlement_method <> 'undecided'
+      or new.fixed_amount is not null
+      or new.daily_rate is not null
+      or new.fixed_on is not null;
+  else
+    v_settles := new.settlement_method is distinct from old.settlement_method
+      or new.fixed_amount is distinct from old.fixed_amount
+      or new.daily_rate is distinct from old.daily_rate
+      or new.fixed_on is distinct from old.fixed_on;
+  end if;
+  if v_settles and auth.uid() is not null
+     and not exists (
+       select 1 from public.profiles p
+        where p.id = auth.uid() and (p.account_type = 'employee' or public.is_admin())
+     ) then
+    raise exception using message = 'not_employee';
   end if;
   new.site_id := v_site;
   return new;
