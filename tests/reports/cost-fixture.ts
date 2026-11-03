@@ -44,15 +44,17 @@ export const costInput = (reports: ReportWithLines[] = [report('2026-10-20', 'ap
   suppliers: [{ id: 'sp1', name: '山田商店', category: null, contact: null, note: null, active: true, ...touched }],
   vehicles: [{ id: 'v1', name: '2t ダンプ', kind: null, kmPerL: 10, note: null, active: true, ...touched }],
   leaseItems: [{ id: 'l1', name: '足場', spec: null, note: null, active: true, rates: [], ...touched }],
+  issues: [],
 });
 
 export const NOW = { date: '2026-11-10', by: '大江', at: '2026-11-10T01:23:45.000Z' };
+export const RATES = { overheadRate: 0.15, profitRate: 0.1 };
 
 export function sampleModel(period: CostReportPeriod = { kind: 'all' }): CostReportModel {
-  return buildCostReport(costInput(), period, NOW);
+  return buildCostReport(costInput(), period, NOW, RATES);
 }
 
 /** 日報 0 件の現場。 */
 export function emptyModel(): CostReportModel {
-  return buildCostReport(costInput([]), { kind: 'all' }, NOW);
+  return buildCostReport(costInput([]), { kind: 'all' }, NOW, RATES);
 }

@@ -1,4 +1,4 @@
-import type { TimeSpec, LaborLine, LaborRule, ReportLine, ReportTotals } from '@/lib/types';
+import type { TimeSpec, LaborLine, LaborRule, ReportLine, ReportTotals, WorkLine } from '@/lib/types';
 
 function toMinutes(hhmm: string): number {
   const [h, m] = hhmm.split(':').map(Number);
@@ -81,6 +81,16 @@ export function amount(qty: number | null, unitPrice: number | null): number {
   return (qty ?? 0) * (unitPrice ?? 0);
 }
 
+/**
+ * 作業内容の行の金額（出来高）。数量 × 単価。減（changeKind 'minus'）は数量・単価を正で入れる決まりで、金額は負
+ * （−数量 × 単価）。DB のトリガー gn_report_lines_compute と同じ規則なので、画面の合計は保存値（amount・output_total）と一致する。
+ */
+export function workAmount(line: Pick<WorkLine, 'qty' | 'unitPrice' | 'changeKind'>): number {
+  const a = amount(line.qty, line.unitPrice);
+  // 0 は −0 にしない（表示が「-0」になるため）
+  return line.changeKind === 'minus' && a !== 0 ? -a : a;
+}
+
 export function productivity(qty: number | null, manDays: number | null): number | null {
   if (!manDays) return null;
   if (qty === null) return null;
@@ -113,8 +123,9 @@ export function lineAmount(line: ReportLine, common: TimeSpec, rule: LaborRule, 
     case 'lease':
     case 'cash':
     case 'credit':
-    case 'work':
       return amount(line.qty, line.unitPrice);
+    case 'work':
+      return workAmount(line);
   }
 }
 

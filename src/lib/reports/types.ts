@@ -1,7 +1,7 @@
 import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Issue, ReportHead } from '@/lib/db/reports';
 import type { Carryover, Site } from '@/lib/db/sites';
-import type { ReportLine, TimeSpec } from '@/lib/types';
+import type { ChangeKind, InstructionMethod, IssueKind, ReportLine, TimeSpec } from '@/lib/types';
 
 // 帳票（第2計画（改）Task 2〜5）の型。モデルは数値だけを持ち、文字列の整形（#,##0・%・「—」・「（手入力）」）は
 // レンダラー（PDF・Excel・CSV）が行う。計画書で「—」と書かれている値は null。
@@ -35,6 +35,8 @@ export interface CostReportInput {
   suppliers: Supplier[];
   vehicles: Vehicle[];
   leaseItems: LeaseItem[];
+  /** 現場の全日報の件（listIssuesForReports。対応中・完了とも。登録順）。変更増減の一覧の「根拠の件」に使う。 */
+  issues: Issue[];
 }
 
 export type CostReportPeriod = { kind: 'all' } | { kind: 'month'; month: string };
@@ -83,9 +85,18 @@ export interface CostTotals {
   shares: Record<CostKey, number>;
 }
 
-/** ② 採算（集計期間の末日までの累計。工期全体なら全日報）。請負金額が無い（null・0）ときの比率は null。 */
+/**
+ * ② 採算（集計期間の末日までの累計。工期全体なら全日報）。
+ * 粗利・粗利率・進捗率の基準額は、契約が確定（fixed）なら請負金額、未確定（tentative）なら概算金額（basis）。
+ * 基準額が無い（null・0）ときの比率は null。
+ */
 export interface Profitability {
+  /** 請負金額（現場の登録値そのまま。未確定の現場でも入っていれば出す）。 */
   contractTotal: number | null;
+  /** 概算・見積提示額（現場の登録値そのまま）。 */
+  estimatedAmount: number | null;
+  /** 粗利・進捗率の基準：'contract' = 請負金額、'estimate' = 概算金額（「概算に対する見込み」）、null = 基準額が無い。 */
+  basis: 'contract' | 'estimate' | null;
   totalCost: number;
   grossProfit: number | null;
   grossMargin: number | null;
@@ -98,6 +109,11 @@ export interface Profitability {
   costPerDay: number | null;
   /** 1 日あたり原価の分母（累計の日報件数）。 */
   dayCount: number;
+  /**
+   * 追加・変更・減の提案額の合計（追加 ＋ 変更 ＋ 減。減は負）。変更増減の一覧（buildChangeLedger）と同じ計算で、
+   * 期間の末日までの累計。追加・変更・減の行が無ければ null。
+   */
+  changeProposal: number | null;
 }
 
 /** ③ 月別推移の 1 行（期間が月のときは週。月曜始まりで、その月の中に切り詰めた from〜to）。日報のある月・週だけ。 */
@@ -391,4 +407,102 @@ export interface DailyReportModel {
    * 作成者（名前が読めなければ作業責任者、それも無ければ null）・確認者・承認者（読めなければ null）・承認日時（ISO）。
    */
   signature: { createdBy: string | null; reviewedBy: string | null; approvedBy: string | null; approvedAt: string | null };
+}
+
+// ─── 変更増減の一覧（第2計画（改）Task 11。src/lib/reports/change-model.ts） ───
+
+/** buildChangeLedger の入力。CostReportInput がそのまま使える（現場・全日報・全日報の件だけを読む）。 */
+export type ChangeLedgerInput = Pick<CostReportInput, 'site' | 'reports' | 'issues'>;
+
+/** 提案金額に掛ける率（gn_settings の経費率・利益率。0.15 = 15%）。 */
+export interface ChangeRates {
+  overheadRate: number;
+  profitRate: number;
+}
+
+/** 契約内を除いた区分（追加・変更・減）。 */
+export type ChangeLedgerKind = Exclude<ChangeKind, 'contract'>;
+
+/** 行の「根拠の件」。 */
+export interface ChangeIssueRef {
+  id: string;
+  /** 件を書いた日報の日付（行の日付と違うことがある）。 */
+  reportDate: string;
+  /** その日報の件の中での番号（登録順、1 始まり）。 */
+  number: number;
+  kind: IssueKind;
+  /** 本文の先頭 40 字（前後の空白は除く）。 */
+  bodyHead: string;
+}
+
+/** 実績原価の内訳（allocateDayCost）。 */
+export interface AllocatedCost {
+  /** 投入人工 × その日の平均日当（労務費 ÷ 人工）。 */
+  labor: number;
+  /** その日の燃料・リース・現金購入・買掛を、作業内容の行の人工比で按分した額。 */
+  other: number;
+  total: number;
+}
+
+/** 一覧の 1 行（追加・変更・減の作業内容の行）。日付順、同じ日は日報の行の順。 */
+export interface ChangeLedgerRow {
+  date: string;
+  reportId: string;
+  /** 当月 N 回目・通算 M 回目（現場の全日報で数える）。 */
+  monthIndex: number;
+  totalIndex: number;
+  changeKind: ChangeLedgerKind;
+  trade: string;
+  description: string;
+  qty: number | null;
+  unit: string;
+  unitPrice: number | null;
+  /** 申告額（入力の施工単価 × 数量。保存値 amount。減は負）。 */
+  declared: number;
+  /** 投入人工（保存値 man_days）。 */
+  manDays: number;
+  /** 指示者（未入力は null）・指示方法・指示日。 */
+  instructedBy: string | null;
+  instructionMethod: InstructionMethod | null;
+  instructedOn: string | null;
+  /** 根拠の件（未選択・読めない件は null）。 */
+  issue: ChangeIssueRef | null;
+  /** 日報に客先確認（client_confirmed_at）がある。 */
+  clientConfirmed: boolean;
+  /** 実績原価（円未満は丸めない。表示はレンダラー）。 */
+  actualCost: AllocatedCost;
+  /** 提案金額（円）。追加・変更は実績原価から（basis 'cost'、円未満切り上げ）、減は申告額そのまま（'declared'、負）。 */
+  proposal: number;
+  proposalBasis: 'cost' | 'declared';
+}
+
+/** 区分ごとの集計。減の申告額・提案額は負。 */
+export interface ChangeKindSummary {
+  count: number;
+  declared: number;
+  actualCost: number;
+  proposal: number;
+}
+
+export interface ChangeLedgerModel {
+  /** 集計期間に追加・変更・減の行が 1 行も無い。 */
+  isEmpty: boolean;
+  period: { kind: 'all' | 'month'; month: string | null };
+  rates: ChangeRates;
+  rows: ChangeLedgerRow[];
+  summary: Record<ChangeLedgerKind, ChangeKindSummary>;
+  /** 集計期間の契約内の作業内容の出来高（保存値 amount の合計）。 */
+  contractOutput: number;
+  /**
+   * 精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 変更 ＋ 減（減は負）。各区分は提案額の合計。
+   * 当初が無ければ base・proposed は null。
+   */
+  settlement: {
+    base: number | null;
+    baseBasis: 'contract' | 'estimate';
+    extra: number;
+    change: number;
+    minus: number;
+    proposed: number | null;
+  };
 }

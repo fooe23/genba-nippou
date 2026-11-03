@@ -24,8 +24,11 @@ describe('changeTotals（本日の追加・変更・減）', () => {
     ]);
     expect(r).toEqual({ extra: 12000, change: 3000, minus: -5000, net: 10000 });
   });
-  it('減は正で入れても負で数える（負で入れた行もそのまま負）', () => {
-    expect(changeTotals([work('minus', 2, 1500), work('minus', -1, 1000)])).toEqual({ extra: 0, change: 0, minus: -4000, net: -4000 });
+  it('減は 数量・単価を正で入れ、金額は負（−数量 × 単価。DB の保存値と同じ）の合計', () => {
+    expect(changeTotals([work('minus', 2, 1500), work('minus', 1, 1000)])).toEqual({ extra: 0, change: 0, minus: -4000, net: -4000 });
+  });
+  it('減の行に負の数量を入れると金額は正になる（DB のトリガーと同じ。符号を付け直さない）', () => {
+    expect(changeTotals([work('minus', 2, 1500), work('minus', -1, 1000)])).toEqual({ extra: 0, change: 0, minus: -2000, net: -2000 });
   });
   it('契約内だけなら 0', () => {
     expect(changeTotals([work('contract', 10, 1000)])).toEqual({ extra: 0, change: 0, minus: 0, net: 0 });

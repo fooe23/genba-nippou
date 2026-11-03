@@ -2,9 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import {
   hoursBetween, commonHours, effectiveHours, manDays, overtimeHours, overtimeRate, laborCost, laborLineValues,
-  fuelCost, amount, productivity, reportTotals, progressRate, DEFAULT_LABOR_RULE,
+  fuelCost, amount, productivity, reportTotals, progressRate, DEFAULT_LABOR_RULE, lineAmount, workAmount,
 } from '@/lib/calc/report';
-import type { LaborLine, TimeSpec } from '@/lib/types';
+import type { ChangeKind, LaborLine, TimeSpec, WorkLine } from '@/lib/types';
 const common = { start: '08:00', end: '17:00', breakMin: 60, gapMin: 0 };
 const rule = DEFAULT_LABOR_RULE;
 
@@ -121,4 +121,20 @@ describe('日報合計', () => {
     expect(reportTotals([l1, l2], common, rule, { preferSaved: true })).toMatchObject({ manDays: 2.07, labor: 37260 });
   });
   it('進捗率：総額 null/0 は 0', () => { expect(progressRate(100, null)).toBe(0); expect(progressRate(100, 0)).toBe(0); expect(progressRate(2_500_000, 10_000_000)).toBe(0.25); });
+});
+describe('作業内容の金額（減は負。DB のトリガーと同じ）', () => {
+  const work = (changeKind: ChangeKind, qty: number | null, unitPrice: number | null): WorkLine => ({
+    kind: 'work', estimateItemId: null, trade: '大工', description: '', qty, unit: '㎡', manDays: 1, unitPrice, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind,
+  });
+  it('契約内・追加・変更は 数量 × 単価、減は −(数量 × 単価)', () => {
+    expect(lineAmount(work('contract', 10, 1000), common, rule)).toBe(10000);
+    expect(lineAmount(work('extra', 4, 3000), common, rule)).toBe(12000);
+    expect(lineAmount(work('change', 3, 1000), common, rule)).toBe(3000);
+    expect(lineAmount(work('minus', 5, 1000), common, rule)).toBe(-5000);
+    expect(workAmount(work('minus', null, 1000))).toBe(0); // −0 にしない
+  });
+  it('日報合計の出来高は減の分だけ下がる（output_total と同じ）', () => {
+    const t = reportTotals([work('contract', 10, 1000), work('minus', 2, 1500)], common, rule);
+    expect(t.output).toBe(7000);
+  });
 });

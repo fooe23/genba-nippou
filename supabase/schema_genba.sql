@@ -627,8 +627,9 @@ begin
     new.hours := null; new.man_days := null; new.productivity := null;
     new.overtime_hours := null; new.overtime_rate := null;
   elsif new.kind = 'work' then
-    -- 作業内容の man_days は入力値（投入人工）
-    new.amount       := coalesce(new.qty, 0) * coalesce(new.unit_price, 0);
+    -- 作業内容の man_days は入力値（投入人工）。減（change_kind = 'minus'）は数量・単価を正で入れ、金額を負で保存する
+    new.amount       := (case when new.change_kind = 'minus' then -1 else 1 end)
+                        * coalesce(new.qty, 0) * coalesce(new.unit_price, 0);
     new.productivity := case when coalesce(new.man_days, 0) = 0 then null else new.qty / new.man_days end;
     new.hours        := null;
     new.overtime_hours := null; new.overtime_rate := null;

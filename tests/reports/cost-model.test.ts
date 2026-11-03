@@ -4,7 +4,7 @@ import { buildCostReport } from '@/lib/reports/cost-model';
 import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Carryover, Site } from '@/lib/db/sites';
 import type { CostReportInput, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
-import type { ReportStatus } from '@/lib/types';
+import type { ChangeKind, ReportStatus } from '@/lib/types';
 
 // ─── 小さな手作りの入力 ───
 
@@ -37,8 +37,8 @@ const cash = (vendor: string, cost: number): SavedReportLine => ({
 const credit = (supplierId: string | null, vendor: string, cost: number): SavedReportLine => ({
   kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 1, unitPrice: 1, supplierId, vendor, stored: stored(cost),
 });
-const work = (trade: string, description: string, qty: number | null, unit: string, manDays: number, output: number): SavedReportLine => ({
-  kind: 'work', estimateItemId: null, trade, description, qty, unit, manDays, unitPrice: 1, source: 'extra', ...EMPTY_WORK_CHANGE, stored: stored(output, manDays),
+const work = (trade: string, description: string, qty: number | null, unit: string, manDays: number, output: number, changeKind: ChangeKind = 'contract'): SavedReportLine => ({
+  kind: 'work', estimateItemId: null, trade, description, qty, unit, manDays, unitPrice: 1, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind, stored: stored(output, manDays),
 });
 
 /** cost_total・output_total は明細の保存値の合計（DB のトリガーと同じ）。 */
@@ -61,18 +61,20 @@ const input = (reports: ReportWithLines[], o: Partial<CostReportInput> = {}): Co
   suppliers: [supplier('sp1', '山田商店')],
   vehicles: [vehicle('v1', '2t ダンプ')],
   leaseItems: [leaseItem('l1', '足場')],
+  issues: [],
   ...o,
 });
 
 const ALL = { kind: 'all' } as const;
 const NOV = { kind: 'month', month: '2026-11' } as const;
 const now = { date: '2026-11-10', by: '大江', at: '2026-11-10T01:23:45.000Z' };
+const RATES = { overheadRate: 0.15, profitRate: 0.1 };
 
 // ─── テスト ───
 
 describe('日報 0 件', () => {
   it('例外にならず、空の帳票（isEmpty・空の表・合計 0）を返す', () => {
-    const m = buildCostReport(input([], { site: site({ startDate: null }) }), ALL, now);
+    const m = buildCostReport(input([], { site: site({ startDate: null }) }), ALL, now, RATES);
     expect(m.isEmpty).toBe(true);
     expect(m.header.reportCount).toBe(0);
     expect(m.header.approvedCount).toBe(0);
@@ -95,7 +97,7 @@ describe('日報 0 件', () => {
   });
 
   it('請負金額が無ければ粗利・粗利率・進捗率は null', () => {
-    const m = buildCostReport(input([], { site: site({ contractAmount: null }) }), ALL, now);
+    const m = buildCostReport(input([], { site: site({ contractAmount: null }) }), ALL, now, RATES);
     expect(m.profit.contractTotal).toBeNull();
     expect(m.profit.grossProfit).toBeNull();
     expect(m.profit.grossMargin).toBeNull();
@@ -103,7 +105,7 @@ describe('日報 0 件', () => {
   });
 
   it('その月に日報が無い月指定も空の帳票', () => {
-    const m = buildCostReport(input([report('2026-10-20', [labor('w1', '田中', 1, 18000)])]), NOV, now);
+    const m = buildCostReport(input([report('2026-10-20', [labor('w1', '田中', 1, 18000)])]), NOV, now, RATES);
     expect(m.isEmpty).toBe(true);
     expect(m.costs.total).toBe(0);
     expect(m.trend.rows).toEqual([]);
@@ -119,7 +121,7 @@ describe('見出し・署名・脚注', () => {
   ];
 
   it('現場の登録値・件数（全状態）と承認件数・集計期間・出力日時', () => {
-    const m = buildCostReport(input(reports), ALL, now);
+    const m = buildCostReport(input(reports), ALL, now, RATES);
     expect(m.isEmpty).toBe(false);
     expect(m.header).toMatchObject({
       siteName: '〇〇邸新築工事', clientName: '〇〇様', projectNo: 'K-001', contractType: '元請け', overview: '木造 2 階建て',
@@ -131,24 +133,24 @@ describe('見出し・署名・脚注', () => {
   });
 
   it('月指定の件数はその月だけ', () => {
-    const m = buildCostReport(input(reports), NOV, now);
+    const m = buildCostReport(input(reports), NOV, now, RATES);
     expect(m.header.reportCount).toBe(2);
     expect(m.header.approvedCount).toBe(0);
   });
 
   it('経過日数：進行中は着工〜出力日（着工日を 1 日目）', () => {
-    expect(buildCostReport(input(reports), ALL, now).header.elapsedDays).toBe(41); // 10/1〜11/10
+    expect(buildCostReport(input(reports), ALL, now, RATES).header.elapsedDays).toBe(41); // 10/1〜11/10
   });
 
   it('経過日数：完了なら着工〜最後の日報日、着工日が無ければ最初の日報日から', () => {
-    const done = buildCostReport(input(reports, { site: site({ status: 'done' }) }), ALL, now);
+    const done = buildCostReport(input(reports, { site: site({ status: 'done' }) }), ALL, now, RATES);
     expect(done.header.elapsedDays).toBe(36); // 10/1〜11/5
-    const noStart = buildCostReport(input(reports, { site: site({ startDate: null }) }), ALL, now);
+    const noStart = buildCostReport(input(reports, { site: site({ startDate: null }) }), ALL, now, RATES);
     expect(noStart.header.elapsedDays).toBe(22); // 10/20〜11/10
   });
 
   it('出力日時が無ければ null', () => {
-    expect(buildCostReport(input(reports), ALL, { date: '2026-11-10', by: '大江' }).header.outputAt).toBeNull();
+    expect(buildCostReport(input(reports), ALL, { date: '2026-11-10', by: '大江' }, RATES).header.outputAt).toBeNull();
   });
 });
 
@@ -159,12 +161,12 @@ describe('① 原価合計・② 採算', () => {
   ];
 
   it('5 費目は明細の保存値（amount）の合計で、日当から再計算しない', () => {
-    const m = buildCostReport(input(reports), ALL, now);
+    const m = buildCostReport(input(reports), ALL, now, RATES);
     expect(m.costs).toMatchObject({ labor: 47000, fuel: 850, lease: 3000, cash: 1200, credit: 5000, total: 57050 });
   });
 
   it('構成比の合計が 100%', () => {
-    const { shares, total } = buildCostReport(input(reports), ALL, now).costs;
+    const { shares, total } = buildCostReport(input(reports), ALL, now, RATES).costs;
     expect(total).toBeGreaterThan(0);
     const sum = shares.labor + shares.fuel + shares.lease + shares.cash + shares.credit;
     expect(Math.abs(sum - 1)).toBeLessThan(1e-9);
@@ -172,7 +174,7 @@ describe('① 原価合計・② 採算', () => {
   });
 
   it('採算：粗利・粗利率・累計出来高・進捗率・総人工・1 人工／1 日あたり原価', () => {
-    const p = buildCostReport(input(reports), ALL, now).profit;
+    const p = buildCostReport(input(reports), ALL, now, RATES).profit;
     expect(p).toMatchObject({ contractTotal: 1_000_000, totalCost: 57050, grossProfit: 942_950, cumulativeOutput: 150_000, totalManDays: 2.5, dayCount: 2 });
     expect(p.grossMargin).toBeCloseTo(0.94295, 12);
     expect(p.progress).toBeCloseTo(0.15, 12);
@@ -188,7 +190,7 @@ describe('月指定：「原価合計・出来高」はその月だけ、「累�
     report('2026-11-30', [labor('w1', '田中', 1, 30000), work('型枠', '基礎', 1, 'm2', 1, 50_000)]),
     report('2026-12-01', [labor('w1', '田中', 1, 99000), work('型枠', '基礎', 1, 'm2', 1, 300_000)]), // 月末より後は入れない
   ];
-  const m = buildCostReport(input(reports), NOV, now);
+  const m = buildCostReport(input(reports), NOV, now, RATES);
 
   it('① 原価合計と ③ の原価合計・出来高はその月だけ', () => {
     expect(m.costs.total).toBe(50000);
@@ -216,7 +218,7 @@ describe('月指定：「原価合計・出来高」はその月だけ、「累�
   });
 
   it('工期全体なら ③ は日報のある月ごと、累計原価・進捗率は各月末まで', () => {
-    const all = buildCostReport(input(reports), ALL, now);
+    const all = buildCostReport(input(reports), ALL, now, RATES);
     expect(all.trend.unit).toBe('month');
     expect(all.trend.rows.map((r) => [r.key, r.from, r.to, r.reportCount, r.cost, r.output, r.cumulativeCost])).toEqual([
       ['2026-10', '2026-10-01', '2026-10-31', 1, 10000, 100_000, 10000],
@@ -237,7 +239,7 @@ describe('③ 月指定は週ごと（月曜始まり）', () => {
     report('2026-11-08', [labor('w1', '田中', 1, 30000)]),
     report('2026-11-30', [labor('w1', '田中', 1, 40000)]),
   ];
-  const m = buildCostReport(input(reports), NOV, now);
+  const m = buildCostReport(input(reports), NOV, now, RATES);
 
   it('日報のある週だけ、週の初日（月曜。月初は 1 日）〜週末（日曜。月末は末日）', () => {
     expect(m.trend.unit).toBe('week');
@@ -272,7 +274,7 @@ describe('④ 作業員別累計（繰越込み）', () => {
   ];
 
   it('工期全体：繰越初期値 + 基準日以降の日報、基準日より前の日報は二重に数えない', () => {
-    const m = buildCostReport(input(reports, { carryovers }), ALL, now);
+    const m = buildCostReport(input(reports, { carryovers }), ALL, now, RATES);
     const tanaka = m.workers.rows.find((r) => r.workerId === 'w1')!;
     expect(tanaka).toMatchObject({
       workerName: '田中', manual: false, trade: '大工', workDays: 3, carryManDays: 10, carryCost: 200_000,
@@ -283,13 +285,13 @@ describe('④ 作業員別累計（繰越込み）', () => {
   });
 
   it('手入力の作業員は manual（名前で集計、職種なし）', () => {
-    const m = buildCostReport(input(reports, { carryovers }), ALL, now);
+    const m = buildCostReport(input(reports, { carryovers }), ALL, now, RATES);
     const yamada = m.workers.rows.find((r) => r.workerName === '山田')!;
     expect(yamada).toMatchObject({ workerId: null, manual: true, trade: null, workDays: 2, manDays: 1.5, overtimeHours: 0.5, cost: 22500 });
   });
 
   it('月指定：前月繰越 = 繰越初期値 + 前月までの日報、累計は月末まで', () => {
-    const m = buildCostReport(input(reports, { carryovers }), NOV, now);
+    const m = buildCostReport(input(reports, { carryovers }), NOV, now, RATES);
     const tanaka = m.workers.rows.find((r) => r.workerId === 'w1')!;
     expect(tanaka).toMatchObject({
       carryManDays: 11, carryCost: 218_000, periodManDays: 1.25, periodCost: 22500, manDays: 12.25, cost: 240_500, workDays: 2, overtimeHours: 1.5,
@@ -297,7 +299,7 @@ describe('④ 作業員別累計（繰越込み）', () => {
   });
 
   it('合計行', () => {
-    const m = buildCostReport(input(reports, { carryovers }), ALL, now);
+    const m = buildCostReport(input(reports, { carryovers }), ALL, now, RATES);
     expect(m.workers.total).toEqual({ workDays: 5, manDays: 17.75, overtimeHours: 2, cost: 341_000 });
   });
 });
@@ -314,7 +316,7 @@ describe('⑤ 取引先別累計', () => {
   ];
 
   it('名前（参照があればマスター名）でまとめ、マスターに無い名前は手入力', () => {
-    const m = buildCostReport(input(reports), ALL, now);
+    const m = buildCostReport(input(reports), ALL, now, RATES);
     expect(m.vendors.rows).toEqual([
       { name: '山田商店', supplierId: 'sp1', manual: false, cash: 500, credit: 5000, total: 5500 },
       { name: '手書き商事', supplierId: null, manual: true, cash: 0, credit: 4000, total: 4000 },
@@ -332,7 +334,7 @@ describe('⑥ 車両・リース', () => {
   ];
 
   it('車両ごとの走行距離・燃料費、リース品ごとの数量（単位混在は null）・リース費', () => {
-    const m = buildCostReport(input(reports), ALL, now);
+    const m = buildCostReport(input(reports), ALL, now, RATES);
     expect(m.equipment.vehicles).toEqual([
       { vehicleId: 'v1', name: '2t ダンプ', manual: false, distanceKm: 100, fuelCost: 1700 },
       { vehicleId: null, name: '借用車', manual: true, distanceKm: 5, fuelCost: 100 },
@@ -363,7 +365,7 @@ describe('⑦ 工種別出来高', () => {
       work('雑工', '清掃', 3, '', 1, 5_000),
     ]),
   ];
-  const m = buildCostReport(input(reports), ALL, now);
+  const m = buildCostReport(input(reports), ALL, now, RATES);
 
   it('数量の入った行の単位がすべて同じなら合計と歩掛、違えば・数量が無ければ数量・単位・歩掛は null', () => {
     expect(m.trades.rows.map((r) => [r.trade, r.mainDescription, r.qty, r.unit, r.manDays, r.productivity, r.output])).toEqual([
@@ -383,12 +385,50 @@ describe('⑦ 工種別出来高', () => {
   });
 
   it('最頻の施工内容が同数なら先に出たもの', () => {
-    const t = buildCostReport(input([report('2026-11-02', [work('左官', 'A', 1, 'm2', 1, 1), work('左官', 'B', 1, 'm2', 1, 1)])]), ALL, now);
+    const t = buildCostReport(input([report('2026-11-02', [work('左官', 'A', 1, 'm2', 1, 1), work('左官', 'B', 1, 'm2', 1, 1)])]), ALL, now, RATES);
     expect(t.trades.rows[0].mainDescription).toBe('A');
   });
 
   it('人工 0 なら歩掛は null', () => {
-    const t = buildCostReport(input([report('2026-11-02', [work('左官', 'A', 3, 'm2', 0, 1)])]), ALL, now);
+    const t = buildCostReport(input([report('2026-11-02', [work('左官', 'A', 3, 'm2', 0, 1)])]), ALL, now, RATES);
     expect([t.trades.rows[0].qty, t.trades.rows[0].productivity]).toEqual([3, null]);
+  });
+});
+
+describe('② 採算の基準（契約未確定の現場）と追加・変更・減の提案額', () => {
+  const reports = [
+    report('2026-10-20', [labor('w1', '田中', 1, 20000), work('内装', '追加の棚', 1, '式', 1, 30_000, 'extra')]),
+    report('2026-11-02', [labor('w1', '田中', 1, 20000), work('内装', '床', 1, 'm2', 1, 100_000), work('内装', '減の巾木', 1, 'm', 0, -5_000, 'minus')]),
+    report('2026-12-01', [labor('w1', '田中', 1, 40000), work('内装', '変更の扉', 1, '式', 1, 50_000, 'change')]),
+  ];
+
+  it('契約確定：基準は請負金額（basis contract）、概算金額は登録値のまま', () => {
+    const p = buildCostReport(input(reports, { site: site({ estimatedAmount: 900_000 }) }), ALL, now, RATES).profit;
+    expect(p).toMatchObject({ basis: 'contract', contractTotal: 1_000_000, estimatedAmount: 900_000, totalCost: 80_000, grossProfit: 920_000 });
+    expect(p.progress).toBeCloseTo(175_000 / 1_000_000, 12);
+  });
+
+  it('契約未確定：粗利・粗利率・進捗率（② と ③）は概算金額が基準（basis estimate）、請負金額は登録値のまま', () => {
+    const m = buildCostReport(input(reports, { site: site({ contractStatus: 'tentative', estimatedAmount: 500_000 }) }), ALL, now, RATES);
+    expect(m.profit).toMatchObject({ basis: 'estimate', contractTotal: 1_000_000, estimatedAmount: 500_000, grossProfit: 420_000 });
+    expect(m.profit.grossMargin).toBeCloseTo(420_000 / 500_000, 12);
+    expect(m.profit.progress).toBeCloseTo(175_000 / 500_000, 12);
+    expect(m.trend.total.progress).toBeCloseTo(175_000 / 500_000, 12);
+  });
+
+  it('基準額が無ければ basis null、粗利・比率は null（未確定で概算なし）', () => {
+    const p = buildCostReport(input(reports, { site: site({ contractStatus: 'tentative', estimatedAmount: null }) }), ALL, now, RATES).profit;
+    expect(p).toMatchObject({ basis: null, contractTotal: 1_000_000, estimatedAmount: null, grossProfit: null, grossMargin: null, progress: null });
+  });
+
+  it('提案額の合計は変更増減の一覧と同じ計算（追加＋変更＋減）で、期間末までの累計', () => {
+    // 追加：労務 20,000 ÷ 1 人工 × 1 → 20,000 × 1.265 = 25,300。変更：40,000 × 1.265 = 50,600。減：−5,000（申告額）
+    expect(buildCostReport(input(reports), ALL, now, RATES).profit.changeProposal).toBe(25_300 + 50_600 - 5_000);
+    expect(buildCostReport(input(reports), NOV, now, RATES).profit.changeProposal).toBe(25_300 - 5_000); // 11 月末まで
+  });
+
+  it('追加・変更・減の行が無ければ null', () => {
+    const p = buildCostReport(input([report('2026-11-02', [labor('w1', '田中', 1, 20000), work('内装', '床', 1, 'm2', 1, 100_000)])]), ALL, now, RATES).profit;
+    expect(p.changeProposal).toBeNull();
   });
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildCostCsv } from '@/lib/reports/cost-csv';
+import { costSections } from '@/lib/reports/cost-sections';
 import { emptyModel, sampleModel } from './cost-fixture';
 
 /** BOM と CRLF を外して行に分ける（最後の空要素は除く）。 */
@@ -76,5 +77,29 @@ describe('buildCostCsv', () => {
     expect(rows.at(-1)).toBe('日報がありません');
     expect(rows.filter((r) => r === '日報がありません')).toHaveLength(1);
     expect(rows.some((r) => /^[①②③④⑤⑥⑦]/.test(r))).toBe(false);
+  });
+});
+
+describe('② 採算の追加・変更・減の提案額と「概算に対する見込み」', () => {
+  const profit = (model: ReturnType<typeof sampleModel>) => costSections(model).find((x) => x.title === '② 採算')!;
+
+  it('提案額の行（行が無ければ「—」= null。CSV は空欄）。契約確定なら注記なし', () => {
+    const m = sampleModel();
+    expect(m.profit.changeProposal).toBeNull();
+    const s = profit(m);
+    expect(s.note).toBeUndefined();
+    expect(s.tables[0].rows).toContainEqual(['追加・変更・減の提案額（円）', { value: null, fmt: 'yen' }]);
+    expect(lines(buildCostCsv(m))).toContain('追加・変更・減の提案額（円）,');
+  });
+
+  it('契約未確定（basis estimate）：見出しに「概算に対する見込み」、概算金額の行、進捗率は出来高÷概算', () => {
+    const base = sampleModel({ kind: 'month', month: '2026-11' });
+    const m = { ...base, profit: { ...base.profit, basis: 'estimate' as const, estimatedAmount: 800_000, changeProposal: 12_650 } };
+    const s = profit(m);
+    expect(s.note).toBe('概算に対する見込み・2026年11月末までの累計');
+    const labels = s.tables[0].rows.map((r) => r[0]);
+    expect(labels).toContain('概算金額(円)');
+    expect(labels).toContain('進捗率（出来高÷概算）(%)');
+    expect(s.tables[0].rows).toContainEqual(['追加・変更・減の提案額（円）', { value: 12_650, fmt: 'yen' }]);
   });
 });

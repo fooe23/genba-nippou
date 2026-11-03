@@ -10,7 +10,10 @@ import {
 } from '@/lib/calc/aggregate';
 import { daysBetween } from '@/lib/calc/calendar';
 import { monthKey } from '@/lib/calc/format';
+import type { Site } from '@/lib/db/sites';
+import { buildChangeLedger, siteBaseAmount } from '@/lib/reports/change-model';
 import type {
+  ChangeRates,
   CostReportHeader,
   CostReportInput,
   CostReportModel,
@@ -42,6 +45,9 @@ import type {
 //   … 現場の最初の日報からその月の末日までの累計
 // - ④ 作業員別累計 … workerCumulative に { from: 月初, to: 月末 } を渡す（繰越初期値 + 前月までの日報が前月繰越）
 // - ③ は工期全体なら日報のある月ごと、月なら日報のある週ごと（月曜始まり。月をまたぐ週はその月の中に切り詰める）
+//
+// 粗利・粗利率・進捗率（② と ③）の基準額は、契約が確定なら請負金額、未確定なら概算金額（profitBasis）。
+// ② の追加・変更・減の提案額は変更増減の一覧（change-model.ts の buildChangeLedger）と同じ計算で、期間末までの累計。
 
 function round2(x: number): number {
   return Math.round(x * 100) / 100;
@@ -137,13 +143,30 @@ function buildHeader(
 
 // ─── ② 採算 ───
 
-function buildProfit(cumulativeReports: ReportWithLines[], cumulativeDays: DayTotals[], contractTotal: number | null): Profitability {
-  const s = costSummary(cumulativeDays, contractTotal);
-  const hasContract = contractTotal !== null && contractTotal !== 0;
+/**
+ * 粗利・粗利率・進捗率の基準額：契約確定（fixed）なら請負金額、未確定（tentative）なら概算金額。
+ * 基準額が無い（null・0）ときは amount・basis とも null（比率は出さない）。
+ */
+function profitBasis(site: Site): { amount: number | null; basis: Profitability['basis'] } {
+  const base = siteBaseAmount(site);
+  return base.amount === null ? { amount: null, basis: null } : base;
+}
+
+function buildProfit(
+  site: Site,
+  cumulativeReports: ReportWithLines[],
+  cumulativeDays: DayTotals[],
+  changeProposal: number | null,
+): Profitability {
+  const base = profitBasis(site);
+  const s = costSummary(cumulativeDays, base.amount);
+  const hasContract = base.amount !== null;
   const totalManDays = round2(laborEntries(cumulativeReports).reduce((sum, e) => sum + e.manDays, 0));
   const dayCount = cumulativeDays.length;
   return {
-    contractTotal,
+    contractTotal: site.contractAmount,
+    estimatedAmount: site.estimatedAmount,
+    basis: base.basis,
     totalCost: s.cost,
     grossProfit: s.grossProfit,
     grossMargin: s.grossMargin,
@@ -153,7 +176,16 @@ function buildProfit(cumulativeReports: ReportWithLines[], cumulativeDays: DayTo
     costPerManDay: totalManDays === 0 ? null : s.cost / totalManDays,
     costPerDay: dayCount === 0 ? null : s.cost / dayCount,
     dayCount,
+    changeProposal,
   };
+}
+
+/** 期間末までの日報の 追加 ＋ 変更 ＋ 減 の提案額（変更増減の一覧と同じ計算）。行が無ければ null。 */
+function changeProposalTotal(input: CostReportInput, cumulativeReports: ReportWithLines[], rates: ChangeRates): number | null {
+  const ledger = buildChangeLedger({ site: input.site, reports: cumulativeReports, issues: input.issues }, rates, { kind: 'all' });
+  if (ledger.isEmpty) return null;
+  const { extra, change, minus } = ledger.settlement;
+  return extra + change + minus;
 }
 
 // ─── ③ 月別推移（週ごと） ───
@@ -422,8 +454,10 @@ function buildTrades(periodReports: ReportWithLines[]): TradeSection {
 
 // ─── 本体 ───
 
-export function buildCostReport(input: CostReportInput, period: CostReportPeriod, now: CostReportNow): CostReportModel {
-  const contractTotal = input.site.contractAmount;
+/** rates は追加・変更の提案金額に掛ける率（gn_settings の経費率・利益率）。② の changeProposal に使う。 */
+export function buildCostReport(input: CostReportInput, period: CostReportPeriod, now: CostReportNow, rates: ChangeRates): CostReportModel {
+  // 進捗率（③）の基準額。② と同じ（契約確定なら請負金額、未確定なら概算金額）。
+  const contractTotal = profitBasis(input.site).amount;
   const allReports = [...input.reports].sort((a, b) => a.reportDate.localeCompare(b.reportDate));
   const periodEnd = period.kind === 'month' ? monthEnd(period.month) : null;
   const inPeriod = (date: string) => period.kind === 'all' || monthKey(date) === period.month;
@@ -443,7 +477,7 @@ export function buildCostReport(input: CostReportInput, period: CostReportPeriod
     isEmpty: periodReports.length === 0,
     header,
     costs: { labor: c.labor, fuel: c.fuel, lease: c.lease, cash: c.cash, credit: c.credit, total: c.cost, shares: c.shares },
-    profit: buildProfit(cumulativeReports, cumulativeDays, contractTotal),
+    profit: buildProfit(input.site, cumulativeReports, cumulativeDays, changeProposalTotal(input, cumulativeReports, rates)),
     trend: buildTrend(allDays, period, periodMonths, contractTotal),
     workers: buildWorkers(input, allReports, workerPeriod),
     vendors: buildVendors(input, periodReports),

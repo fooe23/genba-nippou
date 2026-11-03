@@ -110,6 +110,8 @@ export function costSections(model: CostReportModel): CostSection[] {
   const { costs, profit, trend, workers, vendors, equipment, trades } = model;
   const period = model.header.period;
   const upTo = period.kind === 'month' && period.month ? `${monthLabel(period.month)}末までの累計` : null;
+  // 契約未確定の現場：粗利・進捗率は概算金額に対する見込み
+  const estimate = profit.basis === 'estimate';
 
   const costRows: [string, number, number][] = [
     ['労務費', costs.labor, costs.shares.labor],
@@ -138,18 +140,20 @@ export function costSections(model: CostReportModel): CostSection[] {
     },
     {
       title: '② 採算',
-      note: upTo ?? undefined,
+      note: [estimate ? '概算に対する見込み' : null, upTo].filter((v) => v !== null).join('・') || undefined,
       tables: [
         kv([
           ['工事総請負金額(円)', yen(profit.contractTotal)],
+          ...(estimate ? [['概算金額(円)', yen(profit.estimatedAmount)] as [string, Cell]] : []),
           ['総原価(円)', yen(profit.totalCost)],
           ['粗利益(円)', yen(profit.grossProfit)],
           ['粗利率(%)', pct(profit.grossMargin)],
           ['累計出来高(円)', yen(profit.cumulativeOutput)],
-          ['進捗率（出来高÷請負）(%)', pct(profit.progress)],
+          [estimate ? '進捗率（出来高÷概算）(%)' : '進捗率（出来高÷請負）(%)', pct(profit.progress)],
           ['総人工', dec1(profit.totalManDays)],
           ['1 人工あたり原価(円)', yen(profit.costPerManDay)],
           [`1 日あたり原価（日報日数 ${profit.dayCount} 日）(円)`, yen(profit.costPerDay)],
+          ['追加・変更・減の提案額（円）', yen(profit.changeProposal)],
         ]),
       ],
     },

@@ -1,4 +1,4 @@
-import { amount, fuelCost, laborLineValues, productivity } from '@/lib/calc/report';
+import { amount, fuelCost, laborLineValues, productivity, workAmount } from '@/lib/calc/report';
 import { EMPTY_WORK_CHANGE, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
 import type { ChangeKind, InstructionMethod, LaborLine, LaborRule, LaborSaved, ReportLine, TimeSpec } from '@/lib/types';
 import type { SaveInput } from '@/lib/report/schema';
@@ -156,7 +156,7 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number,
         unit: text(line.unit),
         man_days: num(line.manDays),
         unit_price: num(line.unitPrice),
-        amount: clean(amount(line.qty, line.unitPrice)),
+        amount: clean(workAmount(line)),
         productivity: p === null ? null : clean(p),
         source: line.source,
         change_kind: line.changeKind,

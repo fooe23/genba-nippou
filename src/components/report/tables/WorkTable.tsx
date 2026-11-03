@@ -1,6 +1,6 @@
 'use client';
 
-import { amount, productivity } from '@/lib/calc/report';
+import { productivity, workAmount } from '@/lib/calc/report';
 import type { Issue } from '@/lib/db/reports';
 import { CHANGE_KINDS, CHANGE_KIND_LABELS, INSTRUCTION_METHODS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
 import type { WorkLine } from '@/lib/types';
@@ -78,7 +78,7 @@ export function WorkTable({
     { label: '投入人工', cell: (l, i) => <NumInput value={l.manDays} onChange={(v) => set(i, { manDays: v })} /> },
     { label: '施工単価', cell: (l, i) => <NumInput value={l.unitPrice} onChange={(v) => set(i, { unitPrice: v })} /> },
     { label: '歩掛', input: false, cell: (l) => <Computed>{decimal(productivity(l.qty, l.manDays))}</Computed> },
-    { label: '合計金額', input: false, cell: (l) => <Computed>{money(amount(l.qty, l.unitPrice))}</Computed> },
+    { label: '合計金額', input: false, cell: (l) => <Computed>{money(workAmount(l))}</Computed> },
   ];
 
   return (
@@ -125,7 +125,7 @@ export function WorkTable({
       onAdd={() => onChange((rs) => [...rs, row(newLine.work())])}
       onRemove={(i) => onChange((rs) => removeRow(rs, i))}
       subtotalLabel="出来高 小計"
-      subtotal={money(rows.reduce((s, r) => s + amount(r.line.qty, r.line.unitPrice), 0))}
+      subtotal={money(rows.reduce((s, r) => s + workAmount(r.line), 0))}
       emptyText="作業内容はまだありません。"
     />
   );

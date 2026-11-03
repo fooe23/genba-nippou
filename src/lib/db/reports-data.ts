@@ -39,7 +39,8 @@ async function withLines(heads: ReportHead[]): Promise<ReportWithLines[]> {
 }
 
 /**
- * 工事原価集計表の入力：現場、全日報の見出し（集計画面と同じく保存済みの全状態）と保存値つき明細、繰越初期値、マスター。
+ * 工事原価集計表・変更増減の一覧の入力：現場、全日報の見出し（集計画面と同じく保存済みの全状態）と保存値つき明細、
+ * 全日報の件、繰越初期値、マスター。
  * 現場が見つからない（RLS で見えない）ときは例外。権限・削除済みの判定は呼び出し側（Route Handler）で行う。
  */
 export async function loadCostReportInput(siteId: string): Promise<CostReportInput> {
@@ -54,9 +55,9 @@ export async function loadCostReportInput(siteId: string): Promise<CostReportInp
     listLeaseItems(),
   ]);
 
-  const reports = await withLines(heads);
+  const [reports, issues] = await Promise.all([withLines(heads), listIssuesForReports(heads.map((h) => h.id))]);
 
-  return { site, reports, carryovers, workers, suppliers, vehicles, leaseItems };
+  return { site, reports, carryovers, workers, suppliers, vehicles, leaseItems, issues };
 }
 
 // ─── 日報（1 日分・月まとめ） ───

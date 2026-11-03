@@ -1,6 +1,7 @@
 import { todayJst } from '@/lib/calc/format';
 import { getCurrentProfile } from '@/lib/db/profile';
 import { loadCostReportInput } from '@/lib/db/reports-data';
+import { getSettings, type Settings } from '@/lib/db/settings';
 import { getSite } from '@/lib/db/sites';
 import { contentDisposition } from '@/lib/export/query';
 import { renderCostPdf } from '@/lib/pdf/cost-report';
@@ -46,15 +47,16 @@ export async function GET(request: Request): Promise<Response> {
   if (!site || site.deletedAt !== null) return fail(404, '現場が見つかりません');
 
   let input: CostReportInput;
+  let rates: Settings['rates'];
   try {
-    input = await loadCostReportInput(siteId);
+    [input, { rates }] = await Promise.all([loadCostReportInput(siteId), getSettings()]);
   } catch (e) {
     console.error('[reports/cost] load', e);
     return fail(500, '日報を読み込めませんでした。時間をおいてやり直してください');
   }
 
   const now = { date: todayJst(), by: profile.name || profile.email, at: new Date().toISOString() };
-  const model = buildCostReport(input, period, now);
+  const model = buildCostReport(input, period, now, rates);
 
   let data: Buffer;
   try {
