@@ -20,7 +20,7 @@
 - 出力画面（現場 → 出力）と原本 Excel（V34 雛形の .xlsm）のダウンロード
 - 工事原価集計表（PDF・Excel・CSV）と日報（PDF・CSV）の出力
 - 作業員・買掛の仕入先の「（手入力）」、1 日分の雛形（Excel）からの日報の取り込み
-- 追加・増・変更・減の記録（作業内容の区分・指示者・根拠の件、件の種別、現場の契約状態［確定・未確定］と概算金額、経費率・利益率）、変更増減 精算資料（案）（PDF・Excel）、日報の客先確認の記録と日報 PDF の客先確認欄
+- 追加・増・変更・減の記録（作業内容の区分・指示者・根拠の件、件の種別、現場の契約状態［確定・未確定］と概算金額、経費率・利益率）、変更増減 精算資料（客先用「精算のご提案（案）」と社内確認用。PDF・Excel）、お客様用の日報 PDF（金額なし）、日報の客先確認の記録と日報 PDF の客先確認欄
 - 追加・変更の件ごとの精算：画面「追加・変更の一覧」（`/sites/[siteId]/changes`。現場 → 「追加・変更」。社員・管理者のみ、完了現場は閲覧のみ）で件の精算方法［未定・一式・常用］・確定額・常用単価・確定日を入れる。精算資料の「精算額」「件ごとの精算」（客先向けに実績原価は出さない）、現場の常用単価の既定、PDF の「プレビュー」と「ダウンロード」
 
 **第2〜4計画の残りは未実装**（積算連携、写真の添付など）。計画の全体像は `docs/superpowers/plans/README.md`、設計は `docs/superpowers/specs/2026-10-30-genba-nippou-design.md`。
@@ -151,8 +151,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 | 帳票 | ルート | クエリ |
 | --- | --- | --- |
 | 工事原価集計表 | `/api/reports/cost` | `site=<現場ID>&period=all\|YYYY-MM&format=pdf\|xlsx\|csv` |
-| 変更増減 精算資料（案） | `/api/reports/changes` | `site=<現場ID>&period=all\|YYYY-MM&format=pdf\|xlsx` |
-| 日報 | `/api/reports/daily` | `site=<現場ID>&date=YYYY-MM-DD`（1 日）または `month=YYYY-MM`（月まとめ）`&format=pdf\|csv` |
+| 変更増減 精算資料 | `/api/reports/changes` | `site=<現場ID>&period=all\|YYYY-MM&format=pdf\|xlsx`（`&audience=client` で客先用「精算のご提案」、省略時は社内確認用） |
+| 日報 | `/api/reports/daily` | `site=<現場ID>&date=YYYY-MM-DD`（1 日）または `month=YYYY-MM`（月まとめ）`&format=pdf\|csv`（`&audience=client` でお客様用の日報。`date` と `format=pdf` のみ） |
 
 - **PDF**：`@react-pdf/renderer`（`src/lib/pdf/`）。A4 縦。日報が無いときは「日報がありません」だけの帳票を返す。
 - **Excel**：`exceljs`（`src/lib/reports/cost-xlsx.ts`、`change-xlsx.ts`）。**CSV**：BOM 付き UTF-8・CRLF（`src/lib/reports/csv.ts`）。文字列が `= + - @` タブ CR で始まるセルには `'` を付けて、Excel の数式として実行されないようにしている。
