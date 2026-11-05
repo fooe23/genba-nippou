@@ -127,7 +127,7 @@ describe('possibleDuplicates（重複の可能性）', () => {
 
   it('同じ件に同じ施工内容が違う日にあれば、件ごとに日付（昇順）と施工内容', () => {
     const d = possibleDuplicates([line('2026-11-06', 'おおおお'), line('2026-11-03', 'おおおお'), line('2026-11-03', '別の作業')]);
-    expect([...d.entries()]).toEqual([['a', [{ description: 'おおおお', dates: ['2026-11-03', '2026-11-06'] }]]]);
+    expect([...d.entries()]).toEqual([['a', [{ trade: '内装', description: 'おおおお', dates: ['2026-11-03', '2026-11-06'] }]]]);
   });
 
   it('施工内容が違えば出さない', () => {
@@ -148,17 +148,30 @@ describe('possibleDuplicates（重複の可能性）', () => {
     expect(d.size).toBe(0);
   });
 
+  it('同じ施工内容でも工種ごとに別の候補（工種は空でもよい）', () => {
+    const d = possibleDuplicates([
+      line('2026-11-03', '棚の追加', { trade: '大工' }),
+      line('2026-11-06', '棚の追加', { trade: '大工' }),
+      line('2026-11-03', '棚の追加', { trade: '' }),
+      line('2026-11-06', '棚の追加', { trade: '' }),
+    ]);
+    expect(d.get('a')).toEqual([
+      { trade: '大工', description: '棚の追加', dates: ['2026-11-03', '2026-11-06'] },
+      { trade: '', description: '棚の追加', dates: ['2026-11-03', '2026-11-06'] },
+    ]);
+  });
+
   it('前後の空白と続く空白（全角も）はならして比べる', () => {
     const d = possibleDuplicates([
       line('2026-11-03', ' クロス  張替え '),
       line('2026-11-06', 'クロス\u3000張替え', { trade: ' 内装 ' }),
     ]);
-    expect(d.get('a')).toEqual([{ description: 'クロス 張替え', dates: ['2026-11-03', '2026-11-06'] }]);
+    expect(d.get('a')).toEqual([{ trade: '内装', description: 'クロス 張替え', dates: ['2026-11-03', '2026-11-06'] }]);
   });
 
   it('台帳の行から：2 日にまたがる件 i1 の同じ施工内容', () => {
     expect([...possibleDuplicates(spanningChangeModel().rows).entries()]).toEqual([
-      ['i1', [{ description: 'クロス張替え（2 階洋室）', dates: ['2026-11-05', '2026-11-06'] }]],
+      ['i1', [{ trade: '内装', description: 'クロス張替え（2 階洋室）', dates: ['2026-11-05', '2026-11-06'] }]],
     ]);
   });
 });

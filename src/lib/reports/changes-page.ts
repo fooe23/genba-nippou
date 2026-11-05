@@ -96,6 +96,8 @@ export function changesTotal(rows: ChangesRow[]): ChangesTotal {
 
 /** 重複の可能性：1 つの件の中で、同じ施工内容（工種＋施工内容）が違う日に入っている。 */
 export interface PossibleDuplicate {
+  /** 工種（施工内容と同じくならしたもの。未入力は ''）。 */
+  trade: string;
   /** 施工内容（前後の空白を除き、続く空白を 1 つにしたもの）。 */
   description: string;
   /** その施工内容がある日（'YYYY-MM-DD'、昇順、重ならない。2 つ以上）。 */
@@ -110,15 +112,17 @@ const normalize = (v: string) => v.trim().replace(/\s+/g, ' ');
  * 分からないので、一覧では「可能性」として知らせるだけ。rows は工期全体の台帳の行（buildChangeLedger の period 'all'）。
  */
 export function possibleDuplicates(rows: ChangeLedgerRow[]): Map<string, PossibleDuplicate[]> {
-  const byIssue = new Map<string, Map<string, { description: string; dates: Set<string> }>>();
+  type Item = { trade: string; description: string; dates: Set<string> };
+  const byIssue = new Map<string, Map<string, Item>>();
   for (const r of rows) {
     if (!r.issue) continue;
     const description = normalize(r.description);
     if (description === '') continue;
-    const key = `${normalize(r.trade)}\u0000${description}`;
-    const items = byIssue.get(r.issue.id) ?? new Map<string, { description: string; dates: Set<string> }>();
+    const trade = normalize(r.trade);
+    const key = `${trade}\u0000${description}`;
+    const items = byIssue.get(r.issue.id) ?? new Map<string, Item>();
     byIssue.set(r.issue.id, items);
-    const item = items.get(key) ?? { description, dates: new Set<string>() };
+    const item = items.get(key) ?? { trade, description, dates: new Set<string>() };
     items.set(key, item);
     item.dates.add(r.date);
   }
@@ -126,7 +130,7 @@ export function possibleDuplicates(rows: ChangeLedgerRow[]): Map<string, Possibl
   for (const [issueId, items] of byIssue) {
     const found = [...items.values()]
       .filter((i) => i.dates.size >= 2)
-      .map((i) => ({ description: i.description, dates: [...i.dates].sort() }));
+      .map((i) => ({ trade: i.trade, description: i.description, dates: [...i.dates].sort() }));
     if (found.length > 0) result.set(issueId, found);
   }
   return result;

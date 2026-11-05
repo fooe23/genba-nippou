@@ -18,7 +18,7 @@ import { CHANGES_GRID, CHANGES_ROW, Cell, ComputedCells, InputCell, KindTag } fr
 const md = (date: string) => date.slice(5).replace('-', '/');
 
 /**
- * 重複の可能性の注意（琥珀色）：「重複の可能性：11/03 と 11/06 に同じ施工内容「…」があります。…」。日付はその日の日報へのリンク。
+ * 重複の可能性の注意（琥珀色）：「重複の可能性：11/03 と 11/06 に同じ工種・施工内容「大工／…」があります。…」（工種が空なら「同じ施工内容「…」」）。日付はその日の日報へのリンク。
  * 2xl 以上は行の幅いっぱい、未満はカードの中。
  */
 function DuplicateNotes({ siteId, items }: { siteId: string; items: PossibleDuplicate[] }) {
@@ -26,7 +26,7 @@ function DuplicateNotes({ siteId, items }: { siteId: string; items: PossibleDupl
     <div className="col-span-2 space-y-1 2xl:col-span-full">
       {items.map((d) => (
         <p
-          key={d.description}
+          key={`${d.trade}:${d.description}`}
           className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100"
         >
           <span className="font-bold">重複の可能性：</span>
@@ -38,7 +38,9 @@ function DuplicateNotes({ siteId, items }: { siteId: string; items: PossibleDupl
               </Link>
             </span>
           ))}
-          {` に同じ施工内容「${d.description}」があります。続けて作業した場合はそのままで構いません。`}
+          {d.trade
+            ? ` に同じ工種・施工内容「${d.trade}／${d.description}」があります。続けて作業した場合はそのままで構いません。`
+            : ` に同じ施工内容「${d.description}」があります。続けて作業した場合はそのままで構いません。`}
         </p>
       ))}
     </div>
