@@ -25,6 +25,8 @@ import {
   type SitePartnerUpdateInput,
 } from '@/lib/db/sites-schemas';
 import { createServerSupabase } from '@/lib/supabase/server';
+import { loadSupplierRoles, notPartnerError } from '@/lib/db/supplier-roles';
+import { MSG_NOT_VENDOR, nonVendorAdditions } from '@/lib/calc/supplier-roles';
 import type { SiteRole } from '@/lib/types';
 
 function revalidateSite(siteId: string): void {
@@ -170,6 +172,15 @@ export async function setSiteMasters(siteId: string, m: SiteMasters): Promise<vo
   // （画面から協力会社の作業員の ID が届いても無視する。登録は setSitePartnerWorkers で行う）。
   const partnerIds = await partnerWorkerIds(supabase);
   await syncSelection(supabase, 'gn_site_workers', 'worker_id', v.siteId, v.workerIds, (id) => !partnerIds.has(id));
+  // 現場の取引先（買掛の相手先）に新しく選べるのは取引先の印のある会社だけ。選択済みの会社は印を外した後も残せる。
+  const { data: currentSuppliers, error: currentSuppliersError } = await supabase
+    .from('gn_site_suppliers')
+    .select('supplier_id')
+    .eq('site_id', v.siteId);
+  if (currentSuppliersError) throw new Error(currentSuppliersError.message);
+  const selectedSupplierIds = ((currentSuppliers ?? []) as { supplier_id: string }[]).map((r) => r.supplier_id);
+  const roles = await loadSupplierRoles(supabase, v.supplierIds);
+  if (nonVendorAdditions(v.supplierIds, roles, selectedSupplierIds).length > 0) throw new Error(MSG_NOT_VENDOR);
   await syncSelection(supabase, 'gn_site_suppliers', 'supplier_id', v.siteId, v.supplierIds);
   await syncSelection(supabase, 'gn_site_vehicles', 'vehicle_id', v.siteId, v.vehicleIds);
   await syncSelection(supabase, 'gn_site_lease_items', 'lease_item_id', v.siteId, v.leaseItemIds);
@@ -394,6 +405,8 @@ export async function addSitePartner(input: SitePartnerAddInput): Promise<AddSit
     const supabase = await createServerSupabase();
     const closed = await closedSiteError(supabase, v.siteId);
     if (closed) return { ok: false, error: closed };
+    const notPartner = await notPartnerError(supabase, v.supplierId);
+    if (notPartner) return { ok: false, error: notPartner };
     const { data, error } = await supabase
       .from('gn_site_partners')
       .upsert({ site_id: v.siteId, supplier_id: v.supplierId, amount: v.amount, note: v.note }, { onConflict: 'site_id,supplier_id' })
@@ -515,6 +528,11 @@ export async function setSitePartnerWorkers(siteId: string, supplierId: string, 
     // 新しく登録できるのは有効な作業員だけ（無効な作業員の登録は外すことはできる）。
     if (v.workerIds.some((id) => !registered.has(id) && companyWorkers.get(id)?.active === false)) {
       return { ok: false, error: '無効な作業員は登録できません（作業員マスターで有効にしてください）' };
+    }
+    // 新しく作業員を登録するのは協力会社の印のある会社だけ（登録を外すことはいつでもできる）。
+    if (v.workerIds.some((id) => !registered.has(id))) {
+      const notPartner = await notPartnerError(supabase, v.supplierId);
+      if (notPartner) return { ok: false, error: notPartner };
     }
     if (v.workerIds.length > 0) {
       // 請負金額・メモは変えない（無いときだけ作る）。

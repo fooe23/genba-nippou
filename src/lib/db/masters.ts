@@ -9,7 +9,8 @@ import { createServerSupabase } from '@/lib/supabase/server';
  */
 /** affiliation は所属（自社・協力会社）、supplierId は協力会社のときの取引先（自社なら null）。 */
 export interface Worker { id: string; name: string; trade: string | null; note: string | null; active: boolean; rates: RateHistory[]; overtimeRate: number | null; affiliation: Affiliation; supplierId: string | null; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
-export interface Supplier { id: string; name: string; category: string | null; contact: string | null; note: string | null; active: boolean; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
+/** isVendor は取引先（買掛の相手先）、isPartner は協力会社（作業員の所属）の印。両方 true の会社もある（2026-11-07）。 */
+export interface Supplier { id: string; name: string; category: string | null; contact: string | null; note: string | null; active: boolean; isVendor: boolean; isPartner: boolean; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
 export interface Vehicle { id: string; name: string; kind: string | null; kmPerL: number | null; note: string | null; active: boolean; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
 export interface LeaseItem { id: string; name: string; spec: string | null; note: string | null; active: boolean; rates: RateHistory[]; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
 export interface MasterOption { name: string; sortOrder: number; }
@@ -18,7 +19,7 @@ interface RateRow { amount: number | string; effective_from: string; updated_by?
 // created_at は取り込みの突き合わせ（RPC と同じく作成が最も古い行）に使う。
 interface Touched { created_at: string; updated_at?: string | null; updated_by?: string | null; }
 interface WorkerRow extends Touched { id: string; name: string; trade: string | null; note: string | null; active: boolean | null; overtime_rate: number | string | null; affiliation?: string | null; supplier_id?: string | null; gn_worker_rates: RateRow[] | null; }
-interface SupplierRow extends Touched { id: string; name: string; category: string | null; contact: string | null; note: string | null; active: boolean | null; }
+interface SupplierRow extends Touched { id: string; name: string; category: string | null; contact: string | null; note: string | null; active: boolean | null; is_vendor?: boolean | null; is_partner?: boolean | null; }
 interface VehicleRow extends Touched { id: string; name: string; kind: string | null; km_per_l: number | string | null; note: string | null; active: boolean | null; }
 interface LeaseItemRow extends Touched { id: string; name: string; spec: string | null; note: string | null; active: boolean | null; gn_lease_item_rates: RateRow[] | null; }
 interface OptionRow { name: string; sort_order: number | null; }
@@ -95,8 +96,8 @@ export async function listWorkers(): Promise<Worker[]> {
 export async function listSuppliers(): Promise<Supplier[]> {
   const rows = await selectRows<SupplierRow>(
     'gn_suppliers',
-    'id, name, category, contact, note, active, created_at, updated_at, updated_by',
-    'id, name, category, contact, note, active, created_at',
+    'id, name, category, contact, note, active, is_vendor, is_partner, created_at, updated_at, updated_by',
+    'id, name, category, contact, note, active, is_vendor, is_partner, created_at',
   );
   return rows
     .map((r) => ({
@@ -106,6 +107,9 @@ export async function listSuppliers(): Promise<Supplier[]> {
       contact: r.contact,
       note: r.note,
       active: isActive(r.active),
+      // 印が読めない（null）ときは既定（取引先・協力会社でない）と同じ扱い。
+      isVendor: r.is_vendor !== false,
+      isPartner: r.is_partner === true,
       ...touched(r),
     }))
     .sort(byActiveThenName);

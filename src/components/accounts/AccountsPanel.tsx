@@ -21,14 +21,14 @@ import {
   EmptyText, ErrorText, Field, inputClass, primaryButtonClass, secondaryButtonClass, useRunner,
 } from '@/components/masters/common';
 
-/** 所属する協力会社の選択肢に使う取引先。 */
-export interface SupplierChoice { id: string; name: string; active: boolean; }
+/** 所属する協力会社の選択肢に使う会社（isPartner は協力会社の印）。 */
+export interface SupplierChoice { id: string; name: string; active: boolean; isPartner: boolean; }
 
 const SUPPLIER_NOTE = '所属する協力会社は記録用です（日報の作業員の選択肢は変わりません）。';
 
-/** 有効な取引先＋いま選んでいる取引先（無効になっていても消さない）。 */
+/** 有効な協力会社＋いま選んでいる会社（無効になった・協力会社の印を外した会社でも消さない）。 */
 function supplierOptions(suppliers: SupplierChoice[], currentId: string | null) {
-  return suppliers.filter((s) => s.active || s.id === currentId);
+  return suppliers.filter((s) => (s.active && s.isPartner) || s.id === currentId);
 }
 
 function SupplierSelect({
@@ -133,7 +133,7 @@ export function AccountsPanel({ accounts, suppliers }: { accounts: Account[]; su
                 <>
                   <p className="text-sm text-gray-600 dark:text-gray-400">会社名：{a.companyName || '（未設定）'}</p>
                   <p className="text-sm text-gray-600 dark:text-gray-400">
-                    所属する協力会社：{a.supplierId ? (supplierName.get(a.supplierId) ?? '（不明な取引先）') : '（未設定）'}
+                    所属する協力会社：{a.supplierId ? (supplierName.get(a.supplierId) ?? '（不明な会社）') : '（未設定）'}
                   </p>
                 </>
               ) : null}
@@ -245,7 +245,7 @@ function CreateForm({
         <input name="password" type="text" minLength={8} maxLength={72} required autoComplete="off" className={inputClass} />
       </Field>
       <div>
-        <Field label="所属する協力会社（取引先・任意）">
+        <Field label="所属する協力会社（任意）">
           <SupplierSelect name="supplierId" suppliers={suppliers} />
         </Field>
         <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{SUPPLIER_NOTE}</p>
@@ -377,7 +377,7 @@ function PartnerSupplierForm({
         {account.name || account.email}
         {account.companyName ? `（${account.companyName}）` : ''}
       </p>
-      <Field label="所属する協力会社（取引先）">
+      <Field label="所属する協力会社">
         <SupplierSelect suppliers={suppliers} value={supplierId} onChange={setSupplierId} />
       </Field>
       <p className="rounded-lg bg-gray-100 p-3 text-sm dark:bg-gray-900">

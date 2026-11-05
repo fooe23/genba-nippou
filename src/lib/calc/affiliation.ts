@@ -128,13 +128,16 @@ export function laborContractValue(
 
 // ─── 現場の「協力会社と作業員」 ───
 
-/** 現場に追加できる協力会社：有効な取引先のうち、まだこの現場に無いもの（名前順）。すでにある会社は追加し直さない（請負金額を消さないため）。 */
-export function addablePartnerSuppliers<T extends { id: string; name: string; active: boolean }>(
+/**
+ * 現場に追加できる協力会社：有効な協力会社（協力会社の印のある会社）のうち、まだこの現場に無いもの（名前順）。
+ * すでにある会社は追加し直さない（請負金額を消さないため）。取引先だけの会社は出さない。
+ */
+export function addablePartnerSuppliers<T extends { id: string; name: string; active: boolean; isPartner: boolean }>(
   suppliers: T[],
   sitePartnerSupplierIds: string[],
 ): T[] {
   const have = new Set(sitePartnerSupplierIds);
-  return suppliers.filter((s) => s.active && !have.has(s.id)).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  return suppliers.filter((s) => s.active && s.isPartner && !have.has(s.id)).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
 }
 
 /** 協力会社 1 社の、現場に登録できる作業員：その会社の有効な協力会社の作業員（名前順）。無効な作業員は出さない。 */

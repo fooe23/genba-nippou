@@ -6,7 +6,7 @@ vi.mock('@/lib/db/reports', () => ({ listIssuesForReport: vi.fn(), listOpenIssue
 vi.mock('@/lib/db/sites', () => ({ getSiteMasters: vi.fn() }));
 vi.mock('@/lib/db/settings', () => ({ getSettings: vi.fn() }));
 
-const { forSite, workersForSiteLabor } = await import('@/lib/report/form-props');
+const { creditSuppliersForSite, forSite, workersForSiteLabor } = await import('@/lib/report/form-props');
 
 const items = [
   { id: 'a', active: true },
@@ -44,5 +44,24 @@ describe('workersForSiteLabor（日報の作業員の選択肢。すべてのア
   });
   it('この日報で使っている作業員は、無効・未登録でも残す', () => {
     expect(ids(workersForSiteLabor(workers, ['o1'], new Set(['p3', 'o3', 'p1'])))).toEqual(['o1', 'o3', 'p3', 'p1']);
+  });
+});
+
+describe('creditSuppliersForSite（日報の買掛の行の会社）', () => {
+  const suppliers = [
+    { id: 'v1', active: true, isVendor: true },
+    { id: 'p1', active: true, isVendor: false },
+    { id: 'v2', active: true, isVendor: true },
+    { id: 'p2', active: true, isVendor: false },
+  ];
+  it('現場で選んでいないときは有効な取引先全部。協力会社だけの会社は出さない', () => {
+    expect(creditSuppliersForSite(suppliers, [], new Set()).map((s) => s.id)).toEqual(['v1', 'v2']);
+  });
+  it('この日報ですでに使っている協力会社だけの会社は残す', () => {
+    expect(creditSuppliersForSite(suppliers, [], new Set(['p2'])).map((s) => s.id)).toEqual(['v1', 'v2', 'p2']);
+  });
+  it('現場で選んだ会社のうち取引先だけを選択順に出す。選んだのが協力会社だけなら選んでいない扱い', () => {
+    expect(creditSuppliersForSite(suppliers, ['v2', 'p1'], new Set()).map((s) => s.id)).toEqual(['v2']);
+    expect(creditSuppliersForSite(suppliers, ['p1'], new Set()).map((s) => s.id)).toEqual(['v1', 'v2']);
   });
 });

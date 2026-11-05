@@ -17,6 +17,7 @@ import { upsertUnit, upsertWeather } from '@/lib/db/masters-actions';
 const TABS = [
   { key: 'workers', label: '作業員' },
   { key: 'suppliers', label: '取引先' },
+  { key: 'partners', label: '協力会社' },
   { key: 'vehicles', label: '車両' },
   { key: 'lease', label: 'リース品' },
   { key: 'units', label: '単位' },
@@ -89,7 +90,8 @@ export function MastersTabs({ data }: { data: MastersData }) {
             updaters={data.updaters}
           />
         )}
-        {active === 'suppliers' && <SuppliersPanel suppliers={data.suppliers} updaters={data.updaters} />}
+        {active === 'suppliers' && <SuppliersPanel mode="vendor" suppliers={data.suppliers} updaters={data.updaters} />}
+        {active === 'partners' && <SuppliersPanel mode="partner" suppliers={data.suppliers} updaters={data.updaters} />}
         {active === 'vehicles' && <VehiclesPanel vehicles={data.vehicles} updaters={data.updaters} />}
         {active === 'lease' && <LeaseItemsPanel items={data.leaseItems} today={data.today} updaters={data.updaters} />}
         {active === 'units' && <OptionsPanel title="単位" options={data.units} onSave={upsertUnit} />}

@@ -48,7 +48,7 @@ export function SitePartnersEditor({
   workersBySupplier: Record<string, PartnerWorkerChoice[]>;
   /** この現場に登録済みの作業員（自社の選択も含む）。 */
   registeredWorkerIds: string[];
-  /** 追加できる取引先（有効で、まだこの現場に無いもの）。 */
+  /** 追加できる協力会社（有効な協力会社で、まだこの現場に無いもの）。 */
   addable: { id: string; name: string }[];
   otherSites: SiteChoice[];
 }) {
@@ -103,7 +103,7 @@ function PartnerCard({
   const [savedWorkers, setSavedWorkers] = useState(false);
   const remover = useRunner();
   const workerRunner = useRunner();
-  const name = partner.supplierName || '（不明な取引先）';
+  const name = partner.supplierName || '（不明な会社）';
 
   function toggle(id: string) {
     setSavedWorkers(false);
@@ -248,7 +248,7 @@ function AddPartnerForm({ siteId, addable }: { siteId: string; addable: { id: st
     const fd = new FormData(e.currentTarget);
     const supplierId = str(fd, 'supplierId');
     if (!supplierId) {
-      setError('協力会社（取引先）を選んでください');
+      setError('協力会社を選んでください');
       return;
     }
     // すでにある会社は選択肢に出さない（追加し直すと請負金額・メモが上書きされるため）。
@@ -278,11 +278,11 @@ function AddPartnerForm({ siteId, addable }: { siteId: string; addable: { id: st
       </h2>
       {addable.length === 0 ? (
         <p className="text-sm text-gray-600 dark:text-gray-400">
-          追加できる取引先がありません。協力会社は管理者が マスター → 取引先 で登録します。
+          追加できる協力会社がありません。協力会社は管理者が マスター → 協力会社 で登録します。
         </p>
       ) : (
         <form key={formKey} onSubmit={submit} className="space-y-3">
-          <Field label="協力会社（取引先）">
+          <Field label="協力会社">
             <select name="supplierId" defaultValue="" className={inputClass}>
               <option value="">選んでください</option>
               {addable.map((s) => (

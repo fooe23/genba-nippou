@@ -15,6 +15,7 @@ import {
 } from '@/lib/calc/affiliation';
 import { addWorkerRate, createWorkerWithRate, deleteWorker, upsertWorker, workerUsage } from '@/lib/db/masters-actions';
 import type { Supplier, Worker } from '@/lib/db/masters';
+import { partnerChoices } from '@/lib/calc/supplier-roles';
 import type { Affiliation, LaborRule } from '@/lib/types';
 import { amountSchema, dateSchema, firstError, workerInputSchema } from '@/lib/db/masters-schemas';
 import {
@@ -161,8 +162,8 @@ function WorkerForm({
   }, [workerId]);
   const deleteView: WorkerDeleteView = workerDeleteView(usage);
   const [affiliation, setAffiliation] = useState<Affiliation>(worker?.affiliation ?? 'own');
-  // 取引先の選択肢：有効な取引先＋いま選んでいる取引先（無効になっていても消さない）。
-  const supplierChoices = suppliers.filter((s) => s.active || s.id === worker?.supplierId);
+  // 協力会社の選択肢：有効な協力会社＋いま選んでいる会社（無効になった・協力会社の印を外した会社でも消さない）。
+  const supplierChoices = partnerChoices(suppliers, worker?.supplierId);
 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -228,7 +229,7 @@ function WorkerForm({
           <div>
             <Field label="協力会社（必須）">
               <select name="supplierId" defaultValue={worker?.supplierId ?? ''} className={inputClass}>
-                <option value="">取引先から選んでください</option>
+                <option value="">協力会社を選んでください</option>
                 {supplierChoices.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.active ? s.name : `${s.name}（無効）`}
@@ -237,7 +238,7 @@ function WorkerForm({
               </select>
             </Field>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
-              協力会社は 取引先 タブで登録します。協力会社の作業員は、現場の「協力会社と作業員」で現場ごとに登録すると日報で選べます。
+              協力会社は 協力会社 タブで登録します。協力会社の作業員は、現場の「協力会社と作業員」で現場ごとに登録すると日報で選べます。
               {worker?.affiliation === 'partner' && '協力会社を変えると、現場への登録は外れます（過去の日報は変わりません）。'}
             </p>
           </div>

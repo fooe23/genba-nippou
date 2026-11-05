@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
 import { jpDateTime, yen } from '@/lib/calc/format';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
+import { vendorSuppliers } from '@/lib/calc/supplier-roles';
 import { requireAdmin } from '@/lib/db/profile';
 import { getSite, getSiteMasters, listCarryovers, listProfiles, listSiteMembers } from '@/lib/db/sites';
 import { CarryoverSection } from '@/components/sites/CarryoverSection';
@@ -56,7 +57,8 @@ export default async function SiteEditPage({ params }: PageProps<'/admin/sites/[
     sub: w.trade,
     active: w.active,
   }));
-  const supplierItems: CheckItem[] = visible(suppliers, masters.supplierIds).map((s) => ({
+  // 取引先（買掛の相手先）は取引先の印のある会社だけ。協力会社だけの会社は、選択済みなら外せるように残す。
+  const supplierItems: CheckItem[] = visible(vendorSuppliers(suppliers, masters.supplierIds), masters.supplierIds).map((s) => ({
     id: s.id,
     name: s.name,
     sub: s.category,

@@ -14,6 +14,7 @@ import {
 } from '@/lib/db/accounts-schemas';
 import { requireAdmin, toAccountType, type AccountType } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
+import { notPartnerError } from '@/lib/db/supplier-roles';
 
 // アカウント管理（Server Actions）。管理者のみ。例外は投げず { ok, error } を返す。
 
@@ -59,6 +60,11 @@ export async function createPartnerAccount(input: PartnerAccountInput): Promise<
   const parsed = partnerAccountSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
   const v = parsed.data;
+  // 所属する協力会社は協力会社の印のある会社だけ（アカウントを作る前に確かめる）。
+  if (v.supplierId) {
+    const notPartner = await notPartnerError(await createServerSupabase(), v.supplierId);
+    if (notPartner) return { ok: false, error: notPartner };
+  }
 
   const res = await invokeAdminAction({
     action: 'create',
@@ -133,6 +139,8 @@ export async function setPartnerSupplier(userId: string, supplierId: string | nu
     if (toAccountType((data as { account_type: unknown }).account_type) !== 'partner') {
       return { ok: false, error: '所属する協力会社は協力会社アカウントだけ設定できます' };
     }
+    const notPartner = await notPartnerError(supabase, v.supplierId);
+    if (notPartner) return { ok: false, error: notPartner };
     const { error } = await supabase
       .from('gn_partner_accounts')
       .upsert({ user_id: v.userId, supplier_id: v.supplierId }, { onConflict: 'user_id' });

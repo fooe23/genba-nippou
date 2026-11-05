@@ -14,7 +14,7 @@ export default async function AccountsPage() {
     <main className="mx-auto w-full max-w-3xl p-4">
       <AdminNav current="accounts" />
       <h1 className="mb-4 text-xl font-bold">アカウント管理</h1>
-      <AccountsPanel accounts={accounts} suppliers={suppliers.map((s) => ({ id: s.id, name: s.name, active: s.active }))} />
+      <AccountsPanel accounts={accounts} suppliers={suppliers.map((s) => ({ id: s.id, name: s.name, active: s.active, isPartner: s.isPartner }))} />
     </main>
   );
 }

@@ -613,7 +613,7 @@ describe('件ごとの精算（月指定）', () => {
 describe('所属別の人工（行・件ごと・件なし）', () => {
   const aLabor = (manDays: number, affiliation: 'own' | 'partner' | null, supplierId: string | null = null): SavedReportLine =>
     ({ ...labor(manDays, manDays * 20000), affiliation, supplierId, laborContract: affiliation === 'partner' ? 'ukeoi' : null }) as SavedReportLine;
-  const suppliers = [{ id: 'pA', name: '〇〇工業', category: null, contact: null, note: null, active: true, updatedAt: null, updatedBy: null, createdAt: '2026-01-01T00:00:00Z' }];
+  const suppliers = [{ id: 'pA', name: '〇〇工業', category: null, contact: null, note: null, active: true, isVendor: false, isPartner: true, updatedAt: null, updatedBy: null, createdAt: '2026-01-01T00:00:00Z' }];
   const reports = [
     // 自社 2・〇〇工業 1 → 追加 1.5 人工は 自社 1.0／〇〇工業 0.5
     report('2026-11-02', [aLabor(2, 'own'), aLabor(1, 'partner', 'pA'), work('extra', 1.5, 1, 1000, { issueId: 'i1' })]),

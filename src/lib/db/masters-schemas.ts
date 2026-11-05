@@ -33,7 +33,7 @@ export const dateSchema = z
 
 /** 所属の値（自社・協力会社）。 */
 export const AFFILIATIONS = ['own', 'partner'] as const;
-export const MSG_PARTNER_SUPPLIER = '協力会社の作業員は、所属する協力会社（取引先）を選んでください';
+export const MSG_PARTNER_SUPPLIER = '協力会社の作業員は、所属する協力会社を選んでください';
 
 // 所属：省略（undefined）なら変更しない。協力会社（partner）のときは取引先が必須。自社のとき取引先は保存しない（null）。
 const affiliationFields = {
@@ -73,14 +73,26 @@ const workerBaseSchema = z.object({
 export const workerInputSchema = workerBaseSchema.superRefine(partnerNeedsSupplier);
 export type WorkerInput = z.input<typeof workerInputSchema>;
 
-export const supplierInputSchema = z.object({
-  id: idSchema.optional(),
-  name: nameSchema,
-  category: textSchema.optional(),
-  contact: textSchema.optional(),
-  note: textSchema.optional(),
-  active: z.boolean().optional(),
-});
+export const MSG_SUPPLIER_ROLE = '取引先か協力会社の、どちらかに印を付けてください';
+
+// 取引先（isVendor）・協力会社（isPartner）の印。省略（undefined）なら変更しない。両方を送ってどちらも false はエラー
+// （片方だけ送ったときは DB の制約 gn_suppliers_role_check が最後に止める）。
+export const supplierInputSchema = z
+  .object({
+    id: idSchema.optional(),
+    name: nameSchema,
+    category: textSchema.optional(),
+    contact: textSchema.optional(),
+    note: textSchema.optional(),
+    active: z.boolean().optional(),
+    isVendor: z.boolean().optional(),
+    isPartner: z.boolean().optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.isVendor === false && v.isPartner === false) {
+      ctx.addIssue({ code: 'custom', message: MSG_SUPPLIER_ROLE, path: ['isVendor'] });
+    }
+  });
 export type SupplierInput = z.input<typeof supplierInputSchema>;
 
 export const vehicleInputSchema = z.object({

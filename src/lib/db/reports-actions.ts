@@ -28,6 +28,8 @@ import { usesFixedAmount } from '@/lib/report/change-labels';
 import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots, type StoredAffiliations } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
+import { loadSupplierRoles } from '@/lib/db/supplier-roles';
+import { creditSupplierError } from '@/lib/calc/supplier-roles';
 import type { ReportLine } from '@/lib/types';
 
 // 日報の保存（Server Actions）。本番では throw した文言がクライアントに届かないため、
@@ -64,6 +66,18 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
   }
 
   try {
+    // 買掛の行の会社：新しく協力会社だけの会社を選んでいれば止める。この日報に保存済みの会社は印を外した後も保存し直せる。
+    const creditIds = v.lines.flatMap((l) => (l.kind === 'credit' && l.supplierId ? [l.supplierId] : []));
+    if (creditIds.length > 0) {
+      const supabase = await createServerSupabase();
+      const [roles, stored] = await Promise.all([
+        loadSupplierRoles(supabase, creditIds),
+        loadStoredCreditSuppliers(v.siteId, v.date),
+      ]);
+      const creditError = creditSupplierError(creditIds, roles, stored);
+      if (creditError) return { ok: false, error: creditError };
+    }
+
     // マスターを参照している行の単価（日当・残業単価・リース単価・燃費）はサーバーで決め直す。保存した値が
     // その日の単価の複写（スナップショット）になり、集計はこの値を使う。画面のプレビューは従来どおり。
     const [lines, settings] = await Promise.all([
@@ -104,6 +118,22 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
     console.error('[saveReport]', e);
     return { ok: false, error: saveErrorMessage(null) };
   }
+}
+
+/** その日報に保存済みの買掛の行の会社（gn_report_lines.ref_id）。日報が無ければ空。 */
+async function loadStoredCreditSuppliers(siteId: string, date: string): Promise<string[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_daily_reports')
+    .select('gn_report_lines(ref_id)')
+    .eq('site_id', siteId)
+    .eq('report_date', date)
+    .eq('gn_report_lines.kind', 'credit')
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return ((data as { gn_report_lines: { ref_id: string | null }[] | null } | null)?.gn_report_lines ?? [])
+    .map((r) => r.ref_id)
+    .filter((id): id is string => !!id);
 }
 
 /** その日報に保存済みの作業員の行の所属の写し（作業員 ID ごと。同じ作業員が複数行あれば最初の行）。日報が無ければ空。 */

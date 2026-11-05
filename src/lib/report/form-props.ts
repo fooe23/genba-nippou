@@ -7,6 +7,7 @@ import type { Profile } from '@/lib/db/profile';
 import { listIssuesForReport, listOpenIssues, listReportHeads, type ReportDetail } from '@/lib/db/reports';
 import { getSettings } from '@/lib/db/settings';
 import { getSiteMasters, type Site } from '@/lib/db/sites';
+import { vendorSuppliers } from '@/lib/calc/supplier-roles';
 import type { SaveInput } from '@/lib/report/schema';
 import type { ReportFormProps } from '@/components/report/ReportForm';
 import { newReportCommon, type ReportMasters } from '@/components/report/form-state';
@@ -76,6 +77,20 @@ export function workersForSiteLabor<T extends { id: string; active: boolean; aff
   return out;
 }
 
+/**
+ * 日報の買掛の行の会社の選択肢：取引先の印のある会社だけ（協力会社だけの会社は出さない）で forSite と同じ規則。
+ * この日報ですでに使っている会社は印が無くても残す。現場で選んだ会社が協力会社だけなら、選んでいない扱い（有効な取引先全部）にする。
+ */
+export function creditSuppliersForSite<T extends { id: string; active: boolean; isVendor: boolean }>(
+  suppliers: T[],
+  selectedIds: string[],
+  usedIds: Set<string>,
+): T[] {
+  const vendors = suppliers.filter((s) => s.isVendor);
+  const vendorIds = new Set(vendors.map((s) => s.id));
+  return forSite(vendorSuppliers(suppliers, usedIds), selectedIds.filter((id) => vendorIds.has(id)), usedIds);
+}
+
 /** ReportForm の props のうち、画面ごとに決める readOnly / review は除いたものを返す。 */
 export async function loadReportFormProps(
   profile: Profile,
@@ -123,7 +138,7 @@ export async function loadReportFormProps(
       active: x.active,
       rates: x.rates,
     })),
-    suppliers: forSite(suppliers, selected.supplierIds, used.suppliers).map((s) => ({ id: s.id, name: s.name, active: s.active })),
+    suppliers: creditSuppliersForSite(suppliers, selected.supplierIds, used.suppliers).map((s) => ({ id: s.id, name: s.name, active: s.active })),
     units,
     weather,
     // 作業員の行の所属（自社／取引先名／所属なし）の表示用。協力会社のアカウントにも見えてよい（1 現場 1 日 1 枚で共有）。

@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   firstError,
   MSG_PARTNER_SUPPLIER,
+  MSG_SUPPLIER_ROLE,
   partnerCompanyChanged,
+  supplierInputSchema,
   WORKER_IN_USE_MESSAGE,
   workerDeleteError,
   workerInputSchema,
@@ -25,7 +27,7 @@ describe('作業員の所属（workerInputSchema・workerWithRateSchema）', () 
     expect(firstError(workerInputSchema, { name: '佐藤', affiliation: 'partner' })).toBe(MSG_PARTNER_SUPPLIER);
     expect(firstError(workerInputSchema, { name: '佐藤', affiliation: 'partner', supplierId: '' })).toBe(MSG_PARTNER_SUPPLIER);
     expect(firstError(workerInputSchema, { name: '佐藤', affiliation: 'partner', supplierId: null })).toBe(MSG_PARTNER_SUPPLIER);
-    expect(MSG_PARTNER_SUPPLIER).toBe('協力会社の作業員は、所属する協力会社（取引先）を選んでください');
+    expect(MSG_PARTNER_SUPPLIER).toBe('協力会社の作業員は、所属する協力会社を選んでください');
   });
   it('新規＋最初の日当でも同じ検証', () => {
     const base = { name: '佐藤', amount: 18000, effectiveFrom: '2026-11-01' };
@@ -59,5 +61,19 @@ describe('partnerCompanyChanged（会社を変えたら現場の登録を外す�
     expect(partnerCompanyChanged({ affiliation: 'partner', supplier_id: S1 }, { affiliation: 'partner', supplierId: S1 })).toBe(false);
     expect(partnerCompanyChanged({ affiliation: 'partner', supplier_id: S1 }, {})).toBe(false);
     expect(partnerCompanyChanged({ affiliation: 'own', supplier_id: null }, { affiliation: 'partner', supplierId: S1 })).toBe(false);
+  });
+});
+
+describe('取引先・協力会社の印（supplierInputSchema）', () => {
+  it('どちらも外すとエラー', () => {
+    expect(MSG_SUPPLIER_ROLE).toBe('取引先か協力会社の、どちらかに印を付けてください');
+    expect(firstError(supplierInputSchema, { name: '内装工業', isVendor: false, isPartner: false })).toBe(MSG_SUPPLIER_ROLE);
+  });
+  it('片方・両方・省略は通る', () => {
+    expect(firstError(supplierInputSchema, { name: '内装工業', isVendor: false, isPartner: true })).toBeNull();
+    expect(firstError(supplierInputSchema, { name: '材木店', isVendor: true, isPartner: false })).toBeNull();
+    expect(firstError(supplierInputSchema, { name: '設備工業', isVendor: true, isPartner: true })).toBeNull();
+    expect(firstError(supplierInputSchema, { name: '材木店' })).toBeNull();
+    expect(firstError(supplierInputSchema, { name: '材木店', active: false })).toBeNull();
   });
 });

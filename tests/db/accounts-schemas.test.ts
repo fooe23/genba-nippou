@@ -53,7 +53,7 @@ describe('協力会社アカウントの所属する協力会社（2026-11-07）
     expect(partnerAccountSchema.parse(ok).supplierId).toBeUndefined();
     expect(partnerAccountSchema.parse({ ...ok, supplierId: '' }).supplierId).toBeNull();
     expect(partnerAccountSchema.parse({ ...ok, supplierId: S }).supplierId).toBe(S);
-    expect(partnerAccountSchema.safeParse({ ...ok, supplierId: 'x' }).error?.issues[0].message).toBe('所属する協力会社（取引先）の指定が正しくありません');
+    expect(partnerAccountSchema.safeParse({ ...ok, supplierId: 'x' }).error?.issues[0].message).toBe('所属する協力会社の指定が正しくありません');
   });
   it('設定・解除（null）', () => {
     expect(partnerSupplierSchema.parse({ userId: S, supplierId: null }).supplierId).toBeNull();

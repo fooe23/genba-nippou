@@ -107,12 +107,13 @@ describe('laborRowAffiliation・laborContractValue（日報の作業員の行。
 });
 
 describe('現場の協力会社と作業員の選択肢', () => {
-  it('追加できる会社：有効で、まだ現場に無い取引先（名前順）', () => {
+  it('追加できる会社：有効な協力会社で、まだ現場に無い会社（名前順）。取引先だけの会社は出さない', () => {
     const suppliers = [
-      { id: S1, name: '山田工務店', active: true },
-      { id: S2, name: '青木設備', active: true },
-      { id: 's3', name: '無効商店', active: false },
-      { id: 's4', name: 'あおい建材', active: true },
+      { id: S1, name: '山田工務店', active: true, isPartner: true },
+      { id: S2, name: '青木設備', active: true, isPartner: true },
+      { id: 's3', name: '無効商店', active: false, isPartner: true },
+      { id: 's4', name: 'あおい建材', active: true, isPartner: true },
+      { id: 's5', name: 'いろは材木店', active: true, isPartner: false },
     ];
     expect(addablePartnerSuppliers(suppliers, [S1]).map((s) => s.id)).toEqual(['s4', S2]);
   });

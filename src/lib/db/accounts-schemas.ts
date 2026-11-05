@@ -8,7 +8,7 @@ export const ACCOUNT_TYPE_LABELS = { employee: '社員', partner: '協力会社'
 const MSG_COMPANY = '会社名を入力してください（100文字以内）';
 const MSG_NAME = '氏名を入力してください（100文字以内）';
 const MSG_EMAIL = 'メールアドレスの形式が正しくありません';
-const MSG_SUPPLIER = '所属する協力会社（取引先）の指定が正しくありません';
+const MSG_SUPPLIER = '所属する協力会社の指定が正しくありません';
 const MSG_PASSWORD = 'パスワードは8文字以上72文字以内で入力してください';
 
 export const passwordSchema = z.string({ error: MSG_PASSWORD }).min(8, MSG_PASSWORD).max(72, MSG_PASSWORD);

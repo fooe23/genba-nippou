@@ -341,6 +341,30 @@ create table if not exists public.gn_site_partners (
   unique (site_id, supplier_id)
 );
 
+-- 取引先と協力会社の印（2026-11-07。update_2026-11-07_worker_affiliation.sql）：同じ gn_suppliers の行に印を付けて分ける。
+--   * is_vendor：取引先（買掛の相手先）。日報の買掛の行・現場の取引先の選択に出る。既存の会社はすべて true。
+--   * is_partner：協力会社（作業員の所属）。作業員の所属・現場の協力会社・協力会社アカウントの会社の選択に出る。
+-- 外注の作業員は買掛にしないので分ける。両方に印を付けてもよい（材料も納める協力会社）。どちらも外すことはできない。
+-- 買掛の行が協力会社だけの会社を指していても DB では拒まない（過去の日報を保存し直せるように。新しい行はアプリで検証）。
+alter table public.gn_suppliers add column if not exists is_vendor boolean not null default true;
+alter table public.gn_suppliers add column if not exists is_partner boolean not null default false;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'gn_suppliers_role_check') then
+    alter table public.gn_suppliers
+      add constraint gn_suppliers_role_check check (is_vendor or is_partner);
+  end if;
+end
+$$;
+
+-- 移行：作業員の所属・現場の協力会社・協力会社アカウントで使われている会社を協力会社にする（取引先の印はそのまま）。
+-- 2 回目以降は対象が 0 行になる。
+update public.gn_suppliers s set is_partner = true
+ where s.is_partner = false
+   and (exists (select 1 from public.gn_workers w where w.supplier_id = s.id)
+        or exists (select 1 from public.gn_site_partners p where p.supplier_id = s.id)
+        or exists (select 1 from public.gn_partner_accounts a where a.supplier_id = s.id));
+
 -- ---------- 6. updated_at 自動更新（既存の touch_updated_at を再利用） ----------
 drop trigger if exists gn_sites_touch on public.gn_sites;
 create trigger gn_sites_touch before update on public.gn_sites

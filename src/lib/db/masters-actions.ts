@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { requireAdmin } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
+import { notPartnerError } from '@/lib/db/supplier-roles';
 import {
   leaseItemInputSchema,
   leaseItemWithRateSchema,
@@ -70,6 +71,11 @@ export async function upsertWorker(input: WorkerInput): Promise<string> {
     const { data, error } = await supabase.from('gn_workers').select('affiliation, supplier_id').eq('id', v.id).maybeSingle();
     if (error) throw new Error(error.message);
     before = (data as { affiliation: string | null; supplier_id: string | null } | null) ?? null;
+  }
+  // 協力会社の会社は、協力会社の印のある会社だけ。いまと同じ会社のまま保存し直すとき（後から印を外した会社）は止めない。
+  if (v.affiliation === 'partner' && v.supplierId && !(before?.affiliation === 'partner' && before.supplier_id === v.supplierId)) {
+    const notPartner = await notPartnerError(supabase, v.supplierId);
+    if (notPartner) throw new Error(notPartner);
   }
   const id = await saveRow(supabase, 'gn_workers', v.id, {
     name: v.name,
@@ -182,6 +188,8 @@ export async function upsertSupplier(input: SupplierInput): Promise<string> {
     contact: nullable(v.contact),
     note: nullable(v.note),
     active: v.active,
+    is_vendor: v.isVendor,
+    is_partner: v.isPartner,
   });
   revalidatePath(PATH);
   return id;
@@ -281,6 +289,10 @@ async function createWithRate(
 export async function createWorkerWithRate(input: WorkerWithRateInput): Promise<string> {
   await requireAdmin();
   const v = parseOrThrow(workerWithRateSchema, input);
+  if (v.affiliation === 'partner' && v.supplierId) {
+    const notPartner = await notPartnerError(await createServerSupabase(), v.supplierId);
+    if (notPartner) throw new Error(notPartner);
+  }
   const id = await createWithRate(
     'gn_workers',
     'gn_worker_rates',

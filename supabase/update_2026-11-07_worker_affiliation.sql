@@ -12,6 +12,8 @@
 --   * gn_delete_worker(uuid)：使っていない作業員だけを一括で削除する（管理者のみ）
 --   * 索引 gn_report_lines_labor_ref_idx（労務の行の ref_id）・gn_carryovers_worker_idx（繰越の worker_id）：作業員の使用確認を速くする
 --   * gn_site_workers：社員も協力会社の作業員の登録を追加・削除できる（進行中の現場だけ。自社の作業員の選択は管理者だけのまま）
+--   * gn_suppliers.is_vendor（取引先＝買掛の相手先。既定 true）・is_partner（協力会社。既定 false）と、どちらかは必ず付く制約。
+--     作業員・現場の協力会社・協力会社アカウントで使われている会社は is_partner にする（取引先の印はそのまま）
 -- 協力会社の上下（1 次・2 次）は持たない。
 -- アプリは新しい列・表を読むので、アプリを新しい版にする前に実行する（先にアプリを出すと作業員・日報の読み込みが失敗する）。
 
@@ -207,6 +209,31 @@ create table if not exists public.gn_site_partners (
   unique (site_id, supplier_id)
 );
 
+-- 5b. 取引先と協力会社の印 -------------------------------------------------------
+-- 取引先と協力会社の印（2026-11-07。update_2026-11-07_worker_affiliation.sql）：同じ gn_suppliers の行に印を付けて分ける。
+--   * is_vendor：取引先（買掛の相手先）。日報の買掛の行・現場の取引先の選択に出る。既存の会社はすべて true。
+--   * is_partner：協力会社（作業員の所属）。作業員の所属・現場の協力会社・協力会社アカウントの会社の選択に出る。
+-- 外注の作業員は買掛にしないので分ける。両方に印を付けてもよい（材料も納める協力会社）。どちらも外すことはできない。
+-- 買掛の行が協力会社だけの会社を指していても DB では拒まない（過去の日報を保存し直せるように。新しい行はアプリで検証）。
+alter table public.gn_suppliers add column if not exists is_vendor boolean not null default true;
+alter table public.gn_suppliers add column if not exists is_partner boolean not null default false;
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'gn_suppliers_role_check') then
+    alter table public.gn_suppliers
+      add constraint gn_suppliers_role_check check (is_vendor or is_partner);
+  end if;
+end
+$$;
+
+-- 移行：作業員の所属・現場の協力会社・協力会社アカウントで使われている会社を協力会社にする（取引先の印はそのまま）。
+-- 2 回目以降は対象が 0 行になる。
+update public.gn_suppliers s set is_partner = true
+ where s.is_partner = false
+   and (exists (select 1 from public.gn_workers w where w.supplier_id = s.id)
+        or exists (select 1 from public.gn_site_partners p where p.supplier_id = s.id)
+        or exists (select 1 from public.gn_partner_accounts a where a.supplier_id = s.id));
+
 -- 6. RLS ------------------------------------------------------------------------
 -- 協力会社アカウントの会社（2026-11-07）：本人と社員・管理者が読める。書けるのは管理者だけ。
 alter table public.gn_partner_accounts enable row level security;
@@ -240,4 +267,5 @@ create policy gn_site_workers_partner_delete on public.gn_site_workers for delet
 
 -- 確認（任意）：新しい列・表があれば適用済み。
 -- select column_name from information_schema.columns where table_name = 'gn_report_lines' and column_name in ('labor_contract','affiliation','supplier_id');
+-- select count(*) filter (where is_vendor) as vendors, count(*) filter (where is_partner) as partners, count(*) filter (where is_vendor and is_partner) as both from public.gn_suppliers;
 -- select count(*) filter (where affiliation = 'own') as own_lines, count(*) filter (where affiliation is null) as no_affiliation from public.gn_report_lines where kind = 'labor';
