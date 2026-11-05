@@ -42,6 +42,40 @@ export function forSite<T extends { id: string; active: boolean }>(items: T[], s
   return out;
 }
 
+/**
+ * 日報の作業員の選択肢（すべてのアカウントで同じ規則。協力会社アカウントの会社では絞らない）。
+ * - 自社の作業員：forSite と同じ規則を自社の作業員だけで計算する（自社を 1 人も選んでいない現場は有効な自社の作業員全部）。
+ * - 協力会社の作業員：この現場に登録した（gn_site_workers にある）有効な作業員だけ。登録が無くても全員にはしない。
+ * - この日報ですでに使っている作業員（無効・登録を外した協力会社の作業員も）は残す。
+ * 並びは 自社（forSite の並び）→ 協力会社（登録順）→ 使用中で残ったもの。手入力は画面側でいつでも使える。
+ */
+export function workersForSiteLabor<T extends { id: string; active: boolean; affiliation: 'own' | 'partner' }>(
+  workers: T[],
+  selectedWorkerIds: string[],
+  usedIds: Set<string>,
+): T[] {
+  const own = workers.filter((w) => w.affiliation !== 'partner');
+  const ownIds = new Set(own.map((w) => w.id));
+  const out = forSite(own, selectedWorkerIds.filter((id) => ownIds.has(id)), usedIds);
+  const seen = new Set(out.map((w) => w.id));
+  const partners = new Map(workers.filter((w) => w.affiliation === 'partner').map((w) => [w.id, w]));
+  for (const id of selectedWorkerIds) {
+    const w = partners.get(id);
+    if (w && !seen.has(id) && (w.active || usedIds.has(id))) {
+      out.push(w);
+      seen.add(id);
+    }
+  }
+  for (const id of usedIds) {
+    const w = partners.get(id);
+    if (w && !seen.has(id)) {
+      out.push(w);
+      seen.add(id);
+    }
+  }
+  return out;
+}
+
 /** ReportForm の props のうち、画面ごとに決める readOnly / review は除いたものを返す。 */
 export async function loadReportFormProps(
   profile: Profile,
@@ -72,7 +106,7 @@ export async function loadReportFormProps(
   }
 
   const masters: ReportMasters = {
-    workers: forSite(workers, selected.workerIds, used.workers).map((w) => ({
+    workers: workersForSiteLabor(workers, selected.workerIds, used.workers).map((w) => ({
       id: w.id,
       name: w.name,
       active: w.active,

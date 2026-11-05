@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { applyMasterSnapshots, needsMasterSnapshots } from '@/lib/report/snapshots';
+import { DEFAULT_LABOR_RULE } from '@/lib/calc/report';
+import { fromLineRow, toLineRow } from '@/lib/report/rows';
+import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots } from '@/lib/report/snapshots';
 import type { ReportLine } from '@/lib/types';
 
 const W1 = '11111111-1111-4111-8111-111111111111';
@@ -7,7 +9,7 @@ const V1 = '22222222-2222-4222-8222-222222222222';
 const L1 = '33333333-3333-4333-8333-333333333333';
 const UNKNOWN = '99999999-9999-4999-8999-999999999999';
 const masters = {
-  workers: [{ id: W1, rates: [{ amount: 18000, effectiveFrom: '2026-01-01' }, { amount: 19000, effectiveFrom: '2026-11-01' }], overtimeRate: 3000 }],
+  workers: [{ id: W1, rates: [{ amount: 18000, effectiveFrom: '2026-01-01' }, { amount: 19000, effectiveFrom: '2026-11-01' }], overtimeRate: 3000, affiliation: 'own' as const, supplierId: null }],
   vehicles: [{ id: V1, kmPerL: 10 }],
   leaseItems: [{ id: L1, rates: [{ amount: 3500, effectiveFrom: '2026-04-01' }] }],
 };
@@ -52,5 +54,46 @@ describe('保存時のマスター単価の複写（サーバー側）', () => {
   it('参照のある行が無ければマスターを読まなくてよい', () => {
     expect(needsMasterSnapshots(lines)).toBe(true);
     expect(needsMasterSnapshots([lines[1], lines[5], lines[6]])).toBe(false);
+  });
+});
+
+describe('保存時の所属の写しと常用・請負（2026-11-07）', () => {
+  const P = '44444444-4444-4444-8444-444444444444';
+  const S = '55555555-5555-4555-8555-555555555555';
+  const S2 = '66666666-6666-4666-8666-666666666666';
+  const own = { id: W1, rates: [{ amount: 18000, effectiveFrom: '2026-01-01' }], overtimeRate: null, affiliation: 'own' as const, supplierId: null };
+  const partner = { id: P, rates: [{ amount: 20000, effectiveFrom: '2026-01-01' }], overtimeRate: null, affiliation: 'partner' as const, supplierId: S };
+  const m = { workers: [own, partner], vehicles: [], leaseItems: [] };
+  const labor = (workerId: string | null, extra: Partial<ReportLine & { kind: 'labor' }> = {}): ReportLine => ({
+    kind: 'labor', workerId, workerName: '作業員', time: t, dailyRate: 1, note: '', overtimeRate: null, ...extra,
+  });
+  it('マスターの所属を写す。画面から届いた所属は使わない', () => {
+    const out = applyMasterSnapshots(
+      [labor(W1, { affiliation: 'partner', supplierId: S2 }), labor(P, { affiliation: 'own', supplierId: null })],
+      '2026-11-01',
+      m,
+    );
+    expect(out[0]).toMatchObject({ affiliation: 'own', supplierId: null, laborContract: null });
+    expect(out[1]).toMatchObject({ affiliation: 'partner', supplierId: S });
+  });
+  it('常用・請負は協力会社の行だけ（未選択は常用）。自社の行は null', () => {
+    const out = applyMasterSnapshots([labor(P, { laborContract: 'ukeoi' }), labor(P), labor(W1, { laborContract: 'ukeoi' })], '2026-11-01', m);
+    expect(out.map((l) => (l.kind === 'labor' ? l.laborContract : undefined))).toEqual(['ukeoi', 'jouyou', null]);
+  });
+  it('手入力の作業員・マスターに無い作業員は所属なし（null）・常用', () => {
+    const hand = labor(null, { laborContract: 'ukeoi', affiliation: 'partner', supplierId: S });
+    const out = applyMasterSnapshots([hand, labor(UNKNOWN, { affiliation: 'own' })], '2026-11-01', m);
+    expect(out[0]).toMatchObject({ laborContract: null, affiliation: null, supplierId: null });
+    expect(out[1]).toMatchObject({ laborContract: null, affiliation: null, supplierId: null, dailyRate: null });
+    expect(applyMasterSnapshots([hand], '2026-11-01', EMPTY_SNAPSHOT_MASTERS)[0]).toMatchObject({ affiliation: null, laborContract: null });
+  });
+  it('保存した行の所属はその日の写し：後でマスターの所属を変えても、保存済みの行（読み戻した値）は変わらない', () => {
+    const saved = applyMasterSnapshots([labor(P, { laborContract: 'ukeoi' })], '2026-11-01', m);
+    const row = toLineRow(saved[0], t, 0, DEFAULT_LABOR_RULE);
+    // その後マスターで自社に変えた。保存済みの行（DB の値）を読み戻すと、保存したときの所属のまま。
+    const changed = { ...m, workers: [own, { ...partner, affiliation: 'own' as const, supplierId: null }] };
+    expect(fromLineRow(row)).toMatchObject({ affiliation: 'partner', supplierId: S, laborContract: 'ukeoi' });
+    // 保存し直したときだけ、その時点のマスターの所属に写し直す（日当の写しと同じ扱い）。
+    expect(applyMasterSnapshots([fromLineRow(row)!], '2026-11-01', changed)[0]).toMatchObject({ affiliation: 'own', laborContract: null });
   });
 });

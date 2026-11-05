@@ -16,7 +16,7 @@ const site = (o: Partial<Site> = {}): Site => ({
   commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null, ...o,
 });
 const touched = { updatedAt: null, updatedBy: null, createdAt: '2026-01-01T00:00:00Z' };
-const worker = (id: string, name: string, trade: string | null): Worker => ({ id, name, trade, note: null, active: true, rates: [], overtimeRate: null, ...touched });
+const worker = (id: string, name: string, trade: string | null): Worker => ({ id, name, trade, note: null, active: true, rates: [], overtimeRate: null, affiliation: 'own', supplierId: null, ...touched });
 const supplier = (id: string, name: string): Supplier => ({ id, name, category: null, contact: null, note: null, active: true, ...touched });
 const vehicle = (id: string, name: string): Vehicle => ({ id, name, kind: null, kmPerL: 10, note: null, active: true, ...touched });
 const leaseItem = (id: string, name: string): LeaseItem => ({ id, name, spec: null, note: null, active: true, rates: [], ...touched });

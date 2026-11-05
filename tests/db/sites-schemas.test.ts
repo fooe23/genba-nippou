@@ -1,5 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { archiveSiteSchema, carryoverSchema, memberSchema, siteInputSchema, siteStatusSchema } from '@/lib/db/sites-schemas';
+import {
+  archiveSiteSchema,
+  carryoverSchema,
+  copySitePartnersMessage,
+  copySitePartnersSchema,
+  memberSchema,
+  planSitePartnerCopy,
+  siteInputSchema,
+  sitePartnerAddSchema,
+  sitePartnerUpdateSchema,
+  siteStatusSchema,
+} from '@/lib/db/sites-schemas';
 import { firstError } from '@/lib/db/masters-schemas';
 
 const base = {
@@ -175,5 +186,42 @@ describe('siteInputSchema（常用単価の既定）', () => {
     expect(firstError(siteInputSchema, { ...base, defaultDailyRate: -1 })).toBe('常用単価の既定は0以上の数値で入力してください');
     expect(firstError(siteInputSchema, { ...base, defaultDailyRate: NaN })).toBe('常用単価の既定は0以上の数値で入力してください');
     expect(firstError(siteInputSchema, { ...base, defaultDailyRate: 30000.5 })).toBe('常用単価の既定は円単位の整数で入力してください');
+  });
+});
+
+describe('現場の協力会社と作業員の登録（2026-11-07）', () => {
+  const A = '11111111-1111-4111-8111-111111111111';
+  const B = '22222222-2222-4222-8222-222222222222';
+  it('請負金額・メモは任意（空欄は null）。負の金額はエラー', () => {
+    expect(sitePartnerAddSchema.parse({ siteId: A, supplierId: B })).toMatchObject({ amount: null, note: null });
+    expect(sitePartnerAddSchema.parse({ siteId: A, supplierId: B, amount: '', note: '  ' })).toMatchObject({ amount: null, note: null });
+    expect(sitePartnerUpdateSchema.parse({ id: A, amount: 500000, note: '内装一式' })).toMatchObject({ amount: 500000, note: '内装一式' });
+    expect(sitePartnerAddSchema.safeParse({ siteId: A, supplierId: B, amount: -1 }).error?.issues[0].message).toBe('請負金額は0以上の数値で入力してください');
+    expect(sitePartnerAddSchema.safeParse({ siteId: A, supplierId: '' }).error?.issues[0].message).toBe('協力会社（取引先）を選んでください');
+  });
+  it('同じ現場どうしは写せない', () => {
+    expect(copySitePartnersSchema.safeParse({ fromSiteId: A, toSiteId: A }).error?.issues[0].message).toBe('写し元と写し先が同じ現場です');
+    expect(copySitePartnersSchema.safeParse({ fromSiteId: A, toSiteId: B }).success).toBe(true);
+  });
+  it('planSitePartnerCopy：写し先に無い協力会社と有効な作業員だけを、写し元の順で写す', () => {
+    const plan = planSitePartnerCopy(
+      {
+        supplierIds: ['s1', 's2'],
+        workers: [
+          { id: 'w1', supplierId: 's1', active: true },
+          { id: 'w2', supplierId: 's1', active: false },
+          { id: 'w3', supplierId: 's3', active: true },
+          { id: 'w4', supplierId: 's2', active: true },
+        ],
+      },
+      { supplierIds: ['s2'], workerIds: ['w4'] },
+    );
+    // s3 は写し元の協力会社に無いが、写す作業員 w3 の会社なので足す。w2 は無効、w4 は登録済み。
+    expect(plan).toEqual({ supplierIds: ['s1', 's3'], workerIds: ['w1', 'w3'] });
+  });
+  it('写すものが無ければ空。文言は件数で変える', () => {
+    expect(planSitePartnerCopy({ supplierIds: ['s1'], workers: [] }, { supplierIds: ['s1'], workerIds: [] })).toEqual({ supplierIds: [], workerIds: [] });
+    expect(copySitePartnersMessage({ partners: 2, workers: 5 })).toBe('協力会社 2 社・作業員 5 人を写しました');
+    expect(copySitePartnersMessage({ partners: 0, workers: 0 })).toBe('写す協力会社・作業員はありませんでした（すでに登録済みです）');
   });
 });

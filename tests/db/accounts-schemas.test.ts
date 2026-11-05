@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { accountTypeSchema, mapAdminActionError, partnerAccountSchema } from '@/lib/db/accounts-schemas';
+import { accountTypeSchema, mapAdminActionError, partnerAccountSchema, partnerSupplierSchema } from '@/lib/db/accounts-schemas';
 
 const ok = { companyName: '山田建設', name: '山田太郎', email: 'yamada@example.com', password: 'abcd1234' };
 
@@ -43,5 +43,20 @@ describe('mapAdminActionError', () => {
     expect(mapAdminActionError('Something broke')).toBe('アカウントの作成に失敗しました。もう一度お試しください。');
     expect(mapAdminActionError(null)).toBe('アカウントの作成に失敗しました。もう一度お試しください。');
     expect(mapAdminActionError('', 'x')).toBe('x');
+  });
+});
+
+describe('協力会社アカウントの所属する協力会社（2026-11-07）', () => {
+  const ok = { companyName: '山田工業', name: '山田 太郎', email: 'yamada@example.com', password: 'password1' };
+  const S = '22222222-2222-4222-8222-222222222222';
+  it('作成時は任意（省略・空欄は null）、指定すれば取引先の ID', () => {
+    expect(partnerAccountSchema.parse(ok).supplierId).toBeUndefined();
+    expect(partnerAccountSchema.parse({ ...ok, supplierId: '' }).supplierId).toBeNull();
+    expect(partnerAccountSchema.parse({ ...ok, supplierId: S }).supplierId).toBe(S);
+    expect(partnerAccountSchema.safeParse({ ...ok, supplierId: 'x' }).error?.issues[0].message).toBe('所属する協力会社（取引先）の指定が正しくありません');
+  });
+  it('設定・解除（null）', () => {
+    expect(partnerSupplierSchema.parse({ userId: S, supplierId: null }).supplierId).toBeNull();
+    expect(partnerSupplierSchema.parse({ userId: S, supplierId: S }).supplierId).toBe(S);
   });
 });

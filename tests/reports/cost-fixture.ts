@@ -45,7 +45,7 @@ export const costInput = (reports: ReportWithLines[] = [report('2026-10-20', 'ap
   site,
   reports,
   carryovers: [],
-  workers: [{ id: 'w1', name: '田中', trade: '大工', note: null, active: true, rates: [], overtimeRate: null, ...touched }],
+  workers: [{ id: 'w1', name: '田中', trade: '大工', note: null, active: true, rates: [], overtimeRate: null, affiliation: 'own', supplierId: null, ...touched }],
   suppliers: [{ id: 'sp1', name: '山田商店', category: null, contact: null, note: null, active: true, ...touched }],
   vehicles: [{ id: 'v1', name: '2t ダンプ', kind: null, kmPerL: 10, note: null, active: true, ...touched }],
   leaseItems: [{ id: 'l1', name: '足場', spec: null, note: null, active: true, rates: [], ...touched }],

@@ -1,12 +1,14 @@
 import 'server-only';
 import type { RateHistory } from '@/lib/calc/rates';
+import type { Affiliation } from '@/lib/types';
 import { createServerSupabase } from '@/lib/supabase/server';
 
 /**
  * overtimeRate は残業単価（円/H）。null なら標準の計算式（日当 ÷ 基準時間 × 割増率）。0 も null として返す。
  * updatedAt / updatedBy は最後に更新した日時と人（profiles.id。DB のトリガーが入れる。氏名は profiles を別に引いて突き合わせる）。
  */
-export interface Worker { id: string; name: string; trade: string | null; note: string | null; active: boolean; rates: RateHistory[]; overtimeRate: number | null; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
+/** affiliation は所属（自社・協力会社）、supplierId は協力会社のときの取引先（自社なら null）。 */
+export interface Worker { id: string; name: string; trade: string | null; note: string | null; active: boolean; rates: RateHistory[]; overtimeRate: number | null; affiliation: Affiliation; supplierId: string | null; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
 export interface Supplier { id: string; name: string; category: string | null; contact: string | null; note: string | null; active: boolean; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
 export interface Vehicle { id: string; name: string; kind: string | null; kmPerL: number | null; note: string | null; active: boolean; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
 export interface LeaseItem { id: string; name: string; spec: string | null; note: string | null; active: boolean; rates: RateHistory[]; updatedAt: string | null; updatedBy: string | null; createdAt: string; }
@@ -15,7 +17,7 @@ export interface MasterOption { name: string; sortOrder: number; }
 interface RateRow { amount: number | string; effective_from: string; updated_by?: string | null; }
 // created_at は取り込みの突き合わせ（RPC と同じく作成が最も古い行）に使う。
 interface Touched { created_at: string; updated_at?: string | null; updated_by?: string | null; }
-interface WorkerRow extends Touched { id: string; name: string; trade: string | null; note: string | null; active: boolean | null; overtime_rate: number | string | null; gn_worker_rates: RateRow[] | null; }
+interface WorkerRow extends Touched { id: string; name: string; trade: string | null; note: string | null; active: boolean | null; overtime_rate: number | string | null; affiliation?: string | null; supplier_id?: string | null; gn_worker_rates: RateRow[] | null; }
 interface SupplierRow extends Touched { id: string; name: string; category: string | null; contact: string | null; note: string | null; active: boolean | null; }
 interface VehicleRow extends Touched { id: string; name: string; kind: string | null; km_per_l: number | string | null; note: string | null; active: boolean | null; }
 interface LeaseItemRow extends Touched { id: string; name: string; spec: string | null; note: string | null; active: boolean | null; gn_lease_item_rates: RateRow[] | null; }
@@ -43,6 +45,11 @@ function toOvertimeRate(v: number | string | null): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+// 所属：'partner' 以外は自社。自社の supplierId は null にそろえる。
+function toAffiliation(a: string | null | undefined, supplierId: string | null | undefined): { affiliation: Affiliation; supplierId: string | null } {
+  return a === 'partner' ? { affiliation: 'partner', supplierId: supplierId ?? null } : { affiliation: 'own', supplierId: null };
+}
+
 // 更新者の列（update_2026-11-03c_master_import.sql）が未適用の環境（列が無い＝42703）では、更新者なしで読み直す。
 // マスターは日報の入力画面でも読むため、SQL の適用前でも画面が壊れないようにする。
 async function selectRows<T>(table: string, columns: string, legacyColumns: string): Promise<T[]> {
@@ -67,8 +74,8 @@ function byActiveThenName<T extends { name: string; active: boolean }>(a: T, b: 
 export async function listWorkers(): Promise<Worker[]> {
   const rows = await selectRows<WorkerRow>(
     'gn_workers',
-    'id, name, trade, note, active, created_at, overtime_rate, updated_at, updated_by, gn_worker_rates(amount, effective_from, updated_by)',
-    'id, name, trade, note, active, created_at, overtime_rate, gn_worker_rates(amount, effective_from)',
+    'id, name, trade, note, active, created_at, overtime_rate, affiliation, supplier_id, updated_at, updated_by, gn_worker_rates(amount, effective_from, updated_by)',
+    'id, name, trade, note, active, created_at, overtime_rate, affiliation, supplier_id, gn_worker_rates(amount, effective_from)',
   );
   return rows
     .map((r) => ({
@@ -79,6 +86,7 @@ export async function listWorkers(): Promise<Worker[]> {
       active: isActive(r.active),
       rates: mapRates(r.gn_worker_rates),
       overtimeRate: toOvertimeRate(r.overtime_rate),
+      ...toAffiliation(r.affiliation, r.supplier_id),
       ...touched(r),
     }))
     .sort(byActiveThenName);

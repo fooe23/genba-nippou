@@ -4,7 +4,23 @@ export type LineKind = 'labor' | 'fuel' | 'lease' | 'cash' | 'credit' | 'work';
 export interface TimeSpec { start: string | null; end: string | null; breakMin: number | null; gapMin: number | null; }
 /** 保存済みの労務行の DB の計算値（トリガー gn_report_lines_compute が保存時の設定で計算したもの）。読み取り専用の表示に使い、保存には送らない。 */
 export interface LaborSaved { hours: number; manDays: number; overtimeHours: number; cost: number; }
-export interface LaborLine  { kind: 'labor';  workerId: string | null; workerName: string; time: TimeSpec; dailyRate: number | null; note: string; overtimeRate: number | null; saved?: LaborSaved; }
+/** 作業員の所属：自社（own）・協力会社（partner。取引先の 1 社）。協力会社の上下（1 次・2 次）は持たない。 */
+export type Affiliation = 'own' | 'partner';
+/** 労務の行の支払い・精算の区分：常用（jouyou）・請負（ukeoi）。原価（労務費）の計算は変えない。 */
+export type LaborContract = 'jouyou' | 'ukeoi';
+/**
+ * 労務の行。laborContract・affiliation・supplierId は 2026-11-07 追加（古い下書き・行には無いので省略可）。
+ * - laborContract：常用・請負。所属が協力会社の作業員の行だけ値を持つ（保存時に、協力会社の行は null → 'jouyou'、
+ *   それ以外の行は null にそろえる。src/lib/report/snapshots.ts）。null・省略は常用扱い。
+ * - affiliation・supplierId：その日の所属の写し。保存時にサーバーが作業員マスターから写す（画面から送った値は使わない）。
+ *   手入力の行（workerId なし）は null ＝ 所属なし。帳票はこの値を使う。
+ */
+export interface LaborLine  {
+  kind: 'labor'; workerId: string | null; workerName: string; time: TimeSpec; dailyRate: number | null; note: string; overtimeRate: number | null; saved?: LaborSaved;
+  laborContract?: LaborContract | null;
+  affiliation?: Affiliation | null;
+  supplierId?: string | null;
+}
 export interface FuelLine   { kind: 'fuel';   vehicleId: string | null; vehicleName: string; kmPerL: number | null; distanceKm: number | null; pricePerL: number | null; note: string; }
 export interface LeaseLine  { kind: 'lease';  itemId: string | null; itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; note: string; }
 export interface CashLine   { kind: 'cash';   itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; vendor: string; }

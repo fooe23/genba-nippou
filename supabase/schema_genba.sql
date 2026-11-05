@@ -69,6 +69,11 @@ create table if not exists public.gn_workers (
   updated_at timestamptz not null default now()
 );
 alter table public.gn_workers add column if not exists overtime_rate numeric check (overtime_rate is null or overtime_rate >= 0);
+-- 作業員の所属（2026-11-07。update_2026-11-07_worker_affiliation.sql）：自社（own）か協力会社（partner）。
+-- 協力会社のときは supplier_id（取引先の 1 社）が必須（アプリで検証）。既存の作業員は自社になる。
+alter table public.gn_workers add column if not exists affiliation text not null default 'own'
+  check (affiliation in ('own','partner'));
+alter table public.gn_workers add column if not exists supplier_id uuid references public.gn_suppliers(id);
 
 create table if not exists public.gn_worker_rates (
   id             uuid primary key default gen_random_uuid(),
@@ -290,6 +295,17 @@ alter table public.gn_report_issues add column if not exists fixed_amount numeri
 alter table public.gn_report_issues add column if not exists daily_rate numeric
   check (daily_rate is null or daily_rate >= 0);
 alter table public.gn_report_issues add column if not exists fixed_on date;
+-- 労務の行の常用・請負と、その日の所属の写し（2026-11-07。update_2026-11-07_worker_affiliation.sql）。労務の行だけ使う。
+--   * labor_contract：'jouyou'（常用）・'ukeoi'（請負）。null は常用扱い。所属が協力会社の作業員の行だけ値を持つ。
+--   * affiliation・supplier_id：保存時に作業員マスターから写した所属（名前・日当の写しと同じ扱い）。
+--     帳票は行の値を使うので、後から作業員の所属を変えても、保存し直すまで過去の日報は変わらない。
+--     手入力の行（ref_id なし）は null ＝ 所属なし。
+alter table public.gn_report_lines add column if not exists labor_contract text
+  check (labor_contract in ('jouyou','ukeoi'));
+alter table public.gn_report_lines add column if not exists affiliation text
+  check (affiliation in ('own','partner'));
+alter table public.gn_report_lines add column if not exists supplier_id uuid references public.gn_suppliers(id);
+-- 既存の労務の行を自社で埋める処理は update_2026-11-07_worker_affiliation.sql にある（承認済みの行も対象にするためガードを外す）。
 
 create table if not exists public.gn_carryovers (
   id          uuid primary key default gen_random_uuid(),
@@ -301,6 +317,26 @@ create table if not exists public.gn_carryovers (
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   unique (site_id, worker_id)
+);
+
+-- 協力会社アカウントの会社（2026-11-07）：協力会社アカウント（profiles.account_type = 'partner'）を取引先の 1 社に結び付ける。
+-- profiles は業務日報アプリと共有なので列を足さず、別の表にする。未設定のアカウントは行が無い。
+create table if not exists public.gn_partner_accounts (
+  user_id     uuid primary key references public.profiles(id) on delete cascade,
+  supplier_id uuid not null references public.gn_suppliers(id),
+  created_at  timestamptz not null default now()
+);
+
+-- 現場の協力会社（2026-11-07）：1 つの現場に入る協力会社（取引先）と、任意の請負金額・メモ。
+-- 社員・管理者がいつでも追加・削除できる（完了・削除済みの現場は不可）。協力会社は担当現場の行を読めるだけ。
+create table if not exists public.gn_site_partners (
+  id          uuid primary key default gen_random_uuid(),
+  site_id     uuid not null references public.gn_sites(id),
+  supplier_id uuid not null references public.gn_suppliers(id),
+  amount      numeric check (amount is null or amount >= 0),
+  note        text,
+  created_at  timestamptz not null default now(),
+  unique (site_id, supplier_id)
 );
 
 -- ---------- 6. updated_at 自動更新（既存の touch_updated_at を再利用） ----------
@@ -378,6 +414,18 @@ returns text language sql stable security definer set search_path = public as $$
            else (select m.role from public.gn_site_members m
                   where m.site_id = p_site and m.user_id = auth.uid())
          end;
+$$;
+
+-- 社員（profiles.account_type = 'employee'）か管理者なら true。協力会社・profiles の行が無いユーザーは false
+-- （gn_report_issues_guard の not_employee と同じ判定。許す側を名指しする）。2026-11-07。
+create or replace function public.gn_is_employee_or_admin()
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.is_admin()
+         or exists (
+           select 1 from public.profiles p
+            where p.id = auth.uid()
+              and p.account_type = 'employee'
+         );
 $$;
 
 -- ---------- 8. ガードトリガー ----------
@@ -731,6 +779,7 @@ create trigger gn_report_issues_guard before insert or update on public.gn_repor
 -- 無い（null / 空）なら比べない（新しい日報の作成など）。
 -- 明細の区分・指示（change_kind 〜 issue_id。2026-11-04）も p_lines から書く。客先確認（client_confirmed_*）は
 -- 日報の保存では変えない（on conflict update の列に入れない）。
+-- 労務の行の常用・請負と所属の写し（labor_contract・affiliation・supplier_id。2026-11-07）も p_lines から書く（労務の行だけ。他は null）。
 create or replace function public.gn_save_report(p_report jsonb, p_lines jsonb)
 returns uuid language plpgsql security invoker set search_path = public as $$
 declare
@@ -784,7 +833,8 @@ begin
     start_time, end_time, break_min, gap_min, hours, man_days, km_per_l, distance_km,
     price_per_l, vendor, trade, description, productivity, source, note,
     overtime_hours, overtime_rate,
-    change_kind, instructed_by, instruction_method, instructed_on, issue_id
+    change_kind, instructed_by, instruction_method, instructed_on, issue_id,
+    labor_contract, affiliation, supplier_id
   )
   select
     v_id, t.kind, coalesce(t.sort_order, e.ord::int), t.ref_id, t.name, t.spec, t.unit,
@@ -793,7 +843,11 @@ begin
     t.description, t.productivity, t.source, t.note,
     t.overtime_hours, t.overtime_rate,
     -- 区分は not null。送られない（作業内容以外の行・古い画面）なら契約内。
-    coalesce(t.change_kind, 'contract'), t.instructed_by, t.instruction_method, t.instructed_on, t.issue_id
+    coalesce(t.change_kind, 'contract'), t.instructed_by, t.instruction_method, t.instructed_on, t.issue_id,
+    -- 常用・請負とその日の所属の写し（2026-11-07）は労務の行だけ。それ以外の行は null。
+    case when t.kind = 'labor' then t.labor_contract end,
+    case when t.kind = 'labor' then t.affiliation end,
+    case when t.kind = 'labor' then t.supplier_id end
   from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) with ordinality as e(elem, ord),
        lateral jsonb_populate_record(null::public.gn_report_lines, e.elem) as t
   order by coalesce(t.sort_order, e.ord::int), e.ord;
@@ -990,6 +1044,36 @@ drop policy if exists gn_report_lines_update on public.gn_report_lines;
 create policy gn_report_lines_update on public.gn_report_lines for update to authenticated using (exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id))) with check (exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id)));
 drop policy if exists gn_report_lines_delete on public.gn_report_lines;
 create policy gn_report_lines_delete on public.gn_report_lines for delete to authenticated using (exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id)));
+
+-- 協力会社アカウントの会社（2026-11-07）：本人と社員・管理者が読める。書けるのは管理者だけ。
+alter table public.gn_partner_accounts enable row level security;
+drop policy if exists gn_partner_accounts_select on public.gn_partner_accounts;
+create policy gn_partner_accounts_select on public.gn_partner_accounts for select to authenticated using (user_id = auth.uid() or public.gn_is_employee_or_admin());
+drop policy if exists gn_partner_accounts_admin_insert on public.gn_partner_accounts;
+create policy gn_partner_accounts_admin_insert on public.gn_partner_accounts for insert to authenticated with check (public.is_admin());
+drop policy if exists gn_partner_accounts_admin_update on public.gn_partner_accounts;
+create policy gn_partner_accounts_admin_update on public.gn_partner_accounts for update to authenticated using (public.is_admin()) with check (public.is_admin());
+drop policy if exists gn_partner_accounts_admin_delete on public.gn_partner_accounts;
+create policy gn_partner_accounts_admin_delete on public.gn_partner_accounts for delete to authenticated using (public.is_admin());
+
+-- 現場の協力会社（2026-11-07）：現場メンバー（協力会社の担当を含む）が読める。
+-- 追加・変更・削除は社員・管理者だけで、完了・削除済みの現場は不可（管理者も同じ）。
+alter table public.gn_site_partners enable row level security;
+drop policy if exists gn_site_partners_select on public.gn_site_partners;
+create policy gn_site_partners_select on public.gn_site_partners for select to authenticated using (public.gn_is_site_member(site_id));
+drop policy if exists gn_site_partners_staff_insert on public.gn_site_partners;
+create policy gn_site_partners_staff_insert on public.gn_site_partners for insert to authenticated with check (public.gn_is_employee_or_admin() and public.gn_is_site_member(site_id) and not public.gn_site_closed(site_id));
+drop policy if exists gn_site_partners_staff_update on public.gn_site_partners;
+create policy gn_site_partners_staff_update on public.gn_site_partners for update to authenticated using (public.gn_is_employee_or_admin() and public.gn_is_site_member(site_id) and not public.gn_site_closed(site_id)) with check (public.gn_is_employee_or_admin() and public.gn_is_site_member(site_id) and not public.gn_site_closed(site_id));
+drop policy if exists gn_site_partners_staff_delete on public.gn_site_partners;
+create policy gn_site_partners_staff_delete on public.gn_site_partners for delete to authenticated using (public.gn_is_employee_or_admin() and public.gn_is_site_member(site_id) and not public.gn_site_closed(site_id));
+
+-- 現場の作業員の選択（gn_site_workers）のうち、協力会社の作業員の登録（2026-11-07）：管理者（上の admin ポリシー）に加えて、
+-- 社員も追加・削除できる（進行中の現場だけ）。自社の作業員の選択は従来どおり管理者だけ。ポリシーは OR で効く。
+drop policy if exists gn_site_workers_partner_insert on public.gn_site_workers;
+create policy gn_site_workers_partner_insert on public.gn_site_workers for insert to authenticated with check (public.gn_is_employee_or_admin() and public.gn_is_site_member(site_id) and not public.gn_site_closed(site_id) and exists (select 1 from public.gn_workers w where w.id = gn_site_workers.worker_id and w.affiliation = 'partner'));
+drop policy if exists gn_site_workers_partner_delete on public.gn_site_workers;
+create policy gn_site_workers_partner_delete on public.gn_site_workers for delete to authenticated using (public.gn_is_employee_or_admin() and public.gn_is_site_member(site_id) and not public.gn_site_closed(site_id) and exists (select 1 from public.gn_workers w where w.id = gn_site_workers.worker_id and w.affiliation = 'partner'));
 
 -- ---------- 11. Storage バケット（非公開）と現場単位のアクセス制御 ----------
 -- パス規約：3つのバケット (gn-photos / gn-estimates / gn-exports) のすべてのオブジェクトは

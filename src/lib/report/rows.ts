@@ -1,6 +1,6 @@
 import { amount, fuelCost, laborLineValues, productivity, workAmount } from '@/lib/calc/report';
 import { EMPTY_WORK_CHANGE, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
-import type { ChangeKind, InstructionMethod, LaborLine, LaborRule, LaborSaved, ReportLine, TimeSpec } from '@/lib/types';
+import type { Affiliation, ChangeKind, InstructionMethod, LaborContract, LaborLine, LaborRule, LaborSaved, ReportLine, TimeSpec } from '@/lib/types';
 import type { SaveInput } from '@/lib/report/schema';
 
 // 日報の明細と gn_report_lines の列の相互変換（純関数。サーバーの読み書きから使う）。
@@ -44,6 +44,10 @@ export interface LineRow {
   instruction_method: InstructionMethod | null;
   instructed_on: string | null;
   issue_id: string | null;
+  /** 労務の行の常用・請負（null は常用扱い）と、保存時の所属の写し（手入力の行は null）。労務以外は null。 */
+  labor_contract: LaborContract | null;
+  affiliation: Affiliation | null;
+  supplier_id: string | null;
 }
 
 /** gn_save_report の p_report。 */
@@ -68,6 +72,7 @@ const EMPTY_ROW: Omit<LineRow, 'kind' | 'sort_order'> = {
   km_per_l: null, distance_km: null, price_per_l: null, vendor: null, trade: null, description: null,
   productivity: null, source: null, note: null, overtime_hours: null, overtime_rate: null,
   change_kind: null, instructed_by: null, instruction_method: null, instructed_on: null, issue_id: null,
+  labor_contract: null, affiliation: null, supplier_id: null,
 };
 
 function text(v: string | null | undefined): string | null {
@@ -107,6 +112,9 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number,
         overtime_hours: clean(v.overtimeHours),
         // 0 は「標準の計算式」と同じ意味なので null で送る。
         overtime_rate: otRate === null || otRate === 0 ? null : otRate,
+        labor_contract: line.laborContract ?? null,
+        affiliation: line.affiliation ?? null,
+        supplier_id: text(line.supplierId),
       };
     }
     case 'fuel':
@@ -207,6 +215,12 @@ function rId(v: unknown): string | null {
 function rTime(v: unknown): string | null {
   return typeof v === 'string' && v !== '' ? v : null;
 }
+function isLaborContract(v: unknown): v is LaborContract {
+  return v === 'jouyou' || v === 'ukeoi';
+}
+function isAffiliation(v: unknown): v is Affiliation {
+  return v === 'own' || v === 'partner';
+}
 function rDate(v: unknown): string | null {
   return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v) ? v.slice(0, 10) : null;
 }
@@ -233,6 +247,10 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         dailyRate: rNum(r.unit_price),
         note: rStr(r.note),
         overtimeRate: rNum(r.overtime_rate),
+        // 列の無い・移行前の行は null（常用・所属なし）。
+        laborContract: isLaborContract(r.labor_contract) ? r.labor_contract : null,
+        affiliation: isAffiliation(r.affiliation) ? r.affiliation : null,
+        supplierId: rId(r.supplier_id),
         ...savedValues(r),
       };
     case 'fuel':

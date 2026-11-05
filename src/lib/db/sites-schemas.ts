@@ -106,3 +106,93 @@ export const PARTNER_ROLE_ERROR = '協力会社は担当のみ割り当てでき
 export function partnerRoleError(accountType: 'employee' | 'partner', role: (typeof SITE_ROLES)[number] | null): string | null {
   return accountType === 'partner' && role !== null && role !== 'staff' ? PARTNER_ROLE_ERROR : null;
 }
+
+// ─── 現場の協力会社（gn_site_partners）と協力会社の作業員の登録（gn_site_workers の協力会社の作業員） ───
+
+const MSG_CONTRACT_AMOUNT = '請負金額は0以上の数値で入力してください';
+const MSG_NOTE = 'メモは200文字以内で入力してください';
+
+/** 完了・削除済みの現場で、現場の協力会社・作業員の登録を変えようとしたとき。 */
+export const SITE_PARTNERS_CLOSED_MESSAGE = 'この現場は完了（または削除）されているため、協力会社と作業員の登録は変更できません';
+/** 協力会社でない（社員・管理者でない）アカウントが変えようとしたとき。 */
+export const SITE_PARTNERS_FORBIDDEN_MESSAGE = '協力会社と作業員の登録は社員・管理者だけが変更できます';
+
+// 請負金額（任意。空欄は null）。メモ（任意。空欄は null）。
+const contractAmountSchema = z.preprocess(
+  (v) => (v === '' || v === undefined ? null : v),
+  z.number({ error: MSG_CONTRACT_AMOUNT }).min(0, MSG_CONTRACT_AMOUNT).nullable(),
+);
+const partnerNoteSchema = z.preprocess(
+  (v) => (v === undefined ? null : v),
+  z
+    .string({ error: MSG_NOTE })
+    .trim()
+    .max(200, MSG_NOTE)
+    .transform((v) => (v === '' ? null : v))
+    .nullable(),
+);
+
+/** 現場に協力会社を追加する（請負金額・メモは任意）。 */
+export const sitePartnerAddSchema = z.object({
+  siteId: idSchema,
+  supplierId: z.uuid({ error: '協力会社（取引先）を選んでください' }),
+  amount: contractAmountSchema,
+  note: partnerNoteSchema,
+});
+export type SitePartnerAddInput = z.input<typeof sitePartnerAddSchema>;
+
+/** 現場の協力会社の請負金額・メモを直す。 */
+export const sitePartnerUpdateSchema = z.object({
+  id: idSchema,
+  amount: contractAmountSchema,
+  note: partnerNoteSchema,
+});
+export type SitePartnerUpdateInput = z.input<typeof sitePartnerUpdateSchema>;
+
+/** 協力会社 1 社の、この現場に登録する作業員（その会社の協力会社の作業員だけ）。 */
+export const sitePartnerWorkersSchema = z.object({
+  siteId: idSchema,
+  supplierId: idSchema,
+  workerIds: z.array(idSchema).max(500, '作業員が多すぎます'),
+});
+
+/** 別の現場から協力会社と作業員の登録を写す。 */
+export const copySitePartnersSchema = z
+  .object({ fromSiteId: idSchema, toSiteId: idSchema })
+  .refine((v) => v.fromSiteId !== v.toSiteId, { message: '写し元と写し先が同じ現場です', path: ['fromSiteId'] });
+
+/**
+ * 別の現場から写すものを決める（純関数）。
+ * - 協力会社：写し元の協力会社（請負金額・メモは写さない）と、写す作業員の会社のうち、写し先に無いもの。
+ * - 作業員：写し元に登録された協力会社の作業員のうち、有効で、写し先にまだ登録されていないもの（無効な作業員は飛ばす）。
+ * 写し元の登録順を保つ。
+ */
+export function planSitePartnerCopy(
+  source: { supplierIds: string[]; workers: { id: string; supplierId: string | null; active: boolean }[] },
+  target: { supplierIds: string[]; workerIds: string[] },
+): { supplierIds: string[]; workerIds: string[] } {
+  const haveSuppliers = new Set(target.supplierIds);
+  const haveWorkers = new Set(target.workerIds);
+  const workers = source.workers.filter((w) => w.active && !haveWorkers.has(w.id));
+  const supplierIds: string[] = [];
+  for (const id of [...source.supplierIds, ...workers.map((w) => w.supplierId)]) {
+    if (id && !haveSuppliers.has(id)) {
+      supplierIds.push(id);
+      haveSuppliers.add(id);
+    }
+  }
+  const workerIds: string[] = [];
+  for (const w of workers) {
+    if (!haveWorkers.has(w.id)) {
+      workerIds.push(w.id);
+      haveWorkers.add(w.id);
+    }
+  }
+  return { supplierIds, workerIds };
+}
+
+/** 写した結果の文言。 */
+export function copySitePartnersMessage(counts: { partners: number; workers: number }): string {
+  if (counts.partners === 0 && counts.workers === 0) return '写す協力会社・作業員はありませんでした（すでに登録済みです）';
+  return `協力会社 ${counts.partners} 社・作業員 ${counts.workers} 人を写しました`;
+}

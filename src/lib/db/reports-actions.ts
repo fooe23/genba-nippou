@@ -25,7 +25,7 @@ import {
   toReportRow,
 } from '@/lib/report/rows';
 import { usesFixedAmount } from '@/lib/report/change-labels';
-import { applyMasterSnapshots, needsMasterSnapshots } from '@/lib/report/snapshots';
+import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
 import type { ReportLine } from '@/lib/types';
@@ -67,7 +67,10 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
     // マスターを参照している行の単価（日当・残業単価・リース単価・燃費）はサーバーで決め直す。保存した値が
     // その日の単価の複写（スナップショット）になり、集計はこの値を使う。画面のプレビューは従来どおり。
     const [lines, settings] = await Promise.all([
-      needsMasterSnapshots(v.lines) ? loadSnapshotMasters().then((m) => applyMasterSnapshots(v.lines, v.date, m)) : v.lines,
+      // 参照の無い行だけでも、手入力の作業員の行の所属・常用請負をそろえる（マスターは読まない）。
+      needsMasterSnapshots(v.lines)
+        ? loadSnapshotMasters().then((m) => applyMasterSnapshots(v.lines, v.date, m))
+        : applyMasterSnapshots(v.lines, v.date, EMPTY_SNAPSHOT_MASTERS),
       getSettings(),
     ]);
 

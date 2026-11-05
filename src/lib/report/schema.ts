@@ -35,6 +35,9 @@ export const KIND_LABEL: Record<LineKind, string> = {
 const MSG_TIME = '時刻は HH:MM 形式で入力してください';
 const MSG_MIN = '休憩・中抜は0以上の整数（分）で入力してください';
 const MSG_ID = 'IDの形式が正しくありません';
+/** 常用・請負の値。 */
+export const LABOR_CONTRACTS = ['jouyou', 'ukeoi'] as const;
+
 const MSG_INSTRUCTED_ON = '指示日は YYYY-MM-DD 形式で入力してください';
 
 // 空文字は null として扱う（未入力）。
@@ -109,6 +112,12 @@ const laborSchema = z.object({
   note: noteSchema,
   // 作業員の残業単価（円/H）の上書き。古い下書きには無い項目なので、省略時は null（標準の計算式）。
   overtimeRate: numSchema('残業単価').default(null),
+  // 常用・請負（2026-11-07）。古い下書きには無い項目なので省略可（省略・空欄は常用扱い）。
+  // 協力会社の作業員の行だけ意味を持ち、保存時にそれ以外の行は null にそろえる（snapshots.ts）。
+  // 所属（affiliation・supplierId）は受け取らない（z.object が取り除く）。保存時にサーバーがマスターから写す。
+  laborContract: z
+    .preprocess(emptyToNull, z.enum(LABOR_CONTRACTS, { error: '常用・請負の区分が正しくありません' }).nullable())
+    .optional(),
 });
 
 const fuelSchema = z.object({

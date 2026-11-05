@@ -243,6 +243,44 @@ export async function getSiteMasters(siteId: string): Promise<SiteMasters> {
   return { workerIds, supplierIds, vehicleIds, leaseItemIds };
 }
 
+/** 現場の協力会社（gn_site_partners）。amount は請負金額（任意）。supplierName は取引先の名前（読めなければ空）。 */
+export interface SitePartner { id: string; siteId: string; supplierId: string; supplierName: string; amount: number | null; note: string | null; }
+
+interface SitePartnerRow {
+  id: string;
+  site_id: string;
+  supplier_id: string;
+  amount: number | string | null;
+  note: string | null;
+  gn_suppliers: { name: string | null } | { name: string | null }[] | null;
+}
+
+/**
+ * 現場の協力会社の一覧（取引先の名前順）。RLS で現場メンバー（協力会社の担当を含む）が読める。
+ * 協力会社の作業員の現場登録は getSiteMasters の workerIds（gn_site_workers）に自社の作業員の選択と一緒に入っている。
+ */
+export async function listSitePartners(siteId: string): Promise<SitePartner[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_site_partners')
+    .select('id, site_id, supplier_id, amount, note, gn_suppliers(name)')
+    .eq('site_id', siteId);
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as SitePartnerRow[])
+    .map((r) => {
+      const supplier = Array.isArray(r.gn_suppliers) ? r.gn_suppliers[0] : r.gn_suppliers;
+      return {
+        id: r.id,
+        siteId: r.site_id,
+        supplierId: r.supplier_id,
+        supplierName: supplier?.name ?? '',
+        amount: r.amount === null ? null : Number(r.amount),
+        note: r.note,
+      };
+    })
+    .sort((a, b) => a.supplierName.localeCompare(b.supplierName, 'ja'));
+}
+
 export async function listCarryovers(siteId: string): Promise<Carryover[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase

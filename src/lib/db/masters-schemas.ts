@@ -13,6 +13,8 @@ const MSG_SORT = '並び順は0以上の整数で入力してください';
 const MSG_OVERTIME = '残業単価は0以上の数値で入力してください';
 
 const idSchema = z.uuid({ error: 'IDの形式が正しくありません' });
+/** 作業員の ID（削除など）。 */
+export const workerIdSchema = idSchema;
 const nameSchema = z
   .string({ error: MSG_NAME })
   .trim()
@@ -29,7 +31,22 @@ export const dateSchema = z
     return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
   }, MSG_DATE);
 
-export const workerInputSchema = z.object({
+/** 所属の値（自社・協力会社）。 */
+export const AFFILIATIONS = ['own', 'partner'] as const;
+export const MSG_PARTNER_SUPPLIER = '協力会社の作業員は、所属する協力会社（取引先）を選んでください';
+
+// 所属：省略（undefined）なら変更しない。協力会社（partner）のときは取引先が必須。自社のとき取引先は保存しない（null）。
+const affiliationFields = {
+  affiliation: z.enum(AFFILIATIONS, { error: '所属は自社か協力会社から選んでください' }).optional(),
+  supplierId: z.preprocess((v) => (typeof v === 'string' && v.trim() === '' ? null : v), idSchema.nullable()).optional(),
+};
+function partnerNeedsSupplier(v: { affiliation?: 'own' | 'partner'; supplierId?: string | null }, ctx: z.RefinementCtx) {
+  if (v.affiliation === 'partner' && !v.supplierId) {
+    ctx.addIssue({ code: 'custom', message: MSG_PARTNER_SUPPLIER, path: ['supplierId'] });
+  }
+}
+
+const workerBaseSchema = z.object({
   id: idSchema.optional(),
   name: nameSchema,
   trade: textSchema.optional(),
@@ -39,7 +56,9 @@ export const workerInputSchema = z.object({
     .preprocess((v) => (typeof v === 'string' && v.trim() === '' ? null : v), z.number({ error: MSG_OVERTIME }).min(0, MSG_OVERTIME).nullable())
     .optional(),
   active: z.boolean().optional(),
+  ...affiliationFields,
 });
+export const workerInputSchema = workerBaseSchema.superRefine(partnerNeedsSupplier);
 export type WorkerInput = z.input<typeof workerInputSchema>;
 
 export const supplierInputSchema = z.object({
@@ -71,9 +90,10 @@ export const leaseItemInputSchema = z.object({
 });
 export type LeaseItemInput = z.input<typeof leaseItemInputSchema>;
 
-export const workerWithRateSchema = workerInputSchema
-  .pick({ name: true, trade: true, note: true, overtimeRate: true })
-  .extend({ amount: amountSchema, effectiveFrom: dateSchema });
+export const workerWithRateSchema = workerBaseSchema
+  .pick({ name: true, trade: true, note: true, overtimeRate: true, affiliation: true, supplierId: true })
+  .extend({ amount: amountSchema, effectiveFrom: dateSchema })
+  .superRefine(partnerNeedsSupplier);
 export type WorkerWithRateInput = z.input<typeof workerWithRateSchema>;
 
 export const leaseItemWithRateSchema = leaseItemInputSchema
@@ -105,4 +125,16 @@ export function parseOrThrow<T>(schema: ZodType<T>, value: unknown): T {
 export function firstError(schema: ZodType, value: unknown): string | null {
   const result = schema.safeParse(value);
   return result.success ? null : (result.error.issues[0]?.message ?? '入力内容が正しくありません');
+}
+
+/** 作業員を削除できないとき（日報の作業員の行か繰越の初期値で使っている）の文言。 */
+export const WORKER_IN_USE_MESSAGE = '日報や繰越で使っているため削除できません。無効にしてください';
+
+/**
+ * 作業員の削除の可否（純関数）。日報の作業員の行（gn_report_lines.ref_id、kind = 'labor'）と
+ * 繰越の初期値（gn_carryovers）のどちらにも使われていなければ削除できる（null）。使っていれば文言を返す。
+ * 現場の選択（gn_site_workers）は使用に数えない（削除のときに一緒に外す）。
+ */
+export function workerDeleteError(usage: { reportLines: number; carryovers: number }): string | null {
+  return usage.reportLines > 0 || usage.carryovers > 0 ? WORKER_IN_USE_MESSAGE : null;
 }

@@ -13,6 +13,8 @@ import {
   supplierInputSchema,
   vehicleInputSchema,
   workerInputSchema,
+  workerDeleteError,
+  workerIdSchema,
   workerWithRateSchema,
   type LeaseItemInput,
   type LeaseItemWithRateInput,
@@ -49,6 +51,14 @@ async function saveRow(
   return (data as { id: string }).id;
 }
 
+// 所属の列。省略（undefined）なら変更しない。自社なら取引先は null、協力会社なら選んだ取引先（検証済みで必須）。
+function affiliationColumns(v: { affiliation?: 'own' | 'partner'; supplierId?: string | null }): Record<string, unknown> {
+  if (v.affiliation === undefined) return {};
+  return v.affiliation === 'partner'
+    ? { affiliation: 'partner', supplier_id: v.supplierId ?? null }
+    : { affiliation: 'own', supplier_id: null };
+}
+
 export async function upsertWorker(input: WorkerInput): Promise<string> {
   await requireAdmin();
   const v = parseOrThrow(workerInputSchema, input);
@@ -59,9 +69,57 @@ export async function upsertWorker(input: WorkerInput): Promise<string> {
     note: nullable(v.note),
     overtime_rate: v.overtimeRate,
     active: v.active,
+    ...affiliationColumns(v),
   });
   revalidatePath(PATH);
   return id;
+}
+
+export type DeleteWorkerResult = { ok: true } | { ok: false; error: string };
+
+const DELETE_WORKER_FAILED = '削除に失敗しました。もう一度お試しください。';
+
+/**
+ * 作業員を削除する（管理者のみ。ほかのマスターの書き込みと同じ）。日報の作業員の行・繰越の初期値で一度も使っていない
+ * 作業員だけ削除でき、現場の選択（gn_site_workers）からも一緒に外す。単価の履歴は DB の on delete cascade で消える。
+ * 使っている作業員は { ok: false, error: '日報や繰越で使っているため削除できません。無効にしてください' }。
+ */
+export async function deleteWorker(id: string): Promise<DeleteWorkerResult> {
+  await requireAdmin();
+  const parsed = workerIdSchema.safeParse(id);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  const workerId = parsed.data;
+  try {
+    const supabase = await createServerSupabase();
+    const [lines, carryovers] = await Promise.all([
+      supabase.from('gn_report_lines').select('id', { count: 'exact', head: true }).eq('kind', 'labor').eq('ref_id', workerId),
+      supabase.from('gn_carryovers').select('id', { count: 'exact', head: true }).eq('worker_id', workerId),
+    ]);
+    if (lines.error || carryovers.error || lines.count === null || carryovers.count === null) {
+      console.error('[deleteWorker:usage]', lines.error?.message, carryovers.error?.message);
+      return { ok: false, error: DELETE_WORKER_FAILED };
+    }
+    const inUse = workerDeleteError({ reportLines: lines.count, carryovers: carryovers.count });
+    if (inUse) return { ok: false, error: inUse };
+
+    const { error: siteError } = await supabase.from('gn_site_workers').delete().eq('worker_id', workerId);
+    if (siteError) {
+      console.error('[deleteWorker:site_workers]', siteError.message);
+      return { ok: false, error: DELETE_WORKER_FAILED };
+    }
+    const { data, error } = await supabase.from('gn_workers').delete().eq('id', workerId).select('id');
+    if (error) {
+      console.error('[deleteWorker]', error.message);
+      return { ok: false, error: DELETE_WORKER_FAILED };
+    }
+    if ((data ?? []).length === 0) return { ok: false, error: '作業員が見つかりません' };
+  } catch (e) {
+    console.error('[deleteWorker]', e);
+    return { ok: false, error: DELETE_WORKER_FAILED };
+  }
+  revalidatePath(PATH);
+  revalidatePath('/admin/sites/[siteId]', 'page');
+  return { ok: true };
 }
 
 export async function addWorkerRate(workerId: string, amount: number, effectiveFrom: string): Promise<void> {
@@ -192,7 +250,7 @@ export async function createWorkerWithRate(input: WorkerWithRateInput): Promise<
     'gn_workers',
     'gn_worker_rates',
     'worker_id',
-    { name: v.name, trade: nullable(v.trade), note: nullable(v.note), overtime_rate: v.overtimeRate },
+    { name: v.name, trade: nullable(v.trade), note: nullable(v.note), overtime_rate: v.overtimeRate, ...affiliationColumns(v) },
     v.amount,
     v.effectiveFrom,
   );

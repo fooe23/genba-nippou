@@ -12,7 +12,7 @@ import type { LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } from '@/lib
 
 const T = { updatedAt: null, updatedBy: null, createdAt: '2026-01-01T00:00:00Z' };
 const worker = (id: string, name: string, rates: [number, string][] = [[18000, '2026-01-01']], o: Partial<Worker> = {}): Worker => ({
-  id, name, trade: '大工', note: null, active: true, rates: rates.map(([amount, effectiveFrom]) => ({ amount, effectiveFrom })), overtimeRate: null, ...T, ...o,
+  id, name, trade: '大工', note: null, active: true, rates: rates.map(([amount, effectiveFrom]) => ({ amount, effectiveFrom })), overtimeRate: null, affiliation: 'own', supplierId: null, ...T, ...o,
 });
 const supplier = (id: string, name: string): Supplier => ({ id, name, category: '材料', contact: null, note: null, active: true, ...T });
 const vehicle = (id: string, name: string): Vehicle => ({ id, name, kind: 'バン', kmPerL: 8.5, note: null, active: true, ...T });

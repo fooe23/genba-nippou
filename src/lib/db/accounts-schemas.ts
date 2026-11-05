@@ -8,6 +8,7 @@ export const ACCOUNT_TYPE_LABELS = { employee: '社員', partner: '協力会社'
 const MSG_COMPANY = '会社名を入力してください（100文字以内）';
 const MSG_NAME = '氏名を入力してください（100文字以内）';
 const MSG_EMAIL = 'メールアドレスの形式が正しくありません';
+const MSG_SUPPLIER = '所属する協力会社（取引先）の指定が正しくありません';
 const MSG_PASSWORD = 'パスワードは8文字以上72文字以内で入力してください';
 
 export const passwordSchema = z.string({ error: MSG_PASSWORD }).min(8, MSG_PASSWORD).max(72, MSG_PASSWORD);
@@ -17,6 +18,8 @@ export const partnerAccountSchema = z.object({
   name: z.string({ error: MSG_NAME }).trim().min(1, MSG_NAME).max(100, MSG_NAME),
   email: z.string({ error: MSG_EMAIL }).trim().pipe(z.email({ error: MSG_EMAIL })),
   password: passwordSchema,
+  // 所属する協力会社（取引先。任意。空欄・省略は未設定）。
+  supplierId: z.preprocess((v) => (v === '' || v === undefined ? null : v), z.uuid({ error: MSG_SUPPLIER }).nullable()).optional(),
 });
 export type PartnerAccountInput = z.input<typeof partnerAccountSchema>;
 
@@ -26,6 +29,12 @@ export const accountTypeSchema = z.object({
   userId: userIdSchema,
   accountType: z.enum(ACCOUNT_TYPES, { error: '区分が正しくありません' }),
   companyName: z.string({ error: MSG_COMPANY }).trim().max(100, MSG_COMPANY).nullable(),
+});
+
+/** 協力会社アカウントの所属する協力会社（取引先）。null は未設定に戻す。 */
+export const partnerSupplierSchema = z.object({
+  userId: userIdSchema,
+  supplierId: z.uuid({ error: MSG_SUPPLIER }).nullable(),
 });
 
 /** 最初のエラーメッセージ（問題なければ null）。フォーム用。 */

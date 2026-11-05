@@ -62,3 +62,8 @@ export async function requireAdmin(): Promise<Profile> {
   if (!profile.isAdmin) redirect('/');
   return profile;
 }
+
+/** 社員か管理者か（協力会社は false）。DB の gn_is_employee_or_admin() と同じ判定。 */
+export function isEmployeeOrAdmin(profile: Pick<Profile, 'isAdmin' | 'accountType'>): boolean {
+  return profile.isAdmin || profile.accountType === 'employee';
+}

@@ -6,6 +6,7 @@ import {
   CREATE_FAILED,
   mapAdminActionError,
   partnerAccountSchema,
+  partnerSupplierSchema,
   passwordSchema,
   RESET_FAILED,
   userIdSchema,
@@ -92,7 +93,56 @@ export async function createPartnerAccount(input: PartnerAccountInput): Promise<
         'アカウントは作成されましたが区分の設定に失敗しました。現在は社員扱いで全現場が見えます。業務日報アプリにもログインできてしまうため、管理→アカウントで区分を協力会社に変更してください。',
     };
   }
+  if (v.supplierId) {
+    const { error } = await supabase
+      .from('gn_partner_accounts')
+      .upsert({ user_id: id, supplier_id: v.supplierId }, { onConflict: 'user_id' });
+    if (error) {
+      console.error('[createPartnerAccount:supplier]', error.message);
+      return { ok: false, error: 'アカウントは作成されましたが、所属する協力会社の設定に失敗しました。管理→アカウントで設定してください。' };
+    }
+  }
   return { ok: true, id };
+}
+
+const SUPPLIER_FAILED = '所属する協力会社の保存に失敗しました。もう一度お試しください。';
+
+/**
+ * 協力会社アカウントの所属する協力会社（取引先）を設定する・外す（supplierId = null）。管理者のみ。
+ * 結び付けは gn_partner_accounts（profiles は業務日報アプリと共有なので列を足さない）。協力会社アカウントだけ設定できる。
+ */
+export async function setPartnerSupplier(userId: string, supplierId: string | null): Promise<AccountResult> {
+  await requireAdmin();
+  const parsed = partnerSupplierSchema.safeParse({ userId, supplierId });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  const v = parsed.data;
+  const supabase = await createServerSupabase();
+  if (v.supplierId === null) {
+    const { error } = await supabase.from('gn_partner_accounts').delete().eq('user_id', v.userId);
+    if (error) {
+      console.error('[setPartnerSupplier:delete]', error.message);
+      return { ok: false, error: SUPPLIER_FAILED };
+    }
+  } else {
+    const { data, error: profileError } = await supabase.from('profiles').select('account_type').eq('id', v.userId).maybeSingle();
+    if (profileError) {
+      console.error('[setPartnerSupplier:profile]', profileError.message);
+      return { ok: false, error: SUPPLIER_FAILED };
+    }
+    if (!data) return { ok: false, error: 'アカウントが見つかりません' };
+    if (toAccountType((data as { account_type: unknown }).account_type) !== 'partner') {
+      return { ok: false, error: '所属する協力会社は協力会社アカウントだけ設定できます' };
+    }
+    const { error } = await supabase
+      .from('gn_partner_accounts')
+      .upsert({ user_id: v.userId, supplier_id: v.supplierId }, { onConflict: 'user_id' });
+    if (error) {
+      console.error('[setPartnerSupplier:upsert]', error.message);
+      return { ok: false, error: SUPPLIER_FAILED };
+    }
+  }
+  revalidatePath('/admin/accounts');
+  return { ok: true };
 }
 
 /** 協力会社アカウントのパスワードを再設定する（社員のパスワードは業務日報アプリで行う）。 */
@@ -174,6 +224,11 @@ export async function updateAccountType(
     return { ok: false, error: UPDATE_FAILED };
   }
   if ((data ?? []).length === 0) return { ok: false, error: 'アカウントが見つかりません' };
+  if (v.accountType === 'employee') {
+    // 社員に戻したら、協力会社アカウントの所属する協力会社の結び付けも外す（区分の変更は済んでいるので失敗は記録だけ）。
+    const { error: supplierError } = await supabase.from('gn_partner_accounts').delete().eq('user_id', v.userId);
+    if (supplierError) console.error('[updateAccountType:supplier]', supplierError.message);
+  }
   revalidatePath('/admin/accounts');
   revalidatePath('/admin/sites/[siteId]', 'page');
   return { ok: true };

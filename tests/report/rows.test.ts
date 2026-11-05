@@ -7,7 +7,7 @@ import type { LaborLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 const common: TimeSpec = { start: '08:00', end: '17:00', breakMin: 60, gapMin: 0 };
 const W = '11111111-1111-4111-8111-111111111111';
 const lines: ReportLine[] = [
-  { kind: 'labor', workerId: W, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 19000, note: '', overtimeRate: null },
+  { kind: 'labor', workerId: W, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 19000, note: '', overtimeRate: null, laborContract: null, affiliation: 'own', supplierId: null },
   { kind: 'fuel', vehicleId: W, vehicleName: 'ハイエース', kmPerL: 10, distanceKm: 40, pricePerL: 170, note: '給油' },
   { kind: 'lease', itemId: W, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '' },
   { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'ホームセンター' },
@@ -17,9 +17,9 @@ const lines: ReportLine[] = [
 
 describe('toLineRows', () => {
   const rows = toLineRows(lines, common, DEFAULT_LABOR_RULE);
-  it('全行が31列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
+  it('全行が34列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
     for (const r of rows) {
-      expect(Object.keys(r)).toHaveLength(31);
+      expect(Object.keys(r)).toHaveLength(34);
       expect(Object.values(r)).not.toContain('');
     }
     expect(rows.map((r) => r.sort_order)).toEqual([0, 1, 2, 3, 4, 5]);
@@ -154,5 +154,31 @@ describe('手入力の行の保存列', () => {
   it('買掛：ref_id は null、vendor は仕入先名', () => {
     const manual: ReportLine = { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店' };
     expect(toLineRow(manual, common, 0, DEFAULT_LABOR_RULE)).toMatchObject({ kind: 'credit', ref_id: null, vendor: '近所の資材店', amount: 1500 });
+  });
+});
+
+describe('労務の行の常用・請負と所属の写し（2026-11-07）', () => {
+  const S = '22222222-2222-4222-8222-222222222222';
+  const base = lines[0] as LaborLine;
+  it('協力会社の行は labor_contract・affiliation・supplier_id を送り、読み戻すと同じ値になる', () => {
+    const partner: LaborLine = { ...base, laborContract: 'ukeoi', affiliation: 'partner', supplierId: S };
+    const row = toLineRow(partner, common, 0, DEFAULT_LABOR_RULE);
+    expect(row).toMatchObject({ labor_contract: 'ukeoi', affiliation: 'partner', supplier_id: S });
+    expect(withoutSaved(fromLineRow(row) as LaborLine)).toEqual(partner);
+  });
+  it('項目の無い労務の行（古い下書き）は null で送る。労務以外の行は常に null', () => {
+    const { laborContract: _c, affiliation: _a, supplierId: _s, ...old } = base;
+    void _c; void _a; void _s;
+    expect(toLineRow(old, common, 0, DEFAULT_LABOR_RULE)).toMatchObject({ labor_contract: null, affiliation: null, supplier_id: null });
+    for (const r of toLineRows(lines, common, DEFAULT_LABOR_RULE).slice(1)) {
+      expect(r).toMatchObject({ labor_contract: null, affiliation: null, supplier_id: null });
+    }
+  });
+  it('移行前の行・知らない値は null（常用・所属なし）として読む', () => {
+    expect(fromLineRow({ kind: 'labor' })).toMatchObject({ laborContract: null, affiliation: null, supplierId: null });
+    expect(fromLineRow({ kind: 'labor', labor_contract: 'x' as never, affiliation: 'y' as never, supplier_id: '' })).toMatchObject({
+      laborContract: null, affiliation: null, supplierId: null,
+    });
+    expect(fromLineRow({ kind: 'labor', labor_contract: 'jouyou', affiliation: 'own' })).toMatchObject({ laborContract: 'jouyou', affiliation: 'own' });
   });
 });

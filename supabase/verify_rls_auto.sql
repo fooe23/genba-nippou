@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -617,6 +617,110 @@ begin
     else fails := fails + 1; rep := rep || format(E'FAIL 10-6 更新件数=%s note=%s\n', n, t); end if;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 10-6 エラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 11. 作業員の所属・現場の協力会社・協力会社アカウントの会社（update_2026-11-07） =====
+  -- X は進行中（A＝協力会社の担当）、Y は完了（C＝社員の担当）。B は X の担当ではない協力会社。
+  insert into public.gn_suppliers (id, name) values ('00000000-0000-0000-0000-0000000000d1', '検証協力会社');
+  insert into public.gn_workers (id, name, affiliation, supplier_id) values
+    ('00000000-0000-0000-0000-0000000000e1', '検証 自社作業員', 'own', null),
+    ('00000000-0000-0000-0000-0000000000e2', '検証 協力作業員', 'partner', '00000000-0000-0000-0000-0000000000d1');
+  begin
+    perform pg_temp.as_user(v_c);
+    insert into public.gn_site_partners (site_id, supplier_id, amount, note) values (x, '00000000-0000-0000-0000-0000000000d1', 500000, '検証');
+    perform pg_temp.as_editor();
+    rep := rep || E'PASS 11-1 社員は進行中の現場に協力会社を追加できる\n';
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 11-1 エラー: %s\n', sqlerrm);
+  end;
+  perform pg_temp.as_user(v_a);
+  select count(*) into n from public.gn_site_partners where site_id = x;
+  perform pg_temp.as_editor();
+  perform pg_temp.as_user(v_b);
+  select count(*) into n2 from public.gn_site_partners where site_id = x;
+  perform pg_temp.as_editor();
+  if n = 1 and n2 = 0 then rep := rep || E'PASS 11-2 現場の協力会社は担当の協力会社だけ読める（担当外は 0 行）\n';
+  else fails := fails + 1; rep := rep || format(E'FAIL 11-2 A=%s B=%s\n', n, n2); end if;
+  begin
+    perform pg_temp.as_user(v_a);
+    update public.gn_site_partners set amount = 1 where site_id = x;
+    get diagnostics n = row_count;
+    perform pg_temp.as_editor();
+    if n = 0 then rep := rep || E'PASS 11-3 協力会社は現場の協力会社を変えられない（RLS）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 11-3 更新件数=%s\n', n); end if;
+  exception when others then
+    perform pg_temp.as_editor(); rep := rep || E'PASS 11-3 協力会社は現場の協力会社を変えられない（RLS）\n';
+  end;
+  begin
+    perform pg_temp.as_user(v_c);
+    insert into public.gn_site_partners (site_id, supplier_id) values (y, '00000000-0000-0000-0000-0000000000d1');
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 11-4 完了現場に協力会社を追加できてしまった\n';
+  exception when others then
+    perform pg_temp.as_editor(); rep := rep || E'PASS 11-4 完了現場には協力会社を追加できない（RLS）\n';
+  end;
+  begin
+    perform pg_temp.as_user(v_c);
+    insert into public.gn_site_workers (site_id, worker_id) values (x, '00000000-0000-0000-0000-0000000000e2');
+    perform pg_temp.as_editor();
+    rep := rep || E'PASS 11-5 社員は協力会社の作業員を現場に登録できる\n';
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 11-5 エラー: %s\n', sqlerrm);
+  end;
+  begin
+    perform pg_temp.as_user(v_c);
+    insert into public.gn_site_workers (site_id, worker_id) values (x, '00000000-0000-0000-0000-0000000000e1');
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 11-6 社員が自社の作業員の選択を変えられた\n';
+  exception when others then
+    perform pg_temp.as_editor(); rep := rep || E'PASS 11-6 自社の作業員の選択は管理者だけ（社員は RLS で拒否）\n';
+  end;
+  begin
+    perform pg_temp.as_user(v_a);
+    delete from public.gn_site_workers where site_id = x and worker_id = '00000000-0000-0000-0000-0000000000e2';
+    get diagnostics n = row_count;
+    perform pg_temp.as_editor();
+    if n = 0 then rep := rep || E'PASS 11-7 協力会社は作業員の登録を外せない（RLS）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 11-7 削除件数=%s\n', n); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 11-7 エラー: %s\n', sqlerrm);
+  end;
+  insert into public.gn_partner_accounts (user_id, supplier_id) values (v_a, '00000000-0000-0000-0000-0000000000d1');
+  perform pg_temp.as_user(v_a);
+  select count(*) into n from public.gn_partner_accounts where user_id = v_a;
+  perform pg_temp.as_editor();
+  perform pg_temp.as_user(v_b);
+  select count(*) into n2 from public.gn_partner_accounts where user_id = v_a;
+  perform pg_temp.as_editor();
+  perform pg_temp.as_user(v_c);
+  select count(*) into procedure_dummy from public.gn_partner_accounts where user_id = v_a;
+  perform pg_temp.as_editor();
+  if n = 1 and n2 = 0 and procedure_dummy = 1 then rep := rep || E'PASS 11-8 協力会社アカウントの会社は本人と社員だけ読める\n';
+  else fails := fails + 1; rep := rep || format(E'FAIL 11-8 本人=%s 他の協力会社=%s 社員=%s\n', n, n2, procedure_dummy); end if;
+  begin
+    perform pg_temp.as_user(v_c);
+    insert into public.gn_partner_accounts (user_id, supplier_id) values (v_b, '00000000-0000-0000-0000-0000000000d1');
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 11-9 社員が協力会社アカウントの会社を設定できた\n';
+  exception when others then
+    perform pg_temp.as_editor(); rep := rep || E'PASS 11-9 協力会社アカウントの会社は管理者だけ設定できる\n';
+  end;
+  begin
+    perform pg_temp.as_user(v_a);
+    perform public.gn_save_report(
+      jsonb_build_object('site_id', x, 'report_date', '2026-11-10', 'common_start', '08:00', 'common_end', '17:00', 'common_break_min', 60),
+      jsonb_build_array(
+        jsonb_build_object('kind', 'labor', 'sort_order', 0, 'ref_id', '00000000-0000-0000-0000-0000000000e2', 'name', '検証 協力作業員',
+                           'unit_price', 18000, 'labor_contract', 'ukeoi', 'affiliation', 'partner', 'supplier_id', '00000000-0000-0000-0000-0000000000d1'),
+        jsonb_build_object('kind', 'cash', 'sort_order', 1, 'name', 'テープ', 'qty', 1, 'unit_price', 100,
+                           'labor_contract', 'ukeoi', 'affiliation', 'own', 'supplier_id', '00000000-0000-0000-0000-0000000000d1')));
+    select count(*) filter (where l.kind = 'labor' and l.labor_contract = 'ukeoi' and l.affiliation = 'partner' and l.supplier_id = '00000000-0000-0000-0000-0000000000d1'),
+           count(*) filter (where l.kind = 'cash' and l.labor_contract is null and l.affiliation is null and l.supplier_id is null)
+      into n, n2
+      from public.gn_report_lines l join public.gn_daily_reports r on r.id = l.report_id
+     where r.site_id = x and r.report_date = '2026-11-10';
+    perform pg_temp.as_editor();
+    if n = 1 and n2 = 1 then rep := rep || E'PASS 11-10 gn_save_report は労務の行の常用・請負と所属を保存し、他の行は null\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 11-10 労務=%s 現金=%s\n', n, n2); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 11-10 エラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

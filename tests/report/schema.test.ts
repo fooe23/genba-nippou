@@ -30,3 +30,26 @@ describe('reportWarnings', () => {
     expect(w2.some(s => s.includes('今日より後'))).toBe(true);
   });
 });
+
+describe('労務の行の常用・請負（laborContract）', () => {
+  const labor = (extra: Record<string, unknown>) => ({
+    kind: 'labor', workerId: null, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 18000, note: '', ...extra,
+  });
+  it("'jouyou'・'ukeoi' を受け取る。空欄は null、省略（古い下書き）は無いまま", () => {
+    const r = validateReport({ ...base, lines: [labor({ laborContract: 'jouyou' }), labor({ laborContract: 'ukeoi' }), labor({ laborContract: '' }), labor({})] });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.lines.map((l) => (l.kind === 'labor' ? l.laborContract : 'x'))).toEqual(['jouyou', 'ukeoi', null, undefined]);
+  });
+  it('それ以外の値はエラー', () => {
+    const r = validateReport({ ...base, lines: [labor({ laborContract: 'haken' })] });
+    expect(r).toEqual({ ok: false, errors: ['作業員の1行目：常用・請負の区分が正しくありません'] });
+  });
+  it('所属（affiliation・supplierId）は画面から受け取らない（保存時にサーバーがマスターから写す）', () => {
+    const r = validateReport({ ...base, lines: [labor({ affiliation: 'partner', supplierId: '22222222-2222-4222-8222-222222222222' })] });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.lines[0]).not.toHaveProperty('affiliation');
+    expect(r.value.lines[0]).not.toHaveProperty('supplierId');
+  });
+});
