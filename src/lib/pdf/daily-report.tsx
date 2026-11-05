@@ -1,6 +1,6 @@
 import { Document, Page, renderToBuffer, StyleSheet, Text, View } from '@react-pdf/renderer';
 import { jpDateTime } from '@/lib/calc/format';
-import { BAND, Footer, InfoGrid, MM, MUTED, NAVY, RULE, s, SectionHead, Signature, Table } from '@/lib/pdf/common';
+import { ClientConfirmationBoxes, Footer, InfoGrid, MUTED, RULE, s, SectionHead, Signature, Table } from '@/lib/pdf/common';
 import { registerPdfFonts } from '@/lib/pdf/fonts';
 import { NO_REPORTS, type SectionTable } from '@/lib/reports/cost-sections';
 import {
@@ -33,23 +33,8 @@ const d = StyleSheet.create({
   changeTotals: { marginTop: 3, fontSize: 8.5, fontWeight: 700, textAlign: 'right' },
   // 署名欄の行：左に客先確認、右に社内の署名欄（高さは署名欄と同じにし、今まで 1 ページに収まった日が 2 ページにならないようにする）。
   signRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 10 },
-  clientBox: { flexDirection: 'row' },
-  clientTitle: {
-    width: 8 * MM,
-    backgroundColor: BAND,
-    color: NAVY,
-    fontWeight: 700,
-    textAlign: 'center',
-    justifyContent: 'center',
-    borderWidth: 0.5,
-    borderColor: RULE,
-    paddingHorizontal: 1,
-  },
   clientNote: { marginTop: 4 },
 });
-
-/** 客先確認の枠の幅（確認者名・日付・サイン）。社内の署名欄（26mm × 4）と並べて本文の幅（180mm）に収める。 */
-const CLIENT_BOX_WIDTHS = [24 * MM, 20 * MM, 20 * MM];
 
 /** 欄の間隔（工事原価集計表より詰め、明細の少ない日は 1 ページに収める）。 */
 const SECTION_GAP = 6;
@@ -73,29 +58,6 @@ function TableSection({ title, note, table }: { title: string; note?: string; ta
 function TextBox({ text }: { text: string }) {
   const empty = text.trim() === '';
   return <Text style={[d.textBox, ...(empty ? [d.none] : [])]}>{empty ? NONE : text}</Text>;
-}
-
-/**
- * 客先確認（署名欄の左。見た目は署名欄と同じ枠）。記録が無ければ 確認者名／日付／サイン の空欄、あれば確認者名・確認日時を入れる。
- */
-function ClientConfirmationBoxes({ model }: { model: DailyReportModel }) {
-  const boxes = clientConfirmationBoxes(model.clientConfirmation);
-  return (
-    <View style={d.clientBox}>
-      <View style={d.clientTitle}>
-        <Text>{CLIENT_CONFIRMATION_TITLE}</Text>
-      </View>
-      {boxes.map(([label, value], i) => (
-        <View key={label} style={[s.sigBox, { width: CLIENT_BOX_WIDTHS[i] }]}>
-          <Text style={s.sigLabel}>{label}</Text>
-          {/* 長い確認者名は枠を縦に伸ばす（行の途中で切らない）。 */}
-          <View style={[s.sigName, { height: 'auto', minHeight: 12 * MM }]}>
-            <Text style={{ textAlign: 'center' }}>{value}</Text>
-          </View>
-        </View>
-      ))}
-    </View>
-  );
 }
 
 function DayPage({ model, outputAt }: { model: DailyReportModel; outputAt: string }) {
@@ -160,7 +122,7 @@ function DayPage({ model, outputAt }: { model: DailyReportModel; outputAt: strin
           </View>
           <View wrap={false}>
             <View style={d.signRow}>
-              <ClientConfirmationBoxes model={model} />
+              <ClientConfirmationBoxes title={CLIENT_CONFIRMATION_TITLE} boxes={clientConfirmationBoxes(model.clientConfirmation)} />
               <Signature
                 compact
                 marginTop={0}

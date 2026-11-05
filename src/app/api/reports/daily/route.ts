@@ -2,10 +2,11 @@ import { getCurrentProfile } from '@/lib/db/profile';
 import { loadDailyMonthInputs, loadDailyReportInput } from '@/lib/db/reports-data';
 import { getSite, type Site } from '@/lib/db/sites';
 import { contentDisposition } from '@/lib/export/query';
+import { renderClientDailyPdf } from '@/lib/pdf/client-daily-report';
 import { renderDailyPdf } from '@/lib/pdf/daily-report';
 import { buildDailyCsv } from '@/lib/reports/daily-csv';
 import { buildDailyReport, buildEmptyDailyReport } from '@/lib/reports/daily-model';
-import { dailyReportFileName, parseDailyQuery, type DailyFormat, type DailyTarget } from '@/lib/reports/query';
+import { dailyReportFileName, parseDailyQuery, type DailyFormat, type DailyTarget, type ReportAudience } from '@/lib/reports/query';
 import type { DailyReportModel } from '@/lib/reports/types';
 
 // 日報の帳票。GET /api/reports/daily?site=<uuid>&date=YYYY-MM-DD&format=pdf|csv（1 日分）
@@ -13,6 +14,8 @@ import type { DailyReportModel } from '@/lib/reports/types';
 // 日報が無い日・月も空の帳票（PDF・CSV とも「日報がありません」の 1 行）を返す。失敗はすべて JSON { ok: false, error }
 // （400 クエリ／401・403 権限／404 現場／500 読み込み・作成失敗）。PDF（react-pdf）は Node で作る。
 // PDF は &disposition=inline のときだけブラウザで開く（inline。プレビュー）。それ以外と xlsx/csv は attachment。
+// &audience=client は現場日報（お客様用）の PDF（date＋pdf のときだけ。月まとめ・CSV との組み合わせは 400）。
+// 同じ DailyReportModel から金額・氏名・連絡事項を除いた帳票を作る（client-daily-report.tsx）。
 
 export const runtime = 'nodejs';
 
@@ -35,7 +38,9 @@ async function loadModels(site: Site, target: DailyTarget): Promise<DailyReportM
   return inputs.length > 0 ? inputs.map(buildDailyReport) : [buildEmptyDailyReport(site, target.month)];
 }
 
-async function render(models: DailyReportModel[], format: DailyFormat, outputAt: string): Promise<Buffer> {
+async function render(models: DailyReportModel[], format: DailyFormat, audience: ReportAudience, outputAt: string): Promise<Buffer> {
+  // お客様用は parseDailyQuery が date＋pdf に限るので models は 1 件。
+  if (audience === 'client') return renderClientDailyPdf(models[0], outputAt);
   if (format === 'pdf') return renderDailyPdf(models, outputAt);
   return Buffer.from(buildDailyCsv(models), 'utf-8');
 }
@@ -43,7 +48,7 @@ async function render(models: DailyReportModel[], format: DailyFormat, outputAt:
 export async function GET(request: Request): Promise<Response> {
   const query = parseDailyQuery(request.url);
   if ('error' in query) return fail(400, query.error);
-  const { siteId, target, format, disposition } = query;
+  const { siteId, target, format, disposition, audience } = query;
 
   const profile = await getCurrentProfile();
   if (!profile) return fail(401, 'ログインしてください');
@@ -63,9 +68,9 @@ export async function GET(request: Request): Promise<Response> {
 
   let data: Buffer;
   try {
-    data = await render(models, format, new Date().toISOString());
+    data = await render(models, format, audience, new Date().toISOString());
   } catch (e) {
-    console.error('[reports/daily] render', format, e);
+    console.error('[reports/daily] render', format, audience, e);
     return fail(500, '日報の帳票の作成に失敗しました');
   }
 
@@ -73,7 +78,7 @@ export async function GET(request: Request): Promise<Response> {
     status: 200,
     headers: {
       'Content-Type': CONTENT_TYPES[format],
-      'Content-Disposition': contentDisposition(dailyReportFileName(site.name, target, format), { inline: disposition === 'inline' }),
+      'Content-Disposition': contentDisposition(dailyReportFileName(site.name, target, format, audience), { inline: disposition === 'inline' }),
       'Content-Length': String(data.length),
       'Cache-Control': 'no-store',
     },

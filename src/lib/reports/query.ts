@@ -100,13 +100,19 @@ const DAILY_FORMATS: readonly DailyFormat[] = ['pdf', 'csv'];
 /** 1 日分（date）か月まとめ（month）。 */
 export type DailyTarget = { kind: 'date'; date: string } | { kind: 'month'; month: string };
 
+/** お客様用（audience=client）を 1 日分の PDF 以外と組み合わせたときの文。 */
+export const CLIENT_DAILY_ONLY = 'お客様用は 1 日分の PDF だけです';
+
 /**
  * `?site=<uuid>&date=YYYY-MM-DD&format=pdf|csv` または `?site=<uuid>&month=YYYY-MM&format=pdf|csv` を読む
- * （PDF は `&disposition=inline` でプレビュー）。
+ * （PDF は `&disposition=inline` でプレビュー）。`&audience=client` は現場日報（お客様用）で、1 日分の PDF だけ
+ * （月まとめ・CSV と組み合わせるとエラー）。
  */
 export function parseDailyQuery(
   url: URL | string,
-): { siteId: string; target: DailyTarget; format: DailyFormat; disposition: Disposition } | { error: string } {
+):
+  | { siteId: string; target: DailyTarget; format: DailyFormat; disposition: Disposition; audience: ReportAudience }
+  | { error: string } {
   const params = (typeof url === 'string' ? new URL(url) : url).searchParams;
   const siteId = params.get('site') ?? '';
   const date = params.get('date') ?? '';
@@ -117,16 +123,22 @@ export function parseDailyQuery(
   if (date !== '' && !dateSchema.safeParse(date).success) return { error: '日付の指定が正しくありません' };
   if (month !== '' && !MONTH_RE.test(month)) return { error: '年月の指定が正しくありません' };
   if (!(DAILY_FORMATS as readonly string[]).includes(format)) return { error: '出力形式の指定が正しくありません' };
+  const audience = readAudience(params);
+  if (audience === 'client' && (month !== '' || format !== 'pdf')) return { error: CLIENT_DAILY_ONLY };
   return {
     siteId,
     target: date !== '' ? { kind: 'date', date } : { kind: 'month', month },
     format: format as DailyFormat,
     disposition: readDisposition(params, format),
+    audience,
   };
 }
 
-/** `現場名_日報_YYYY-MM-DD.拡張子`、月まとめは `現場名_日報_YYYY年MM月.拡張子`（現場名は fileNameStem）。 */
-export function dailyReportFileName(siteName: string, target: DailyTarget, ext: DailyFormat): string {
+/**
+ * `現場名_日報_YYYY-MM-DD.拡張子`、月まとめは `現場名_日報_YYYY年MM月.拡張子`、お客様用は `現場名_日報（お客様用）_YYYY-MM-DD.pdf`
+ * （現場名は fileNameStem）。
+ */
+export function dailyReportFileName(siteName: string, target: DailyTarget, ext: DailyFormat, audience: ReportAudience = 'internal'): string {
   const when = target.kind === 'date' ? target.date : `${target.month.slice(0, 4)}年${target.month.slice(5, 7)}月`;
-  return `${fileNameStem(siteName)}_日報_${when}.${ext}`;
+  return `${fileNameStem(siteName)}_${audience === 'client' ? '日報（お客様用）' : '日報'}_${when}.${ext}`;
 }

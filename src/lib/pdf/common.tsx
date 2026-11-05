@@ -213,6 +213,46 @@ export function Signature({ boxes, compact = false, marginTop }: { boxes: [strin
   );
 }
 
+const cc = StyleSheet.create({
+  box: { flexDirection: 'row' },
+  title: {
+    width: 8 * MM,
+    backgroundColor: BAND,
+    color: NAVY,
+    fontWeight: 700,
+    textAlign: 'center',
+    justifyContent: 'center',
+    borderWidth: 0.5,
+    borderColor: RULE,
+    paddingHorizontal: 1,
+  },
+});
+
+/** 客先確認の枠の幅（確認者名・日付・サイン）。日報の署名欄（26mm × 4）と並べて本文の幅（180mm）に収める。 */
+const CLIENT_BOX_WIDTHS = [24 * MM, 20 * MM, 20 * MM];
+
+/**
+ * 客先確認の枠（左に縦の見出し、右に 確認者名／日付（確認日時）／サイン。見た目は署名欄と同じ）。日報と現場日報（お客様用）で共通。
+ * boxes は clientConfirmationBoxes の（ラベル, 値）。長い確認者名は枠を縦に伸ばす（行の途中で切らない）。
+ */
+export function ClientConfirmationBoxes({ title, boxes }: { title: string; boxes: [string, string][] }) {
+  return (
+    <View style={cc.box}>
+      <View style={cc.title}>
+        <Text>{title}</Text>
+      </View>
+      {boxes.map(([label, value], i) => (
+        <View key={label} style={[s.sigBox, { width: CLIENT_BOX_WIDTHS[i] }]}>
+          <Text style={s.sigLabel}>{label}</Text>
+          <View style={[s.sigName, { height: 'auto', minHeight: 12 * MM }]}>
+            <Text style={{ textAlign: 'center' }}>{value}</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 /** 各ページの脚注（左に文、右に「ページ n / N」）。 */
 export function Footer({ text }: { text: string }) {
   return (

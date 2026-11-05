@@ -77,12 +77,14 @@ describe('parseDailyQuery', () => {
       target: { kind: 'date', date: '2026-11-02' },
       format: 'pdf',
       disposition: 'attachment',
+      audience: 'internal',
     });
     expect(parseDailyQuery(new URL(dailyUrl(`format=csv&month=2026-11&site=${SITE}`)))).toEqual({
       siteId: SITE,
       target: { kind: 'month', month: '2026-11' },
       format: 'csv',
       disposition: 'attachment',
+      audience: 'internal',
     });
   });
 
@@ -122,9 +124,32 @@ describe('parseDailyQuery', () => {
       disposition: 'attachment',
     });
   });
+
+  it('audience=client（お客様用）は 1 日分の PDF だけ。月まとめ・CSV と組み合わせるとエラー', () => {
+    expect(parseDailyQuery(dailyUrl(`site=${SITE}&date=2026-11-02&format=pdf&audience=client&disposition=inline`))).toEqual({
+      siteId: SITE,
+      target: { kind: 'date', date: '2026-11-02' },
+      format: 'pdf',
+      disposition: 'inline',
+      audience: 'client',
+    });
+    const only = { error: 'お客様用は 1 日分の PDF だけです' };
+    expect(parseDailyQuery(dailyUrl(`site=${SITE}&month=2026-11&format=pdf&audience=client`))).toEqual(only);
+    expect(parseDailyQuery(dailyUrl(`site=${SITE}&date=2026-11-02&format=csv&audience=client`))).toEqual(only);
+    expect(parseDailyQuery(dailyUrl(`site=${SITE}&month=2026-11&format=csv&audience=client`))).toEqual(only);
+    // 別の値・指定なしは社内用（エラーにしない）
+    expect(parseDailyQuery(dailyUrl(`site=${SITE}&month=2026-11&format=csv&audience=other`))).toMatchObject({ audience: 'internal' });
+  });
 });
 
 describe('dailyReportFileName', () => {
+  it('お客様用は 現場名_日報（お客様用）_YYYY-MM-DD.pdf', () => {
+    expect(dailyReportFileName('〇〇邸新築工事', { kind: 'date', date: '2026-11-02' }, 'pdf', 'client')).toBe(
+      '〇〇邸新築工事_日報（お客様用）_2026-11-02.pdf',
+    );
+    expect(dailyReportFileName('〇〇邸新築工事', { kind: 'date', date: '2026-11-02' }, 'pdf', 'internal')).toBe('〇〇邸新築工事_日報_2026-11-02.pdf');
+  });
+
   it('1 日分は 現場名_日報_YYYY-MM-DD、月まとめは 現場名_日報_YYYY年MM月', () => {
     expect(dailyReportFileName('〇〇邸新築工事', { kind: 'date', date: '2026-11-02' }, 'pdf')).toBe('〇〇邸新築工事_日報_2026-11-02.pdf');
     expect(dailyReportFileName('〇〇邸', { kind: 'month', month: '2026-01' }, 'csv')).toBe('〇〇邸_日報_2026年01月.csv');

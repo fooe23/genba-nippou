@@ -82,10 +82,11 @@ export interface ReportFormProps {
   currentUserId: string;
   isAdmin: boolean;
   /**
-   * 帳票の出力先。pdfPreview は PDF をブラウザで開く（新しいタブ）、pdf・csv はダウンロード。
+   * 帳票の出力先。pdfPreview は PDF をブラウザで開く（新しいタブ）、pdf・csv はダウンロード。clientPdfPreview・clientPdf は
+   * 現場日報（お客様用）の PDF（プレビュー・保存）。
    * 保存済みの日報で、出力できる人（社員・管理者）だけに渡す。閲覧専用でも出す。
    */
-  exportLinks?: { pdfPreview: string; pdf: string; csv: string };
+  exportLinks?: { pdfPreview: string; pdf: string; csv: string; clientPdfPreview: string; clientPdf: string };
   /** 客先確認の記録（無ければ null）。保存済みの日報なら、状態・閲覧専用・完了現場に関係なく記録・取り消しできる。 */
   clientConfirmation: DailyClientConfirmation | null;
 }
@@ -594,6 +595,8 @@ function ReportFormBody({
                   { label: 'PDF', href: p.exportLinks.pdfPreview, newTab: true },
                   { label: 'PDF 保存', href: p.exportLinks.pdf, newTab: false },
                   { label: 'CSV', href: p.exportLinks.csv, newTab: false },
+                  { label: 'お客様用 PDF', href: p.exportLinks.clientPdfPreview, newTab: true },
+                  { label: 'お客様用 保存', href: p.exportLinks.clientPdf, newTab: false },
                 ]
               : []
             ).map(({ label, href, newTab }) => (

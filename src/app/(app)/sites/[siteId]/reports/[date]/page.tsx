@@ -26,7 +26,14 @@ export default async function ReportPage({ params }: PageProps<'/sites/[siteId]/
     `/api/reports/daily?site=${encodeURIComponent(siteId)}&date=${encodeURIComponent(date)}&format=${format}`;
   const exportLinks =
     report.head && profile.accountType !== 'partner'
-      ? { pdfPreview: `${exportHref('pdf')}&disposition=inline`, pdf: exportHref('pdf'), csv: exportHref('csv') }
+      ? {
+          pdfPreview: `${exportHref('pdf')}&disposition=inline`,
+          pdf: exportHref('pdf'),
+          csv: exportHref('csv'),
+          // 現場日報（お客様用）：金額・氏名・連絡事項を出さない PDF（プレビューと保存）。
+          clientPdfPreview: `${exportHref('pdf')}&audience=client&disposition=inline`,
+          clientPdf: `${exportHref('pdf')}&audience=client`,
+        }
       : undefined;
 
   return (
