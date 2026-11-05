@@ -238,7 +238,7 @@ function WorkerForm({
             </Field>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
               協力会社は 協力会社 タブで登録します。協力会社の作業員は、現場の「協力会社と作業員」で現場ごとに登録すると日報で選べます。
-              {worker?.affiliation === 'partner' && '協力会社を変えると、現場への登録は外れます（過去の日報は変わりません）。'}
+              {worker && '所属や協力会社を変えると、現場への登録・選択は外れます（過去の日報は変わりません）。'}
             </p>
           </div>
         )}

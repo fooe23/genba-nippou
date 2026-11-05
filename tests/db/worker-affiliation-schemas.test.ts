@@ -60,7 +60,8 @@ describe('partnerCompanyChanged（会社を変えたら現場の登録を外す�
   it('同じ会社・所属を省略・前が自社は false', () => {
     expect(partnerCompanyChanged({ affiliation: 'partner', supplier_id: S1 }, { affiliation: 'partner', supplierId: S1 })).toBe(false);
     expect(partnerCompanyChanged({ affiliation: 'partner', supplier_id: S1 }, {})).toBe(false);
-    expect(partnerCompanyChanged({ affiliation: 'own', supplier_id: null }, { affiliation: 'partner', supplierId: S1 })).toBe(false);
+    expect(partnerCompanyChanged({ affiliation: 'own', supplier_id: null }, { affiliation: 'own', supplierId: null })).toBe(false);
+    expect(partnerCompanyChanged({ affiliation: 'own', supplier_id: null }, { affiliation: 'partner', supplierId: S1 })).toBe(true);
   });
 });
 

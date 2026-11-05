@@ -69,11 +69,6 @@ create table if not exists public.gn_workers (
   updated_at timestamptz not null default now()
 );
 alter table public.gn_workers add column if not exists overtime_rate numeric check (overtime_rate is null or overtime_rate >= 0);
--- 作業員の所属（2026-11-07。update_2026-11-07_worker_affiliation.sql）：自社（own）か協力会社（partner）。
--- 協力会社のときは supplier_id（取引先の 1 社）が必須（アプリで検証）。既存の作業員は自社になる。
-alter table public.gn_workers add column if not exists affiliation text not null default 'own'
-  check (affiliation in ('own','partner'));
-alter table public.gn_workers add column if not exists supplier_id uuid references public.gn_suppliers(id);
 
 create table if not exists public.gn_worker_rates (
   id             uuid primary key default gen_random_uuid(),
@@ -94,6 +89,12 @@ create table if not exists public.gn_suppliers (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+-- gn_workers の所属の列は、参照先の gn_suppliers を作った後に足す（新規環境で順番どおりに通るように）。
+-- 作業員の所属（2026-11-07。update_2026-11-07_worker_affiliation.sql）：自社（own）か協力会社（partner）。
+-- 協力会社のときは supplier_id（取引先の 1 社）が必須（アプリで検証）。既存の作業員は自社になる。
+alter table public.gn_workers add column if not exists affiliation text not null default 'own'
+  check (affiliation in ('own','partner'));
+alter table public.gn_workers add column if not exists supplier_id uuid references public.gn_suppliers(id);
 
 create table if not exists public.gn_vehicles (
   id         uuid primary key default gen_random_uuid(),
