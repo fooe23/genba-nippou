@@ -536,13 +536,13 @@ export interface ChangeKindSummary {
   proposal: number;
   /**
    * 精算額（期間末までの累計。月の期間でもその月だけではない）= 載せる件のうち合計に入れる（countsToward）区分が
-   * この区分の件の精算額 ＋ 件に紐づかない行のこの区分の提案額。一式・常用の件に紐づく行の提案額は入らない。
+   * この区分の件の精算額 ＋ 件に紐づかない行のこの区分の提案額。一式・見積・常用の件に紐づく行の提案額は入らない。
    */
   settled: number;
 }
 
 /**
- * 精算資料に載せる件の、件ごとの精算（settleIssue）。載せる件 = 精算の方法が一式・常用で、件の日報日が期間末以前の件、
+ * 精算資料に載せる件の、件ごとの精算（settleIssue）。載せる件 = 精算の方法が一式・見積・常用で、件の日報日が期間末以前の件、
  * または期間末までに追加・増・変更・減の行が紐づく未定の件。未定で行の無い件は載せない。
  */
 export interface ChangeIssueSettlement {
@@ -560,7 +560,7 @@ export interface ChangeIssueSettlement {
   instructionMethod: InstructionMethod | null;
   /** 金額見込み（円。未入力は null）。参考で、精算額には使わない。 */
   amountEstimate: number | null;
-  /** 精算の方法（未定・一式・常用）と、確定額（一式）・常用単価（常用）・確定日（件の保存値）。 */
+  /** 精算の方法（未定・一式・見積・常用）と、確定額（一式・見積）・常用単価（常用）・確定日（件の保存値）。 */
   settlementMethod: SettlementMethod;
   fixedAmount: number | null;
   dailyRate: number | null;
@@ -573,8 +573,8 @@ export interface ChangeIssueSettlement {
   actualCost: number;
   proposal: number;
   /**
-   * 精算額（円）。一式 = 確定額（'fixed'）、常用 = 紐づく行の人工の合計 × 常用単価を円未満切り上げ（'daily_rate'）、
-   * 未定 = 紐づく行の提案額の合計（'proposal'）。区分が減なら一式・常用は負にする（未定は行の提案額がすでに負）。
+   * 精算額（円）。一式・見積 = 確定額（'fixed'）、常用 = 紐づく行の人工の合計 × 常用単価を円未満切り上げ（'daily_rate'）、
+   * 未定 = 紐づく行の提案額の合計（'proposal'）。区分が減なら一式・見積・常用は負にする（未定は行の提案額がすでに負）。
    */
   settled: number;
   settledBasis: 'fixed' | 'daily_rate' | 'proposal';
@@ -585,7 +585,7 @@ export interface ChangeIssueSettlement {
 }
 
 /**
- * 客先用の精算（clientSettlement）。見積中の件（未定・確定額の無い一式・単価の無い常用）は金額に入れない。
+ * 客先用の精算（clientSettlement）。見積中の件（未定・確定額の無い一式・見積、単価の無い常用）は金額に入れない。
  * 区分ごとの金額 = 確定した件の精算額 ＋ 件なしの行の提案額（期間末まで）。件数は確定した件の数（件なしの行は数えない）。
  */
 export interface ClientSettlement {

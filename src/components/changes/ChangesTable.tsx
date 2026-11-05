@@ -22,7 +22,7 @@ function UnlinkedRow({ row }: { row: ChangesUnlinkedRow }) {
       <Cell label="確定額／常用単価">—</Cell>
       <Cell label="確定日">—</Cell>
       <ComputedCells row={row} />
-      <span className="hidden xl:block" />
+      <span className="hidden 2xl:block" />
     </li>
   );
 }
@@ -30,9 +30,9 @@ function UnlinkedRow({ row }: { row: ChangesUnlinkedRow }) {
 function TotalRow({ total }: { total: ChangesTotal }) {
   return (
     <div
-      className={`grid grid-cols-2 items-start gap-2 rounded-lg border border-blue-700 bg-blue-50 p-3 font-bold xl:items-center xl:gap-x-2 xl:rounded-none xl:border-0 xl:border-t-2 xl:px-0 xl:py-2 dark:border-blue-400 dark:bg-blue-950 ${CHANGES_GRID}`}
+      className={`grid grid-cols-2 items-start gap-2 rounded-lg border border-blue-700 bg-blue-50 p-3 font-bold 2xl:items-center 2xl:gap-x-1.5 2xl:rounded-none 2xl:border-0 2xl:border-t-2 2xl:px-0 2xl:py-2 dark:border-blue-400 dark:bg-blue-950 ${CHANGES_GRID}`}
     >
-      <p className="col-span-2 xl:col-span-10">合計（やり直しを除く）</p>
+      <p className="col-span-2 2xl:col-span-10">合計（やり直しを除く）</p>
       <Cell label="実績原価合計" num>
         {money(total.actualCost)}
       </Cell>
@@ -48,7 +48,7 @@ function TotalRow({ total }: { total: ChangesTotal }) {
 
 /**
  * 「追加・変更の一覧」：現場の全部の件（日報日順）と、件に紐づかない行の合計、合計の行。
- * xl 以上は表（横にはみ出す分はスクロール）、xl 未満は件ごとのカード。
+ * 2xl 以上は表（ページ幅に収まる。万一はみ出す分はスクロール）、2xl 未満は件ごとのカード。
  */
 export function ChangesTable({
   siteId,
@@ -67,11 +67,11 @@ export function ChangesTable({
     return <p className="text-base text-gray-600 dark:text-gray-400">追加・変更の件はまだありません。日報の重要事項で件を追加すると、ここに出ます。</p>;
   }
   return (
-    <div className="xl:overflow-x-auto">
+    <div className="2xl:overflow-x-auto">
       <div className={CHANGES_MIN_WIDTH}>
         <div
           aria-hidden="true"
-          className={`hidden gap-x-2 border-b border-gray-300 pb-1 text-sm font-bold text-gray-700 xl:grid dark:border-gray-700 dark:text-gray-300 ${CHANGES_GRID}`}
+          className={`hidden gap-x-2 border-b border-gray-300 pb-1 text-sm font-bold text-gray-700 2xl:grid dark:border-gray-700 dark:text-gray-300 ${CHANGES_GRID}`}
         >
           {CHANGES_COLUMNS.map((label, i) => (
             <span key={i} className={i === 4 || (i >= 8 && i <= 12) ? 'text-right' : ''}>
@@ -79,7 +79,7 @@ export function ChangesTable({
             </span>
           ))}
         </div>
-        <ul className="space-y-3 xl:space-y-0">
+        <ul className="space-y-3 2xl:space-y-0">
           {rows.map((row) =>
             row.unlinked ? (
               <UnlinkedRow key="unlinked" row={row} />
@@ -88,7 +88,7 @@ export function ChangesTable({
             ),
           )}
         </ul>
-        <div className="mt-3 xl:mt-0">
+        <div className="mt-3 2xl:mt-0">
           <TotalRow total={total} />
         </div>
       </div>

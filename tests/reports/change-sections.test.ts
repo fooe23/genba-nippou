@@ -94,7 +94,7 @@ describe('changeSummary（サマリー表と注記）', () => {
 
   it('注記：精算額の決め方（やり直しは参考で合計に入れない）', () => {
     expect(changeSummary(sampleChangeModel()).notes).toContain(
-      '精算額＝一式の件は確定額、常用の件は人工×常用単価、未定の件と件に紐づかない行は提案額。やり直しの件は参考で合計に入れません。',
+      '精算額＝一式・見積の件は確定額、常用の件は人工×常用単価、未定の件と件に紐づかない行は提案額。やり直しの件は参考で合計に入れません。',
     );
   });
 
@@ -205,6 +205,14 @@ describe('changeIssues（件ごとの精算）', () => {
     expect(texts(t.total!)).toEqual(['合計', '', '', '', '', '4', '2.5', '41,178', '147,942']);
     const s = settledChangeModel().settlement;
     expect(147_942).toBe(s.extra + s.increase + s.change + s.minus);
+  });
+
+  it('見積の件は精算方法「見積」、確定額・単価の欄は見積額（減は負）', () => {
+    const m = settledChangeModel();
+    const issues = m.issues.map((i) => (i.id === 'iL' || i.id === 'iM' ? { ...i, settlementMethod: 'estimate' as const } : i));
+    const rows = changeIssues({ ...m, issues })!.rows.map(texts);
+    expect(rows[1].slice(2, 5)).toEqual(['見積', '100,000', '2026/11/08']);
+    expect(rows[3].slice(2, 4)).toEqual(['見積', '-20,000']);
   });
 
   it('件なしの行は、件に紐づかない行があるときだけ', () => {

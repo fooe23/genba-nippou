@@ -20,7 +20,7 @@ export const NO_BASE_NOTE = '当初金額が未設定のため算出できませ
 export const ISSUES_TITLE = '件ごとの精算';
 export const UNLINKED_LABEL = '件なし（根拠の件を選んでいない行）';
 export const SETTLED_NOTE =
-  '精算額＝一式の件は確定額、常用の件は人工×常用単価、未定の件と件に紐づかない行は提案額。やり直しの件は参考で合計に入れません。';
+  '精算額＝一式・見積の件は確定額、常用の件は人工×常用単価、未定の件と件に紐づかない行は提案額。やり直しの件は参考で合計に入れません。';
 /** 客先確認欄の 3 つの枠（どれも空欄）。 */
 export const CLIENT_CHECK_BOXES = ['確認者', '確認日', 'サイン'] as const;
 
@@ -122,10 +122,11 @@ export function changeSummary(model: ChangeLedgerModel): { table: SectionTable; 
   return { table, notes };
 }
 
-/** 確定額・単価の欄：一式は確定額（減は負）、常用は「常用 N人工 × ¥単価」、未定は「—」。 */
+/** 確定額・単価の欄：一式・見積は確定額（見積額。減は負）、常用は「常用 N人工 × ¥単価」、未定は「—」。 */
 function settlementTerms(i: ChangeIssueSettlement): Cell {
   switch (i.settlementMethod) {
     case 'lump_sum':
+    case 'estimate':
       return cell.yen(i.fixedAmount === null ? null : i.category === 'minus' ? -i.fixedAmount : i.fixedAmount);
     case 'daily_rate': {
       const rate = i.dailyRate === null ? '単価未入力' : `¥${formatCell(cell.yen(i.dailyRate))}`;

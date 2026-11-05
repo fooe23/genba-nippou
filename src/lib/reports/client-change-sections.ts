@@ -64,10 +64,11 @@ function instruction(i: ChangeIssueSettlement): string {
   return who ? `${who} ${md(i.reportDate)}` : md(i.reportDate);
 }
 
-/** 精算：「一式（見積 MM/DD）」「一式」「常用 N人工 × ¥単価」、見積中は「見積中」。 */
+/** 精算：「一式（MM/DD）」「一式」「見積（MM/DD）」「見積」「常用 N人工 × ¥単価」、見積中は「見積中」。日付は確定日（見積は見積日）。 */
 function terms(i: ChangeIssueSettlement, pending: boolean): string {
   if (pending) return '見積中';
-  if (i.settlementMethod === 'lump_sum') return i.fixedOn ? `一式（見積 ${md(i.fixedOn)}）` : '一式';
+  if (i.settlementMethod === 'lump_sum') return i.fixedOn ? `一式（${md(i.fixedOn)}）` : '一式';
+  if (i.settlementMethod === 'estimate') return i.fixedOn ? `見積（${md(i.fixedOn)}）` : '見積';
   return `常用 ${formatCell(cell.dec1(i.manDays))}人工 × ¥${formatCell(cell.yen(i.dailyRate))}`;
 }
 

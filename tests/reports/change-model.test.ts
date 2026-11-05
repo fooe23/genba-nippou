@@ -340,6 +340,16 @@ describe('settleIssue（件ごとの精算額の規則）', () => {
       settled: -30000, settledBasis: 'fixed', category: 'minus', countsToward: true,
     });
   });
+  it('見積：一式と同じ（見積額だけ、basis fixed、減は負、見積額が無ければ 0）', () => {
+    const rows = [lrow(1, 25300), lrow(0, -3000, 'minus')];
+    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'estimate', fixedAmount: 120000 }), rows)).toEqual({
+      settled: 120000, settledBasis: 'fixed', category: 'extra', countsToward: true,
+    });
+    expect(settleIssue(issue('a', '2026-11-02', 'x', { kind: 'minus', settlementMethod: 'estimate', fixedAmount: 30000 }), rows)).toEqual({
+      settled: -30000, settledBasis: 'fixed', category: 'minus', countsToward: true,
+    });
+    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'estimate', fixedAmount: null }), rows).settled).toBe(0);
+  });
   it('常用：紐づく行の人工の合計 × 単価を円未満切り上げ（浮動小数の誤差で 1 円多くしない）', () => {
     const daily = (dailyRate: number | null, o: Partial<Issue> = {}) => issue('a', '2026-11-02', 'x', { settlementMethod: 'daily_rate', dailyRate, ...o });
     expect(settleIssue(daily(25000), [lrow(1.5, 1), lrow(0.7, 1)])).toEqual({ settled: 55000, settledBasis: 'daily_rate', category: 'extra', countsToward: true });
@@ -519,6 +529,26 @@ describe('客先用の精算額（clientSettlement）', () => {
     );
     expect(only).toMatchObject({ pendingCount: 0, proposed: 1_005_000 });
     expect(only.pendingIds.size).toBe(0);
+  });
+  it('見積：見積額があれば確定（区分に足し件数 1）、減は負。見積額が無ければ見積中', () => {
+    const est = clientSettlement(
+      buildChangeLedger(
+        input([day('2026-11-02', [])], {
+          issues: [
+            issue('e1', '2026-11-02', '見積の追加', { settlementMethod: 'estimate', fixedAmount: 120000, fixedOn: '2026-11-06' }),
+            issue('e2', '2026-11-02', '見積の減', { kind: 'minus', settlementMethod: 'estimate', fixedAmount: 20000 }),
+            issue('e3', '2026-11-02', '見積額の無い見積', { kind: 'increase', settlementMethod: 'estimate', fixedAmount: null }),
+          ],
+        }),
+        RATES,
+        ALL,
+      ),
+    );
+    expect(est.kinds.extra).toEqual({ count: 1, amount: 120000 });
+    expect(est.kinds.minus).toEqual({ count: 1, amount: -20000 });
+    expect(est.kinds.increase).toEqual({ count: 0, amount: 0 });
+    expect([...est.pendingIds]).toEqual(['e3']);
+    expect(est.proposed).toBe(1_000_000 + 120000 - 20000);
   });
   it('件の reportClientConfirmed：その件を登録した日報に客先確認があるか。instructionMethod も持つ', () => {
     const byId = new Map(m.issues.map((i) => [i.id, i]));

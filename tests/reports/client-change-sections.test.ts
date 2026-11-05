@@ -95,9 +95,9 @@ describe('clientChangeIssues（件ごとの内容）', () => {
     expect(t.columns.map((c) => c.label)).toEqual(['件', 'ご指示', '精算', '金額(円)', '確認']);
     expect(t.rows.map(texts)).toEqual([
       ['11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。', '施主 〇〇様／口頭 11/02', '見積中', '—', 'なし'],
-      ['11/05-1 追加指示 玄関収納の追加', '11/05', '一式（見積 11/08）', '100,000', 'あり'],
+      ['11/05-1 追加指示 玄関収納の追加', '11/05', '一式（11/08）', '100,000', 'あり'],
       ['11/05-2 仕様変更 棚の位置変更（常用）', '11/05', '常用 0.5人工 × ¥30,000', '15,000', 'あり'],
-      ['11/05-3 減 外壁塗装の一部取りやめ', '11/05', '一式（見積 11/06）', '-20,000', 'あり'],
+      ['11/05-3 減 外壁塗装の一部取りやめ', '11/05', '一式（11/06）', '-20,000', 'あり'],
     ]);
     expect(t.total).toBeUndefined();
   });
@@ -110,6 +110,17 @@ describe('clientChangeIssues（件ごとの内容）', () => {
     const rows = clientChangeIssues({ ...m, issues })!.rows.map(texts);
     expect(rows[1][2]).toBe('一式');
     expect(rows[3].slice(2, 4)).toEqual(['見積中', '—']);
+  });
+
+  it('見積は「見積（MM/DD）」、見積日が無ければ「見積」、見積額が無ければ「見積中」。金額は一式と同じ', () => {
+    const m = settledChangeModel();
+    const est = (fixedOn: string | null) =>
+      m.issues.map((i) => (i.id === 'iL' ? { ...i, settlementMethod: 'estimate' as const, fixedOn } : i));
+    const rows = clientChangeIssues({ ...m, issues: est('2026-11-08') })!.rows.map(texts);
+    expect(rows[1].slice(2, 4)).toEqual(['見積（11/08）', '100,000']);
+    expect(clientChangeIssues({ ...m, issues: est(null) })!.rows.map(texts)[1][2]).toBe('見積');
+    const pending = m.issues.map((i) => (i.id === 'iL' ? { ...i, settlementMethod: 'estimate' as const, fixedAmount: null, settled: 0 } : i));
+    expect(clientChangeIssues({ ...m, issues: pending })!.rows.map(texts)[1].slice(2, 4)).toEqual(['見積中', '—']);
   });
 
   it('載せる件が無ければ null', () => {

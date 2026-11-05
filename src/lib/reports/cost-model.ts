@@ -173,7 +173,7 @@ function buildProfit(
 
 /**
  * 期間末までの 追加 ＋ 増 ＋ 変更 ＋ 減 の精算額（変更増減の一覧の settlement そのもの。同じ期間で作るので月指定でも一致する：
- * 期間末より後に登録した一式・常用の件は入らない）。期間末までに追加・増・変更・減の行も、載せる件も無ければ null。
+ * 期間末より後に登録した一式・見積・常用の件は入らない）。期間末までに追加・増・変更・減の行も、載せる件も無ければ null。
  */
 function changeProposalTotal(input: CostReportInput, cumulativeReports: ReportWithLines[], period: CostReportPeriod, rates: ChangeRates): number | null {
   const ledger = buildChangeLedger({ site: input.site, reports: cumulativeReports, issues: input.issues }, rates, period);

@@ -6,7 +6,7 @@ import { useState } from 'react';
 import { jpDate } from '@/lib/calc/format';
 import { updateIssueSettlement } from '@/lib/db/reports-actions';
 import { issueSettlementSchema } from '@/lib/db/issue-schemas';
-import { INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, SETTLEMENT_METHODS, SETTLEMENT_METHOD_LABELS, isSettlementMethod } from '@/lib/report/change-labels';
+import { INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, SETTLEMENT_METHODS, SETTLEMENT_METHOD_LABELS, isSettlementMethod, usesFixedAmount } from '@/lib/report/change-labels';
 import type { ChangesIssueRow } from '@/lib/reports/changes-page';
 import type { SettlementMethod } from '@/lib/types';
 import { money } from '@/components/report/form-state';
@@ -15,7 +15,7 @@ import { ErrorText, primaryButtonClass, useRunner } from '@/components/masters/c
 import { CHANGES_GRID, CHANGES_ROW, Cell, ComputedCells, InputCell, KindTag } from '@/components/changes/cells';
 
 /**
- * 件 1 つの行。精算の方法・確定額（一式）または常用単価（常用）・確定日を入れて保存する。
+ * 件 1 つの行。精算の方法・確定額（一式）・見積額（見積）または常用単価（常用）・確定日を入れて保存する。
  * 精算額などの計算値はサーバーの値を出し、保存のあと router.refresh() で取り直す。
  */
 export function IssueSettlementRow({
@@ -54,7 +54,7 @@ export function IssueSettlementRow({
   function save() {
     const input = {
       settlementMethod: method,
-      fixedAmount: method === 'lump_sum' ? fixedAmount : null,
+      fixedAmount: usesFixedAmount(method) ? fixedAmount : null,
       dailyRate: method === 'daily_rate' ? dailyRate : null,
       fixedOn,
     };
@@ -77,7 +77,9 @@ export function IssueSettlementRow({
   const instruction = [row.instructedBy, row.instructionMethod ? INSTRUCTION_METHOD_LABELS[row.instructionMethod] : null]
     .filter((v): v is string => Boolean(v))
     .join('／');
-  const amountLabel = method === 'daily_rate' ? '常用単価（円／人工）' : '確定額（円）';
+  const amountLabel = method === 'daily_rate' ? '常用単価（円／人工）' : method === 'estimate' ? '見積額（円）' : '確定額（円）';
+  // 見積の日付は見積日（保存先は同じ確定日 fixedOn）
+  const dateLabel = method === 'estimate' ? '見積日' : '確定日';
 
   return (
     <li className={`${CHANGES_ROW} ${CHANGES_GRID}`}>
@@ -115,17 +117,17 @@ export function IssueSettlementRow({
           <NumInput
             key={method}
             integer
-            value={method === 'lump_sum' ? fixedAmount : dailyRate}
+            value={usesFixedAmount(method) ? fixedAmount : dailyRate}
             onChange={(v) => {
               edited();
-              if (method === 'lump_sum') setFixedAmount(v);
+              if (usesFixedAmount(method)) setFixedAmount(v);
               else setDailyRate(v);
             }}
             disabled={readOnly}
           />
         </InputCell>
       )}
-      <InputCell label="確定日">
+      <InputCell label={dateLabel}>
         <input
           type="date"
           value={fixedOn ?? ''}
@@ -138,13 +140,13 @@ export function IssueSettlementRow({
         />
       </InputCell>
       <ComputedCells row={row} />
-      <div className="col-span-2 xl:col-span-1">
+      <div className="col-span-2 2xl:col-span-1">
         <button type="button" onClick={save} disabled={readOnly || pending} className={`${primaryButtonClass} w-full px-2`}>
           {pending ? '保存中…' : '保存'}
         </button>
       </div>
       {(saved || error) && (
-        <div className="col-span-2 xl:col-span-full xl:text-right">
+        <div className="col-span-2 2xl:col-span-full 2xl:text-right">
           {saved && !error && (
             <p role="status" className="text-sm font-medium text-green-700 dark:text-green-400">
               保存しました

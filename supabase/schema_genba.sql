@@ -281,9 +281,10 @@ alter table public.gn_report_issues add column if not exists instruction_method 
 alter table public.gn_report_issues add column if not exists amount_estimate numeric
   check (amount_estimate is null or amount_estimate >= 0);
 -- 既存環境向け（2026-11-05 追加列。update_2026-11-05_issue_settlement.sql）：件ごとの精算
--- 精算の方法（未定・一式・常用）・確定額（一式）・常用単価（常用。客先請求・円／人工）・確定日
+-- 精算の方法（未定・一式・見積・常用）・確定額（一式・見積）・常用単価（常用。客先請求・円／人工）・確定日（見積は見積日）
+-- 見積（estimate）は 2026-11-06 追加（update_2026-11-06_estimate_method.sql。既存環境は制約を付け直す）
 alter table public.gn_report_issues add column if not exists settlement_method text not null default 'undecided'
-  check (settlement_method in ('undecided','lump_sum','daily_rate'));
+  check (settlement_method in ('undecided','lump_sum','estimate','daily_rate'));
 alter table public.gn_report_issues add column if not exists fixed_amount numeric
   check (fixed_amount is null or fixed_amount >= 0);
 alter table public.gn_report_issues add column if not exists daily_rate numeric

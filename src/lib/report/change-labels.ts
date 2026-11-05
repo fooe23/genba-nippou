@@ -6,7 +6,7 @@ import type { ChangeKind, InstructionMethod, IssueKind, SettlementMethod, WorkLi
 export const CHANGE_KINDS = ['contract', 'extra', 'increase', 'change', 'minus'] as const satisfies readonly ChangeKind[];
 export const INSTRUCTION_METHODS = ['oral', 'phone', 'email', 'document', 'other'] as const satisfies readonly InstructionMethod[];
 export const ISSUE_KINDS = ['extra', 'increase', 'change', 'minus', 'client_delay', 'rework', 'other'] as const satisfies readonly IssueKind[];
-export const SETTLEMENT_METHODS = ['undecided', 'lump_sum', 'daily_rate'] as const satisfies readonly SettlementMethod[];
+export const SETTLEMENT_METHODS = ['undecided', 'lump_sum', 'estimate', 'daily_rate'] as const satisfies readonly SettlementMethod[];
 
 /** 作業内容の区分。追加＝新しく別の仕事が増えた、増＝同じ流れの中で数量が増えた（計算・集計は追加と同じ）。 */
 export const CHANGE_KIND_LABELS: Record<ChangeKind, string> = { contract: '契約内', extra: '追加', increase: '増', change: '変更', minus: '減' };
@@ -36,7 +36,12 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   other: 'その他',
 };
 /** 件の精算の方法。 */
-export const SETTLEMENT_METHOD_LABELS: Record<SettlementMethod, string> = { undecided: '未定', lump_sum: '一式', daily_rate: '常用' };
+/** 確定額（fixedAmount）で精算する方法か（一式・見積。計算は同じ）。 */
+export function usesFixedAmount(m: SettlementMethod): boolean {
+  return m === 'lump_sum' || m === 'estimate';
+}
+
+export const SETTLEMENT_METHOD_LABELS: Record<SettlementMethod, string> = { undecided: '未定', lump_sum: '一式', estimate: '見積', daily_rate: '常用' };
 
 const SETTLEMENT_CATEGORY: Record<IssueKind, ChangeLedgerKind | null> = {
   extra: 'extra',

@@ -23,6 +23,20 @@ describe('issueSettlementSchema', () => {
     });
     expect(issueSettlementSchema.parse({ settlementMethod: 'daily_rate', fixedAmount: null, dailyRate: 0, fixedOn: null }).dailyRate).toBe(0);
   });
+  it('見積は見積額があれば通る（0 も可）。見積額なしは不可', () => {
+    expect(issueSettlementSchema.parse({ settlementMethod: 'estimate', fixedAmount: 120000, dailyRate: null, fixedOn: '2026-11-06' })).toEqual({
+      settlementMethod: 'estimate', fixedAmount: 120000, dailyRate: null, fixedOn: '2026-11-06',
+    });
+    expect(issueSettlementSchema.parse({ settlementMethod: 'estimate', fixedAmount: 0 }).fixedAmount).toBe(0);
+    expect(firstError(issueSettlementSchema, { settlementMethod: 'estimate', fixedAmount: null, dailyRate: null, fixedOn: null })).toBe(
+      '見積のときは見積額を入力してください',
+    );
+    expect(firstError(issueSettlementSchema, { settlementMethod: 'estimate', fixedAmount: '', dailyRate: 30000, fixedOn: null })).toBe(
+      '見積のときは見積額を入力してください',
+    );
+    expect(issueSettlementSchema.safeParse({ settlementMethod: 'estimate', fixedAmount: 1000.5 }).success).toBe(false);
+    expect(issueSettlementSchema.safeParse({ settlementMethod: 'estimate', fixedAmount: -1 }).success).toBe(false);
+  });
   it('一式で確定額なしは不可', () => {
     expect(firstError(issueSettlementSchema, { settlementMethod: 'lump_sum', fixedAmount: null, dailyRate: null, fixedOn: null })).toBe(
       '一式のときは確定額を入力してください',
@@ -67,9 +81,10 @@ describe('issueSettlementSchema', () => {
 });
 
 describe('精算の方法の選択肢と表示名', () => {
-  it('未定・一式・常用', () => {
-    expect(SETTLEMENT_METHODS).toEqual(['undecided', 'lump_sum', 'daily_rate']);
-    expect(SETTLEMENT_METHOD_LABELS).toEqual({ undecided: '未定', lump_sum: '一式', daily_rate: '常用' });
+  it('未定・一式・見積・常用（この順）', () => {
+    expect(SETTLEMENT_METHODS).toEqual(['undecided', 'lump_sum', 'estimate', 'daily_rate']);
+    expect(SETTLEMENT_METHOD_LABELS).toEqual({ undecided: '未定', lump_sum: '一式', estimate: '見積', daily_rate: '常用' });
+    expect(SETTLEMENT_METHODS.map((m) => SETTLEMENT_METHOD_LABELS[m])).toEqual(['未定', '一式', '見積', '常用']);
   });
 });
 

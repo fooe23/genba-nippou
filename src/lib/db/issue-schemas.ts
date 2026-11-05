@@ -25,7 +25,7 @@ export const issueExtraSchema = z.object({
 export type IssueExtraInput = z.input<typeof issueExtraSchema>;
 
 // 件の精算の項目（精算の方法・確定額・常用単価・確定日）の入力検証。updateIssueSettlement とフォームの両方で使う。
-// 確定額・常用単価は円単位の整数。一式は確定額、常用は常用単価が必須。使わない方の金額は保存のときに null にする（アクション側）。
+// 確定額・常用単価は円単位の整数。一式・見積は確定額（見積額）、常用は常用単価が必須。使わない方の金額は保存のときに null にする（アクション側）。
 
 const MSG_FIXED_AMOUNT = '確定額は0以上の数値で入力してください';
 const MSG_DAILY_RATE = '常用単価は0以上の数値で入力してください';
@@ -44,6 +44,9 @@ export const issueSettlementSchema = z
   .superRefine((v, ctx) => {
     if (v.settlementMethod === 'lump_sum' && v.fixedAmount === null) {
       ctx.addIssue({ code: 'custom', path: ['fixedAmount'], message: '一式のときは確定額を入力してください' });
+    }
+    if (v.settlementMethod === 'estimate' && v.fixedAmount === null) {
+      ctx.addIssue({ code: 'custom', path: ['fixedAmount'], message: '見積のときは見積額を入力してください' });
     }
     if (v.settlementMethod === 'daily_rate' && v.dailyRate === null) {
       ctx.addIssue({ code: 'custom', path: ['dailyRate'], message: '常用のときは常用単価を入力してください' });

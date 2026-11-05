@@ -328,9 +328,9 @@ export interface Issue {
   instructionMethod: InstructionMethod | null;
   /** 金額見込み（円。未入力は null）。 */
   amountEstimate: number | null;
-  /** 精算の方法（未定・一式・常用）。表示名は SETTLEMENT_METHOD_LABELS。 */
+  /** 精算の方法（未定・一式・見積・常用）。表示名は SETTLEMENT_METHOD_LABELS。 */
   settlementMethod: SettlementMethod;
-  /** 確定額（円。一式のとき。それ以外は null）。 */
+  /** 確定額（円。一式・見積のとき。見積は見積額。それ以外は null）。 */
   fixedAmount: number | null;
   /** 常用単価（客先請求・円／人工。常用のとき。それ以外は null）。 */
   dailyRate: number | null;

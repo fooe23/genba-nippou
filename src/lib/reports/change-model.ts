@@ -3,7 +3,7 @@ import { monthKey } from '@/lib/calc/format';
 import { visitNumbers } from '@/lib/calc/visit';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
-import { settlementCategory } from '@/lib/report/change-labels';
+import { settlementCategory, usesFixedAmount } from '@/lib/report/change-labels';
 import type {
   AllocatedCost,
   ChangeIssueRef,
@@ -26,15 +26,15 @@ import type {
 //              （減の行の人工も、その日の按分の分母には入れる。現場で人工を使っているため）
 //   提案金額 = 追加・増・変更：実績原価 ×（1＋経費率）×（1＋利益率）を円未満切り上げ（proposalFromCost）
 //              減：申告額（入力の施工単価 × 数量。負）そのまま。減は原価を積み上げるものではないため
-//   件ごとの精算額 = 一式：確定額、常用：ceil(紐づく行の人工の合計 × 常用単価)、未定：紐づく行の提案額の合計（settleIssue）
-//              区分は件の種別から（settlementCategory）。減の区分の一式・常用は負。やり直しは参考で合計に入れない
-//   区分ごとの精算額 = その区分の件の精算額 ＋ 件に紐づかない行の提案額（一式・常用の件に紐づく行の提案額は数えない）
+//   件ごとの精算額 = 一式・見積：確定額、常用：ceil(紐づく行の人工の合計 × 常用単価)、未定：紐づく行の提案額の合計（settleIssue）
+//              区分は件の種別から（settlementCategory）。減の区分の一式・見積・常用は負。やり直しは参考で合計に入れない
+//   区分ごとの精算額 = その区分の件の精算額 ＋ 件に紐づかない行の提案額（一式・見積・常用の件に紐づく行の提案額は数えない）
 //   精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 増 ＋ 変更 ＋ 減（各区分の精算額。減は負）
 //   増（同じ流れの中で数量が増えたもの）の計算・集計は追加（新しく別の仕事が増えたもの）と同じ。
 //
 // 期間が月のときは、一覧（rows）・区分ごとの件数・申告額・提案額・契約内の出来高はその月の日報の行だけ（回目は現場の
 // 全日報で数える）。件ごとの精算・区分ごとの精算額・精算提案額（settlement）はその月末までの全部の行と、月末までに
-// 載せる件で計算する（工事原価集計表 ② と同じ範囲）。一式・常用の件は件の日報日が月末以前なら載せる（確定日は見ない）。
+// 載せる件で計算する（工事原価集計表 ② と同じ範囲）。一式・見積・常用の件は件の日報日が月末以前なら載せる（確定日は見ない）。
 
 /** 1 日（日報 1 件）の、実績原価の按分に使う合計（すべて保存値）。 */
 export interface DayCostBasis {
@@ -106,10 +106,10 @@ const signed = (amount: number, category: ChangeLedgerKind | null) => (category 
  * 件ごとの精算額の規則（ここだけに書く。tests/reports/change-model.test.ts で固定）。linkedRows は期間末までの、この件に
  * 紐づく追加・増・変更・減の行。
  *
- * - 一式：確定額（無ければ 0）。紐づく行の提案額・人工は見ない。
+ * - 一式・見積：確定額（見積額。無ければ 0）。紐づく行の提案額・人工は見ない。
  * - 常用：紐づく行の人工の合計 × 常用単価（無ければ 0）を円未満切り上げ。
  * - 未定：紐づく行の提案額の合計（減の行は負のまま）。
- * - 区分は件の種別から（settlementCategory）。区分が減なら一式・常用は負（確定額・単価は正で入れる）。
+ * - 区分は件の種別から（settlementCategory）。区分が減なら一式・見積・常用は負（確定額・単価は正で入れる）。
  * - やり直し（区分 null）は参考で、区分ごとの精算額・精算提案額に入れない（countsToward false）。
  */
 export function settleIssue(
@@ -120,6 +120,7 @@ export function settleIssue(
   const countsToward = category !== null;
   switch (issue.settlementMethod) {
     case 'lump_sum':
+    case 'estimate':
       return { settled: signed(issue.fixedAmount ?? 0, category), settledBasis: 'fixed', category, countsToward };
     case 'daily_rate': {
       const manDays = linkedRows.reduce((s, r) => s + r.manDays, 0);
@@ -179,7 +180,7 @@ function sumRows(rows: ChangeLedgerRow[]): { lineCount: number; manDays: number;
 }
 
 /**
- * 精算資料に載せる件と、その精算（期間末 through まで）。一式・常用の件は件の日報日が through 以前なら載せ、
+ * 精算資料に載せる件と、その精算（期間末 through まで）。一式・見積・常用の件は件の日報日が through 以前なら載せ、
  * 未定の件は through までに行が紐づくときだけ載せる。並びは件の日報日順、同じ日は input.issues の並び。
  */
 function settleIssues(
@@ -329,9 +330,9 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
   };
 }
 
-/** 客先用で「確定」した件：一式は確定額あり、常用は単価あり（未定は確定でない）。 */
+/** 客先用で「確定」した件：一式・見積は確定額（見積額）あり、常用は単価あり（未定は確定でない）。 */
 function isFixedForClient(issue: ChangeIssueSettlement): boolean {
-  if (issue.settlementMethod === 'lump_sum') return issue.fixedAmount !== null;
+  if (usesFixedAmount(issue.settlementMethod)) return issue.fixedAmount !== null;
   if (issue.settlementMethod === 'daily_rate') return issue.dailyRate !== null;
   return false;
 }
@@ -339,8 +340,8 @@ function isFixedForClient(issue: ChangeIssueSettlement): boolean {
 /**
  * 客先用の精算額の規則（ここだけに書く。tests/reports/change-model.test.ts で固定）。社内用の settlement とは別に計算する。
  *
- * - 確定した件（一式＝確定額あり、常用＝単価あり）の精算額（settled。減は負）を区分（category）に足し、件数を 1 増やす。
- * - 見積中（未定・確定額の無い一式・単価の無い常用）は金額に入れず pendingCount に数える（未定の件に紐づく行の提案額も入れない）。
+ * - 確定した件（一式・見積＝確定額あり、常用＝単価あり）の精算額（settled。減は負）を区分（category）に足し、件数を 1 増やす。
+ * - 見積中（未定・確定額の無い一式・見積、単価の無い常用）は金額に入れず pendingCount に数える（未定の件に紐づく行の提案額も入れない）。
  * - 件なしの行の提案額（期間末まで。unlinkedByKind）は区分の金額に足す（件数には入れない）。
  * - やり直し（countsToward false）はどこにも入れない。
  * - 精算提案額 = 当初 ＋ 区分ごとの金額の和（当初が無ければ null）。
