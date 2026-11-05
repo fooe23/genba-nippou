@@ -68,7 +68,7 @@ describe('お客様用日報の表', () => {
     expect(clientDailyTables(noWorkers).workersLine).toBeNull();
   });
 
-  it('本日の追加・変更のご連絡：件（MM/DD-番号）／種別／ご指示（指示者／方法）／内容。やり直しの件は出さない', () => {
+  it('追加・変更のご連絡：件（MM/DD-番号）／種別／ご指示（指示者／方法）／内容。やり直しの件は出さない', () => {
     const { issues: t } = clientDailyTables(sampleDaily({ issues: fourIssues }));
     expect(heads(t)).toEqual(['件', '種別', 'ご指示（指示者／方法）', '内容']);
     expect(text(t)).toEqual([
@@ -78,8 +78,8 @@ describe('お客様用日報の表', () => {
     ]);
   });
 
-  it('件が無い日・やり直しだけの日は行が無い（PDF は「本日はありません」の 1 行）', () => {
-    expect(NO_ISSUES_TODAY).toBe('本日はありません');
+  it('件が無い日・やり直しだけの日は行が無い（PDF は「ありません」の 1 行）', () => {
+    expect(NO_ISSUES_TODAY).toBe('ありません');
     expect(clientDailyTables(sampleDaily({ issues: [] })).issues.rows).toEqual([]);
     expect(clientDailyTables(sampleDaily({ issues: [fourIssues[1]] })).issues.rows).toEqual([]);
   });

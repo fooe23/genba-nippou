@@ -6,16 +6,16 @@ import type { DailyReportModel } from '@/lib/reports/types';
 
 // 現場日報（お客様用）の見出しと表（純関数。PDF は src/lib/pdf/client-daily-report.tsx）。
 // 出すもの：現場名・日付・天候・作業責任者・作業時間、本日の作業（区分・工種・施工内容・数量・単位・人工）、作業員の人数と人工の合計、
-// 本日の追加・変更のご連絡（その日報の件。やり直しを除く）、お客様確認、作成者。
+// 追加・変更のご連絡（その日報の件。やり直しを除く）、お客様確認、作成者。
 // 出さないもの：作業員の氏名・時間・日当・労務費、車両・リース・現金・買掛、本日原価集計、出来高・進捗率、金額、連絡事項、
 // 重要事項の本文（issues.text）。
 
 export const CLIENT_DAILY_TITLE = '現場日報（お客様用）';
 export const CLIENT_DAILY_WORK_TITLE = '本日の作業';
-export const CLIENT_DAILY_ISSUES_TITLE = '本日の追加・変更のご連絡';
+export const CLIENT_DAILY_ISSUES_TITLE = '追加・変更のご連絡';
 export const CLIENT_DAILY_CHECK_TITLE = 'お客様確認';
 /** 載せる件が無い日に表の代わりに出す 1 行。 */
-export const NO_ISSUES_TODAY = '本日はありません';
+export const NO_ISSUES_TODAY = 'ありません';
 
 /** 'YYYY-MM-DD' → 'MM/DD'。 */
 const md = (date: string) => date.slice(5).replace('-', '/');
@@ -38,7 +38,7 @@ export function clientDailyHeaderRows(m: DailyReportModel): [string, string | nu
  * - work：区分／工種／施工内容／数量（減は負）／単位／人工。金額・単価・歩掛は出さない。追加・増・変更・減の行は太字。
  * - workersLine：「作業員 N 名・合計 M.M 人工」（作業員の行が無ければ null）。氏名・時間は出さない。
  * - issues：件（MM/DD-番号）／種別／ご指示（指示者／方法）／内容。やり直しの件は出さない。載せる件が無ければ rows は空
- *   （PDF は「本日はありません」の 1 行）。
+ *   （PDF は「ありません」の 1 行）。
  */
 export function clientDailyTables(m: DailyReportModel): { work: SectionTable; workersLine: string | null; issues: SectionTable } {
   const n = m.workers.rows.length;
