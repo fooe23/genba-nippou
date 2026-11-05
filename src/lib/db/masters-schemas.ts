@@ -131,7 +131,7 @@ export function firstError(schema: ZodType, value: unknown): string | null {
 export const WORKER_IN_USE_MESSAGE = '日報や繰越で使っているため削除できません。無効にしてください';
 
 /**
- * 作業員の削除の可否（純関数）。日報の作業員の行（gn_report_lines.ref_id、kind = 'labor'）と
+ * 作業員の削除の可否（純関数。DB の gn_delete_worker と同じ条件）。日報の作業員の行（gn_report_lines.ref_id、kind = 'labor'）と
  * 繰越の初期値（gn_carryovers）のどちらにも使われていなければ削除できる（null）。使っていれば文言を返す。
  * 現場の選択（gn_site_workers）は使用に数えない（削除のときに一緒に外す）。
  */

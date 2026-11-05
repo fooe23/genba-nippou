@@ -368,13 +368,18 @@ async function closedSiteError(supabase: SupabaseClient, siteId: string): Promis
   return row.status !== 'active' || row.deleted_at !== null ? SITE_PARTNERS_CLOSED_MESSAGE : null;
 }
 
-/** 協力会社の作業員の ID（supplierId を渡すとその会社の作業員だけ）。 */
-async function partnerWorkerIds(supabase: SupabaseClient, supplierId?: string): Promise<Set<string>> {
-  let query = supabase.from('gn_workers').select('id').eq('affiliation', 'partner');
+/** 協力会社の作業員（supplierId を渡すとその会社の作業員だけ）。active は無効（false）以外 true。 */
+async function partnerWorkers(supabase: SupabaseClient, supplierId?: string): Promise<Map<string, { active: boolean }>> {
+  let query = supabase.from('gn_workers').select('id, active').eq('affiliation', 'partner');
   if (supplierId) query = query.eq('supplier_id', supplierId);
   const { data, error } = await query;
   if (error) throw new Error(error.message);
-  return new Set(((data ?? []) as { id: string }[]).map((r) => r.id));
+  return new Map(((data ?? []) as { id: string; active: boolean | null }[]).map((r) => [r.id, { active: r.active !== false }]));
+}
+
+/** 協力会社の作業員の ID（supplierId を渡すとその会社の作業員だけ）。 */
+async function partnerWorkerIds(supabase: SupabaseClient, supplierId?: string): Promise<Set<string>> {
+  return new Set((await partnerWorkers(supabase, supplierId)).keys());
 }
 
 /** 現場に協力会社を追加する（請負金額・メモは任意）。すでにあれば請負金額・メモを上書きする。 */
@@ -495,9 +500,20 @@ export async function setSitePartnerWorkers(siteId: string, supplierId: string, 
     const supabase = await createServerSupabase();
     const closed = await closedSiteError(supabase, v.siteId);
     if (closed) return { ok: false, error: closed };
-    const companyWorkers = await partnerWorkerIds(supabase, v.supplierId);
+    const companyWorkers = await partnerWorkers(supabase, v.supplierId);
     if (v.workerIds.some((id) => !companyWorkers.has(id))) {
       return { ok: false, error: 'この協力会社の作業員ではない作業員が含まれています' };
+    }
+    const { data: currentRows, error: currentError } = await supabase
+      .from('gn_site_workers')
+      .select('worker_id, sort_order')
+      .eq('site_id', v.siteId);
+    if (currentError) throw new Error(currentError.message);
+    const current = (currentRows ?? []) as { worker_id: string; sort_order: number | null }[];
+    const registered = new Set(current.map((r) => r.worker_id));
+    // 新しく登録できるのは有効な作業員だけ（無効な作業員の登録は外すことはできる）。
+    if (v.workerIds.some((id) => !registered.has(id) && companyWorkers.get(id)?.active === false)) {
+      return { ok: false, error: '無効な作業員は登録できません（作業員マスターで有効にしてください）' };
     }
     if (v.workerIds.length > 0) {
       // 請負金額・メモは変えない（無いときだけ作る）。
@@ -509,7 +525,25 @@ export async function setSitePartnerWorkers(siteId: string, supplierId: string, 
         return { ok: false, error: SITE_PARTNER_FAILED };
       }
     }
-    await syncSelection(supabase, 'gn_site_workers', 'worker_id', v.siteId, v.workerIds, (id) => companyWorkers.has(id));
+    // 増減はこの会社の作業員だけ。新しく登録する作業員の並び順は、この現場の最後（最大 + 1 から）。
+    const inScope = (id: string) => companyWorkers.has(id);
+    const wanted = new Set(v.workerIds);
+    const toRemove = current.filter((r) => inScope(r.worker_id) && !wanted.has(r.worker_id)).map((r) => r.worker_id);
+    const toAdd = [...wanted].filter((id) => !registered.has(id));
+    if (toRemove.length > 0) {
+      const { error } = await supabase.from('gn_site_workers').delete().eq('site_id', v.siteId).in('worker_id', toRemove);
+      if (error) throw new Error(error.message);
+    }
+    if (toAdd.length > 0) {
+      const start = current.reduce((m, r) => Math.max(m, (r.sort_order ?? 0) + 1), 0);
+      const { error } = await supabase
+        .from('gn_site_workers')
+        .upsert(
+          toAdd.map((id, i) => ({ site_id: v.siteId, worker_id: id, sort_order: start + i })),
+          { onConflict: 'site_id,worker_id', ignoreDuplicates: true },
+        );
+      if (error) throw new Error(error.message);
+    }
     revalidateSitePartners(v.siteId);
     return { ok: true };
   } catch (e) {
@@ -576,7 +610,10 @@ export async function copySitePartners(fromSiteId: string, toSiteId: string): Pr
       const start = targetWorkers.reduce((m, r) => Math.max(m, (r.sort_order ?? 0) + 1), 0);
       const { error } = await supabase
         .from('gn_site_workers')
-        .insert(plan.workerIds.map((id, i) => ({ site_id: v.toSiteId, worker_id: id, sort_order: start + i })));
+        .upsert(
+          plan.workerIds.map((id, i) => ({ site_id: v.toSiteId, worker_id: id, sort_order: start + i })),
+          { onConflict: 'site_id,worker_id', ignoreDuplicates: true },
+        );
       if (error) throw new Error(error.message);
     }
     revalidateSitePartners(v.toSiteId);

@@ -87,13 +87,26 @@ describe('保存時の所属の写しと常用・請負（2026-11-07）', () => 
     expect(out[1]).toMatchObject({ laborContract: null, affiliation: null, supplierId: null, dailyRate: null });
     expect(applyMasterSnapshots([hand], '2026-11-01', EMPTY_SNAPSHOT_MASTERS)[0]).toMatchObject({ affiliation: null, laborContract: null });
   });
-  it('保存した行の所属はその日の写し：後でマスターの所属を変えても、保存済みの行（読み戻した値）は変わらない', () => {
+  it('保存し直し：この日報に保存済みの作業員は保存した所属のまま（後でマスターを変えても動かない）', () => {
     const saved = applyMasterSnapshots([labor(P, { laborContract: 'ukeoi' })], '2026-11-01', m);
     const row = toLineRow(saved[0], t, 0, DEFAULT_LABOR_RULE);
-    // その後マスターで自社に変えた。保存済みの行（DB の値）を読み戻すと、保存したときの所属のまま。
-    const changed = { ...m, workers: [own, { ...partner, affiliation: 'own' as const, supplierId: null }] };
     expect(fromLineRow(row)).toMatchObject({ affiliation: 'partner', supplierId: S, laborContract: 'ukeoi' });
-    // 保存し直したときだけ、その時点のマスターの所属に写し直す（日当の写しと同じ扱い）。
-    expect(applyMasterSnapshots([fromLineRow(row)!], '2026-11-01', changed)[0]).toMatchObject({ affiliation: 'own', laborContract: null });
+    // その後マスターで自社に変えた。保存済みの値（prev）を渡して保存し直す。
+    const changed = { ...m, workers: [own, { ...partner, affiliation: 'own' as const, supplierId: null }] };
+    const prev = new Map([[P, { affiliation: 'partner' as const, supplierId: S, laborContract: 'ukeoi' as const }]]);
+    expect(applyMasterSnapshots([fromLineRow(row)!], '2026-11-01', changed, prev)[0]).toMatchObject({
+      affiliation: 'partner', supplierId: S, laborContract: 'ukeoi', dailyRate: 20000,
+    });
+  });
+  it('保存し直し：常用・請負が未指定（古い画面）なら保存済みの請負のまま。画面で選び直せばその値', () => {
+    const prev = new Map([[P, { affiliation: 'partner' as const, supplierId: S, laborContract: 'ukeoi' as const }]]);
+    expect(applyMasterSnapshots([labor(P)], '2026-11-01', m, prev)[0]).toMatchObject({ laborContract: 'ukeoi' });
+    expect(applyMasterSnapshots([labor(P, { laborContract: 'jouyou' })], '2026-11-01', m, prev)[0]).toMatchObject({ laborContract: 'jouyou' });
+  });
+  it('保存し直し：古い日報に新しく加えた作業員はいまのマスターを写す', () => {
+    const prev = new Map([[W1, { affiliation: 'own' as const, supplierId: null, laborContract: null }]]);
+    const out = applyMasterSnapshots([labor(W1), labor(P)], '2026-11-01', m, prev);
+    expect(out[0]).toMatchObject({ affiliation: 'own', supplierId: null, laborContract: null });
+    expect(out[1]).toMatchObject({ affiliation: 'partner', supplierId: S, laborContract: 'jouyou' });
   });
 });

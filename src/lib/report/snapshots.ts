@@ -1,5 +1,5 @@
 import { rateAt, type RateHistory } from '@/lib/calc/rates';
-import type { Affiliation, LaborLine, ReportLine } from '@/lib/types';
+import type { Affiliation, LaborContract, LaborLine, ReportLine } from '@/lib/types';
 
 // 保存時に、マスターを参照している明細の単価（日当・リース単価・燃費）をサーバー側で決め直す（純関数）。
 // クライアントから届いた単価は信用しない。保存された値はその日の単価の「複写（スナップショット）」で、
@@ -12,7 +12,9 @@ import type { Affiliation, LaborLine, ReportLine } from '@/lib/types';
 // - 参照先がマスターに無い（形式は正しいが存在しない ID）行は単価を null にする（0円として計算される）
 // 所属（2026-11-07）：
 // - 作業員（workerId あり）：affiliation・supplierId = 作業員マスターのいまの所属（自社なら supplierId は null）。
-//   日当と違って履歴は無いので、保存し直すとその時点のマスターの所属に写し直す（保存し直すまでは変わらない）。
+//   ただし、この日報にすでに保存されている作業員（prev）は保存済みの所属のまま（保存し直しても変わらない）。
+//   その日報に新しく加えた作業員だけ、その時点のマスターの所属を写す。過去の行をまとめて写し直すときは
+//   supabase/recalc_2026-11-07_line_affiliation.sql を使う。
 // - 常用・請負（laborContract）：所属が協力会社の行だけ持つ（未選択 null は 'jouyou'）。自社・手入力・マスターに無い行は null。
 // - 手入力の作業員（workerId なし）・マスターに無い作業員：所属は null（所属なし）。画面から届いた所属は使わない。
 
@@ -37,19 +39,39 @@ function withoutAffiliation(l: LaborLine): LaborLine {
   return { ...l, laborContract: null, affiliation: null, supplierId: null };
 }
 
-export function applyMasterSnapshots(lines: ReportLine[], date: string, masters: SnapshotMasters): ReportLine[] {
+/** この日報にすでに保存されている作業員の行の所属の写し（作業員 ID ごと）。保存し直しでは、これを優先する。 */
+export type StoredAffiliations = Map<string, { affiliation: Affiliation | null; supplierId: string | null; laborContract: LaborContract | null }>;
+
+export function applyMasterSnapshots(
+  lines: ReportLine[],
+  date: string,
+  masters: SnapshotMasters,
+  prev: StoredAffiliations = new Map(),
+): ReportLine[] {
   const workers = new Map(masters.workers.map((w) => [w.id, w]));
   const vehicles = new Map(masters.vehicles.map((v) => [v.id, v]));
   const items = new Map(masters.leaseItems.map((i) => [i.id, i]));
   return lines.map((l) => {
     if (l.kind === 'labor' && l.workerId) {
       const w = workers.get(l.workerId);
-      if (!w) return { ...l, dailyRate: null, overtimeRate: null, laborContract: null, affiliation: null, supplierId: null };
+      const rates = w ? { dailyRate: rateAt(w.rates, date), overtimeRate: w.overtimeRate } : { dailyRate: null, overtimeRate: null };
+      // 保存し直し：この日報に保存済みの作業員は、保存した所属のまま（後でマスターの所属を変えても動かない）。
+      const stored = prev.get(l.workerId);
+      if (stored && stored.affiliation !== null) {
+        const partner = stored.affiliation === 'partner';
+        return {
+          ...l,
+          ...rates,
+          laborContract: partner ? (l.laborContract ?? stored.laborContract ?? 'jouyou') : null,
+          affiliation: stored.affiliation,
+          supplierId: partner ? stored.supplierId : null,
+        };
+      }
+      if (!w) return { ...l, ...rates, laborContract: null, affiliation: null, supplierId: null };
       const partner = w.affiliation === 'partner';
       return {
         ...l,
-        dailyRate: rateAt(w.rates, date),
-        overtimeRate: w.overtimeRate,
+        ...rates,
         laborContract: partner ? (l.laborContract ?? 'jouyou') : null,
         affiliation: w.affiliation,
         supplierId: partner ? w.supplierId : null,

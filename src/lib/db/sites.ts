@@ -256,7 +256,7 @@ interface SitePartnerRow {
 }
 
 /**
- * 現場の協力会社の一覧（取引先の名前順）。RLS で現場メンバー（協力会社の担当を含む）が読める。
+ * 現場の協力会社の一覧（取引先の名前順）。RLS で社員・管理者だけが読める（協力会社のアカウントでは空になる）。
  * 協力会社の作業員の現場登録は getSiteMasters の workerIds（gn_site_workers）に自社の作業員の選択と一緒に入っている。
  */
 export async function listSitePartners(siteId: string): Promise<SitePartner[]> {

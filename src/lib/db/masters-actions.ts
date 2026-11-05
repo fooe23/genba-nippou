@@ -13,7 +13,7 @@ import {
   supplierInputSchema,
   vehicleInputSchema,
   workerInputSchema,
-  workerDeleteError,
+  WORKER_IN_USE_MESSAGE,
   workerIdSchema,
   workerWithRateSchema,
   type LeaseItemInput,
@@ -79,40 +79,32 @@ export type DeleteWorkerResult = { ok: true } | { ok: false; error: string };
 
 const DELETE_WORKER_FAILED = '削除に失敗しました。もう一度お試しください。';
 
+// gn_delete_worker のエラーを文言にする。使用中（worker_in_use）と、外部キー違反（23503。繰越など別の表が参照している）は同じ案内。
+function deleteWorkerErrorMessage(error: { code?: string; message?: string }): string {
+  const m = error.message ?? '';
+  if (m.includes('worker_in_use') || error.code === '23503') return WORKER_IN_USE_MESSAGE;
+  if (m.includes('worker_not_found')) return '作業員が見つかりません';
+  if (m.includes('not_admin')) return '管理者権限が必要です';
+  return DELETE_WORKER_FAILED;
+}
+
 /**
  * 作業員を削除する（管理者のみ。ほかのマスターの書き込みと同じ）。日報の作業員の行・繰越の初期値で一度も使っていない
- * 作業員だけ削除でき、現場の選択（gn_site_workers）からも一緒に外す。単価の履歴は DB の on delete cascade で消える。
+ * 作業員だけ削除でき、現場の選択（gn_site_workers）からも一緒に外す（DB の関数 gn_delete_worker で一括）。単価の履歴は on delete cascade で消える。
  * 使っている作業員は { ok: false, error: '日報や繰越で使っているため削除できません。無効にしてください' }。
  */
 export async function deleteWorker(id: string): Promise<DeleteWorkerResult> {
   await requireAdmin();
   const parsed = workerIdSchema.safeParse(id);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
-  const workerId = parsed.data;
   try {
     const supabase = await createServerSupabase();
-    const [lines, carryovers] = await Promise.all([
-      supabase.from('gn_report_lines').select('id', { count: 'exact', head: true }).eq('kind', 'labor').eq('ref_id', workerId),
-      supabase.from('gn_carryovers').select('id', { count: 'exact', head: true }).eq('worker_id', workerId),
-    ]);
-    if (lines.error || carryovers.error || lines.count === null || carryovers.count === null) {
-      console.error('[deleteWorker:usage]', lines.error?.message, carryovers.error?.message);
-      return { ok: false, error: DELETE_WORKER_FAILED };
-    }
-    const inUse = workerDeleteError({ reportLines: lines.count, carryovers: carryovers.count });
-    if (inUse) return { ok: false, error: inUse };
-
-    const { error: siteError } = await supabase.from('gn_site_workers').delete().eq('worker_id', workerId);
-    if (siteError) {
-      console.error('[deleteWorker:site_workers]', siteError.message);
-      return { ok: false, error: DELETE_WORKER_FAILED };
-    }
-    const { data, error } = await supabase.from('gn_workers').delete().eq('id', workerId).select('id');
+    // 使用の確認・現場の選択から外す・削除を DB の関数で一括で行う（途中で日報に使われても消さない）。
+    const { error } = await supabase.rpc('gn_delete_worker', { p_worker_id: parsed.data });
     if (error) {
-      console.error('[deleteWorker]', error.message);
-      return { ok: false, error: DELETE_WORKER_FAILED };
+      console.error('[deleteWorker]', error.code, error.message);
+      return { ok: false, error: deleteWorkerErrorMessage(error) };
     }
-    if ((data ?? []).length === 0) return { ok: false, error: '作業員が見つかりません' };
   } catch (e) {
     console.error('[deleteWorker]', e);
     return { ok: false, error: DELETE_WORKER_FAILED };

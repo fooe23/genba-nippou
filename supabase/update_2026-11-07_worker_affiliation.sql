@@ -8,7 +8,8 @@
 --     手入力の行（ref_id なし）は null ＝ 所属なしのまま。
 --   * gn_save_report：上の 3 列も保存する（労務の行だけ。それ以外は変更なし。gn_report_lines_compute は変更なし）
 --   * gn_partner_accounts（協力会社アカウント → 取引先）。本人と社員・管理者が読める、管理者だけ書ける
---   * gn_site_partners（現場の協力会社・請負金額・メモ）。現場メンバーが読める、社員・管理者が書ける（完了現場は不可）
+--   * gn_site_partners（現場の協力会社・請負金額・メモ）。社員・管理者だけが読み書きできる（協力会社は読めない。完了現場は書けない）
+--   * gn_delete_worker(uuid)：使っていない作業員だけを一括で削除する（管理者のみ）
 --   * gn_site_workers：社員も協力会社の作業員の登録を追加・削除できる（進行中の現場だけ。自社の作業員の選択は管理者だけのまま）
 -- 協力会社の上下（1 次・2 次）は持たない。
 -- アプリは新しい列・表を読むので、アプリを新しい版にする前に実行する（先にアプリを出すと作業員・日報の読み込みが失敗する）。
@@ -150,6 +151,36 @@ begin
 end;
 $$;
 
+-- 4b. 作業員の削除（使っていない作業員だけ・一括） --------------------------------
+-- 作業員の削除（2026-11-07）：日報の作業員の行（ref_id、kind = 'labor'）と繰越の初期値のどちらにも使っていない作業員だけ、
+-- 現場の選択（gn_site_workers）から外してから削除する（単価の履歴は on delete cascade）。1 回の呼び出しで一括（途中で失敗すれば全部戻る）。
+-- 管理者だけ（not_admin）。見つからなければ worker_not_found、使っていれば worker_in_use（アプリが文言に変える）。
+-- security invoker：呼び出しユーザーの RLS がそのまま効く（管理者はすべての日報の行・繰越を読める）。
+create or replace function public.gn_delete_worker(p_worker_id uuid)
+returns void language plpgsql security invoker set search_path = public as $$
+declare
+  v_lines int;
+  v_carry int;
+begin
+  if not public.is_admin() then
+    raise exception using message = 'not_admin';
+  end if;
+  perform 1 from public.gn_workers where id = p_worker_id for update;
+  if not found then
+    raise exception using message = 'worker_not_found';
+  end if;
+  select count(*) into v_lines from public.gn_report_lines where kind = 'labor' and ref_id = p_worker_id;
+  select count(*) into v_carry from public.gn_carryovers where worker_id = p_worker_id;
+  if v_lines > 0 or v_carry > 0 then
+    raise exception using message = 'worker_in_use';
+  end if;
+  delete from public.gn_site_workers where worker_id = p_worker_id;
+  delete from public.gn_workers where id = p_worker_id;
+end;
+$$;
+revoke all on function public.gn_delete_worker(uuid) from public, anon;
+grant execute on function public.gn_delete_worker(uuid) to authenticated;
+
 -- 5. 協力会社アカウントの会社・現場の協力会社 ------------------------------------
 -- 協力会社アカウントの会社（2026-11-07）：協力会社アカウント（profiles.account_type = 'partner'）を取引先の 1 社に結び付ける。
 -- profiles は業務日報アプリと共有なので列を足さず、別の表にする。未設定のアカウントは行が無い。
@@ -160,7 +191,7 @@ create table if not exists public.gn_partner_accounts (
 );
 
 -- 現場の協力会社（2026-11-07）：1 つの現場に入る協力会社（取引先）と、任意の請負金額・メモ。
--- 社員・管理者がいつでも追加・削除できる（完了・削除済みの現場は不可）。協力会社は担当現場の行を読めるだけ。
+-- 社員・管理者がいつでも追加・削除できる（完了・削除済みの現場は不可）。協力会社は読めない（請負金額を見せない）。
 create table if not exists public.gn_site_partners (
   id          uuid primary key default gen_random_uuid(),
   site_id     uuid not null references public.gn_sites(id),
@@ -183,11 +214,11 @@ create policy gn_partner_accounts_admin_update on public.gn_partner_accounts for
 drop policy if exists gn_partner_accounts_admin_delete on public.gn_partner_accounts;
 create policy gn_partner_accounts_admin_delete on public.gn_partner_accounts for delete to authenticated using (public.is_admin());
 
--- 現場の協力会社（2026-11-07）：現場メンバー（協力会社の担当を含む）が読める。
--- 追加・変更・削除は社員・管理者だけで、完了・削除済みの現場は不可（管理者も同じ）。
+-- 現場の協力会社（2026-11-07）：読めるのも書けるのも社員・管理者だけ（請負金額を協力会社に見せない）。
+-- 追加・変更・削除は完了・削除済みの現場では不可（管理者も同じ）。
 alter table public.gn_site_partners enable row level security;
 drop policy if exists gn_site_partners_select on public.gn_site_partners;
-create policy gn_site_partners_select on public.gn_site_partners for select to authenticated using (public.gn_is_site_member(site_id));
+create policy gn_site_partners_select on public.gn_site_partners for select to authenticated using (public.gn_is_employee_or_admin() and public.gn_is_site_member(site_id));
 drop policy if exists gn_site_partners_staff_insert on public.gn_site_partners;
 create policy gn_site_partners_staff_insert on public.gn_site_partners for insert to authenticated with check (public.gn_is_employee_or_admin() and public.gn_is_site_member(site_id) and not public.gn_site_closed(site_id));
 drop policy if exists gn_site_partners_staff_update on public.gn_site_partners;

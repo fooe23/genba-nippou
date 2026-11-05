@@ -636,11 +636,11 @@ begin
   perform pg_temp.as_user(v_a);
   select count(*) into n from public.gn_site_partners where site_id = x;
   perform pg_temp.as_editor();
-  perform pg_temp.as_user(v_b);
+  perform pg_temp.as_user(v_c);
   select count(*) into n2 from public.gn_site_partners where site_id = x;
   perform pg_temp.as_editor();
-  if n = 1 and n2 = 0 then rep := rep || E'PASS 11-2 現場の協力会社は担当の協力会社だけ読める（担当外は 0 行）\n';
-  else fails := fails + 1; rep := rep || format(E'FAIL 11-2 A=%s B=%s\n', n, n2); end if;
+  if n = 0 and n2 = 1 then rep := rep || E'PASS 11-2 現場の協力会社（請負金額）は社員が読め、担当の協力会社には見えない（0 行）\n';
+  else fails := fails + 1; rep := rep || format(E'FAIL 11-2 協力会社A=%s 社員C=%s\n', n, n2); end if;
   begin
     perform pg_temp.as_user(v_a);
     update public.gn_site_partners set amount = 1 where site_id = x;
@@ -682,6 +682,24 @@ begin
     else fails := fails + 1; rep := rep || format(E'FAIL 11-7 削除件数=%s\n', n); end if;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 11-7 エラー: %s\n', sqlerrm);
+  end;
+  insert into public.gn_site_workers (site_id, worker_id) values (x, '00000000-0000-0000-0000-0000000000e1');
+  begin
+    perform pg_temp.as_user(v_c);
+    delete from public.gn_site_workers where site_id = x and worker_id = '00000000-0000-0000-0000-0000000000e1';
+    get diagnostics n = row_count;
+    perform pg_temp.as_editor();
+    if n = 0 then rep := rep || E'PASS 11-7b 社員は自社の作業員の選択を外せない（RLS）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 11-7b 削除件数=%s\n', n); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 11-7b エラー: %s\n', sqlerrm);
+  end;
+  begin
+    perform pg_temp.as_user(v_c);
+    insert into public.gn_site_workers (site_id, worker_id) values (y, '00000000-0000-0000-0000-0000000000e2');
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 11-7c 完了現場に協力会社の作業員を登録できてしまった\n';
+  exception when others then
+    perform pg_temp.as_editor(); rep := rep || E'PASS 11-7c 完了現場には協力会社の作業員を登録できない（RLS）\n';
   end;
   insert into public.gn_partner_accounts (user_id, supplier_id) values (v_a, '00000000-0000-0000-0000-0000000000d1');
   perform pg_temp.as_user(v_a);

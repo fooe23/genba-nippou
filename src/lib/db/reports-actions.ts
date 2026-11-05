@@ -25,7 +25,7 @@ import {
   toReportRow,
 } from '@/lib/report/rows';
 import { usesFixedAmount } from '@/lib/report/change-labels';
-import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots } from '@/lib/report/snapshots';
+import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots, type StoredAffiliations } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
 import type { ReportLine } from '@/lib/types';
@@ -68,8 +68,11 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
     // その日の単価の複写（スナップショット）になり、集計はこの値を使う。画面のプレビューは従来どおり。
     const [lines, settings] = await Promise.all([
       // 参照の無い行だけでも、手入力の作業員の行の所属・常用請負をそろえる（マスターは読まない）。
+      // この日報に保存済みの作業員の所属の写しは保存し直しでも変えない（prev）。
       needsMasterSnapshots(v.lines)
-        ? loadSnapshotMasters().then((m) => applyMasterSnapshots(v.lines, v.date, m))
+        ? Promise.all([loadSnapshotMasters(), loadStoredAffiliations(v.siteId, v.date)]).then(([m, prev]) =>
+            applyMasterSnapshots(v.lines, v.date, m, prev),
+          )
         : applyMasterSnapshots(v.lines, v.date, EMPTY_SNAPSHOT_MASTERS),
       getSettings(),
     ]);
@@ -101,6 +104,33 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
     console.error('[saveReport]', e);
     return { ok: false, error: saveErrorMessage(null) };
   }
+}
+
+/** その日報に保存済みの作業員の行の所属の写し（作業員 ID ごと。同じ作業員が複数行あれば最初の行）。日報が無ければ空。 */
+async function loadStoredAffiliations(siteId: string, date: string): Promise<StoredAffiliations> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_daily_reports')
+    .select('gn_report_lines(ref_id, affiliation, supplier_id, labor_contract, sort_order)')
+    .eq('site_id', siteId)
+    .eq('report_date', date)
+    .eq('gn_report_lines.kind', 'labor')
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  type Row = { ref_id: string | null; affiliation: string | null; supplier_id: string | null; labor_contract: string | null; sort_order: number | null };
+  const rows = ((data as { gn_report_lines: Row[] | null } | null)?.gn_report_lines ?? [])
+    .slice()
+    .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  const out: StoredAffiliations = new Map();
+  for (const r of rows) {
+    if (!r.ref_id || out.has(r.ref_id)) continue;
+    out.set(r.ref_id, {
+      affiliation: r.affiliation === 'own' || r.affiliation === 'partner' ? r.affiliation : null,
+      supplierId: r.supplier_id,
+      laborContract: r.labor_contract === 'jouyou' || r.labor_contract === 'ukeoi' ? r.labor_contract : null,
+    });
+  }
+  return out;
 }
 
 async function loadSnapshotMasters() {
