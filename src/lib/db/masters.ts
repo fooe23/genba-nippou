@@ -1,6 +1,7 @@
 import 'server-only';
 import type { RateHistory } from '@/lib/calc/rates';
 import type { Affiliation } from '@/lib/types';
+import { fetchAllPages } from '@/lib/calc/paging';
 import { createServerSupabase } from '@/lib/supabase/server';
 
 /**
@@ -90,6 +91,41 @@ export async function listWorkers(): Promise<Worker[]> {
       ...touched(r),
     }))
     .sort(byActiveThenName);
+}
+
+/**
+ * 日報の作業員の行（gn_report_lines.ref_id、kind = 'labor'）か繰越の初期値（gn_carryovers）で使っている作業員の ID。
+ * 作業員マスターの「削除」ボタンを出すかの判断に使う（削除の可否の最終判断は DB の gn_delete_worker）。
+ * 管理者が読む前提（RLS で全現場が見える）。黙って切り詰められないよう 1000 件ずつ最後まで取る。
+ */
+export async function listUsedWorkerIds(): Promise<Set<string>> {
+  const supabase = await createServerSupabase();
+  const [lines, carryovers] = await Promise.all([
+    fetchAllPages<{ ref_id: string | null }>(async (from, to) => {
+      const { data, error } = await supabase
+        .from('gn_report_lines')
+        .select('ref_id')
+        .eq('kind', 'labor')
+        .not('ref_id', 'is', null)
+        .order('id', { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as { ref_id: string | null }[];
+    }),
+    fetchAllPages<{ worker_id: string }>(async (from, to) => {
+      const { data, error } = await supabase
+        .from('gn_carryovers')
+        .select('worker_id')
+        .order('id', { ascending: true })
+        .range(from, to);
+      if (error) throw new Error(error.message);
+      return (data ?? []) as { worker_id: string }[];
+    }),
+  ]);
+  const out = new Set<string>();
+  for (const r of lines) if (r.ref_id) out.add(r.ref_id);
+  for (const r of carryovers) out.add(r.worker_id);
+  return out;
 }
 
 export async function listSuppliers(): Promise<Supplier[]> {

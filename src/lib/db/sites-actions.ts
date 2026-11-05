@@ -350,6 +350,7 @@ function firstIssueMessage(error: { issues: { message: string }[] }): string {
 function revalidateSitePartners(siteId: string): void {
   revalidateSite(siteId);
   revalidatePath(`/sites/${siteId}`);
+  revalidatePath(`/sites/${siteId}/partners`);
   revalidatePath('/sites/[siteId]/reports/[date]', 'page');
 }
 

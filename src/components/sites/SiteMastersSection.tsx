@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { setSiteMasters } from '@/lib/db/sites-actions';
 import type { SiteMasters } from '@/lib/db/sites';
@@ -14,6 +15,8 @@ interface Props {
   suppliers: CheckItem[];
   vehicles: CheckItem[];
   leaseItems: CheckItem[];
+  /** 「協力会社と作業員」の画面（削除済みの現場は null）。 */
+  partnersHref?: string | null;
 }
 
 type Key = keyof SiteMasters;
@@ -84,7 +87,7 @@ function Checklist({
 }
 
 /** ③ この現場で使うマスター: 作業員・取引先・車両・リース品をチェックして保存。 */
-export function SiteMastersSection({ siteId, selected, workers, suppliers, vehicles, leaseItems }: Props) {
+export function SiteMastersSection({ siteId, selected, workers, suppliers, vehicles, leaseItems, partnersHref = null }: Props) {
   const { pending, error, run } = useRunner();
   const [sel, setSel] = useState<Record<Key, Set<string>>>({
     workerIds: new Set(selected.workerIds),
@@ -136,7 +139,17 @@ export function SiteMastersSection({ siteId, selected, workers, suppliers, vehic
       <p className="text-sm text-gray-600 dark:text-gray-400">
         ここで選んだものだけが、この現場の日報のプルダウンに出ます。何も選んでいない種類は、有効なもの全部が出ます。
       </p>
-      <Checklist title="作業員" items={workers} checked={sel.workerIds} onToggle={(id) => toggle('workerIds', id)} onSetAll={(ids) => setAll('workerIds', ids)} />
+      <div className="space-y-2">
+        <p className="text-sm text-gray-600 dark:text-gray-400">
+          ここの作業員は自社の作業員だけです。協力会社の作業員は「協力会社と作業員」で現場ごとに登録します。
+        </p>
+        {partnersHref && (
+          <Link href={partnersHref} className="inline-flex min-h-11 items-center text-base font-medium text-blue-700 underline dark:text-blue-400">
+            協力会社と作業員を開く →
+          </Link>
+        )}
+        <Checklist title="作業員（自社）" items={workers} checked={sel.workerIds} onToggle={(id) => toggle('workerIds', id)} onSetAll={(ids) => setAll('workerIds', ids)} />
+      </div>
       <Checklist title="取引先" items={suppliers} checked={sel.supplierIds} onToggle={(id) => toggle('supplierIds', id)} onSetAll={(ids) => setAll('supplierIds', ids)} />
       <Checklist title="車両" items={vehicles} checked={sel.vehicleIds} onToggle={(id) => toggle('vehicleIds', id)} onSetAll={(ids) => setAll('vehicleIds', ids)} />
       <Checklist title="リース品" items={leaseItems} checked={sel.leaseItemIds} onToggle={(id) => toggle('leaseItemIds', id)} onSetAll={(ids) => setAll('leaseItemIds', ids)} />

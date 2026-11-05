@@ -3,12 +3,23 @@ import { yen } from '@/lib/calc/format';
 import { withoutSaved } from '@/lib/report/rows';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { CashLineInput, CreditLineInput, ReportLineInput, SaveInput } from '@/lib/report/schema';
-import type { FuelLine, LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
+import type { Affiliation, FuelLine, LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 
 // 日報入力フォームの状態と変換（純関数）。表ごとに行を持ち、保存時に SaveInput へ並べ直す。
 
-/** overtimeRate は作業員マスターの残業単価（円/H）。null なら標準の計算式（日当 ÷ 基準時間 × 割増率）。 */
-export interface WorkerOption { id: string; name: string; active: boolean; rates: RateHistory[]; overtimeRate: number | null; }
+/**
+ * overtimeRate は作業員マスターの残業単価（円/H）。null なら標準の計算式（日当 ÷ 基準時間 × 割増率）。
+ * affiliation・supplierId は作業員マスターのいまの所属（社内の表示と、常用／請負の欄を出すかの判断に使う。省略は所属不明）。
+ */
+export interface WorkerOption {
+  id: string;
+  name: string;
+  active: boolean;
+  rates: RateHistory[];
+  overtimeRate: number | null;
+  affiliation?: Affiliation;
+  supplierId?: string | null;
+}
 export interface VehicleOption { id: string; name: string; active: boolean; kmPerL: number | null; }
 export interface LeaseItemOption { id: string; name: string; spec: string | null; active: boolean; rates: RateHistory[]; }
 export interface SupplierOption { id: string; name: string; active: boolean; }
@@ -19,6 +30,8 @@ export interface ReportMasters {
   suppliers: SupplierOption[];
   units: string[];
   weather: string[];
+  /** 取引先 ID → 名前（作業員の行の所属の表示用。無効な取引先も含む）。省略時は名前を出さない。 */
+  supplierNames?: Record<string, string>;
 }
 
 /** 表の1行。key は React 用、amountMode は現金・買掛の「金額のみ入力」、manual は作業員・買掛の仕入先で「（手入力）」を選んだ印。 */
@@ -179,9 +192,19 @@ export function refreshFromMasters(lines: ReportLine[], masters: ReportMasters, 
   return lines.map((l) => {
     if (l.kind === 'labor') {
       const w = masters.workers.find((x) => x.id === l.workerId);
-      return w
-        ? { ...l, workerName: w.name, dailyRate: rateAt(w.rates, date) ?? l.dailyRate, overtimeRate: w.overtimeRate }
-        : l;
+      if (!w) return l;
+      // 所属の写しは複写元の日のもの。この日報ではマスターのいまの所属で保存されるので、写しは持ち込まない。
+      // 常用・請負は複写する（いまの所属が自社なら外す）。
+      const { affiliation: _affiliation, supplierId: _supplierId, ...rest } = l;
+      void _affiliation;
+      void _supplierId;
+      return {
+        ...rest,
+        workerName: w.name,
+        dailyRate: rateAt(w.rates, date) ?? l.dailyRate,
+        overtimeRate: w.overtimeRate,
+        ...(w.affiliation === 'own' && l.laborContract !== undefined ? { laborContract: null } : {}),
+      };
     }
     if (l.kind === 'fuel') {
       const v = masters.vehicles.find((x) => x.id === l.vehicleId);

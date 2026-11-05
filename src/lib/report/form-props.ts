@@ -112,6 +112,8 @@ export async function loadReportFormProps(
       active: w.active,
       rates: w.rates,
       overtimeRate: w.overtimeRate,
+      affiliation: w.affiliation,
+      supplierId: w.supplierId,
     })),
     vehicles: forSite(vehicles, selected.vehicleIds, used.vehicles).map((v) => ({ id: v.id, name: v.name, active: v.active, kmPerL: v.kmPerL })),
     leaseItems: forSite(leaseItems, selected.leaseItemIds, used.leaseItems).map((x) => ({
@@ -124,6 +126,8 @@ export async function loadReportFormProps(
     suppliers: forSite(suppliers, selected.supplierIds, used.suppliers).map((s) => ({ id: s.id, name: s.name, active: s.active })),
     units,
     weather,
+    // 作業員の行の所属（自社／取引先名／所属なし）の表示用。協力会社のアカウントにも見えてよい（1 現場 1 日 1 枚で共有）。
+    supplierNames: Object.fromEntries(suppliers.map((s) => [s.id, s.name])),
   };
 
   const head = report.head;

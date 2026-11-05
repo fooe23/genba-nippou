@@ -46,7 +46,11 @@ export default async function SiteEditPage({ params }: PageProps<'/admin/sites/[
     listLeaseItems(),
   ]);
 
-  const workerItems: CheckItem[] = visible(workers, masters.workerIds).map((w) => ({
+  // 作業員の選択は自社の作業員だけ（協力会社の作業員の登録は「協力会社と作業員」で行う。setSiteMasters も協力会社の作業員は無視する）。
+  const ownWorkers = workers.filter((w) => w.affiliation !== 'partner');
+  const ownWorkerIds = new Set(ownWorkers.map((w) => w.id));
+  const ownSelected = { ...masters, workerIds: masters.workerIds.filter((id) => ownWorkerIds.has(id)) };
+  const workerItems: CheckItem[] = visible(ownWorkers, ownSelected.workerIds).map((w) => ({
     id: w.id,
     name: w.name,
     sub: w.trade,
@@ -99,7 +103,8 @@ export default async function SiteEditPage({ params }: PageProps<'/admin/sites/[
         <Section title="③ この現場で使うマスター">
           <SiteMastersSection
             siteId={siteId}
-            selected={masters}
+            selected={ownSelected}
+            partnersHref={site.deletedAt === null ? `/sites/${siteId}/partners` : null}
             workers={workerItems}
             suppliers={supplierItems}
             vehicles={vehicleItems}

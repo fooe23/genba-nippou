@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
 import { todayJst } from '@/lib/calc/format';
-import { requireProfile } from '@/lib/db/profile';
+import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { listOpenIssues, listReportHeads } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
 import { ReportCalendar } from '@/components/site/ReportCalendar';
@@ -65,6 +65,14 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
           </>
         )}
       </div>
+      {/* 協力会社と作業員の登録は社員・管理者だけ（協力会社には出さない） */}
+      {isEmployeeOrAdmin(profile) && (
+        <div className="mt-2 flex">
+          <Link href={`/sites/${siteId}/partners`} className={siteLinkClass}>
+            協力会社と作業員
+          </Link>
+        </div>
+      )}
 
       {profile.isAdmin && <SiteStatusButton siteId={siteId} status={site.status} />}
     </main>

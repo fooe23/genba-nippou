@@ -752,6 +752,7 @@ function ReportFormBody({
           preferSaved={p.readOnly}
           date={p.date}
           workers={p.masters.workers}
+          supplierNames={p.masters.supplierNames}
         />
         <FuelTable rows={state.rows.fuel} onChange={setRows('fuel')} vehicles={p.masters.vehicles} />
         <LeaseTable rows={state.rows.lease} onChange={setRows('lease')} date={p.date} items={p.masters.leaseItems} units={p.masters.units} />

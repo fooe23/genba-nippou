@@ -43,6 +43,8 @@ export interface MastersData {
   importLog: ImportLogEntry[];
   /** 更新者の表示名（profiles.id → 氏名、無ければメール）。 */
   updaters: Updaters;
+  /** 日報・繰越で使っている作業員の ID（削除ボタンを出すかの判断）。読めなかったときは null（削除ボタンを出さない）。 */
+  usedWorkerIds: string[] | null;
 }
 
 export function MastersTabs({ data }: { data: MastersData }) {
@@ -80,7 +82,16 @@ export function MastersTabs({ data }: { data: MastersData }) {
         ))}
       </div>
       <div role="tabpanel" id={`panel-${active}`} aria-labelledby={`tab-${active}`}>
-        {active === 'workers' && <WorkersPanel workers={data.workers} today={data.today} rule={data.settings.rule} updaters={data.updaters} />}
+        {active === 'workers' && (
+          <WorkersPanel
+            workers={data.workers}
+            suppliers={data.suppliers}
+            usedWorkerIds={data.usedWorkerIds}
+            today={data.today}
+            rule={data.settings.rule}
+            updaters={data.updaters}
+          />
+        )}
         {active === 'suppliers' && <SuppliersPanel suppliers={data.suppliers} updaters={data.updaters} />}
         {active === 'vehicles' && <VehiclesPanel vehicles={data.vehicles} updaters={data.updaters} />}
         {active === 'lease' && <LeaseItemsPanel items={data.leaseItems} today={data.today} updaters={data.updaters} />}

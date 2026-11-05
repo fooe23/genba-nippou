@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fillMissingRates, fromInput, newReportCommon, refreshFromMasters, toInput, type ReportMasters } from '@/components/report/form-state';
-import type { ReportLine } from '@/lib/types';
+import type { LaborLine, ReportLine } from '@/lib/types';
 
 const W1 = '11111111-1111-4111-8111-111111111111';
 const W2 = '11111111-1111-4111-8111-222222222222';
@@ -102,5 +102,27 @@ describe('toInput（保存・下書きの入力）', () => {
     const out = toInput(W1, '2026-11-03', fromInput(input));
     expect(out.lines[0]).not.toHaveProperty('saved');
     expect(out.lines[0]).toMatchObject({ dailyRate: 18000, overtimeRate: null });
+  });
+});
+
+describe('refreshFromMasters（前回コピー・所属と常用請負）', () => {
+  it('所属の写しは持ち込まず、常用・請負は残す。いまの所属が自社なら常用・請負を外す', () => {
+    const m: ReportMasters = {
+      ...masters,
+      workers: [
+        { ...masters.workers[0], affiliation: 'partner', supplierId: 'S' },
+        { ...masters.workers[1], affiliation: 'own', supplierId: null },
+      ],
+    };
+    const partnerLine = (workerId: string): LaborLine => ({
+      kind: 'labor', workerId, workerName: '', time: t, dailyRate: 15000, note: '', overtimeRate: null,
+      laborContract: 'ukeoi', affiliation: 'partner', supplierId: 'OLD',
+    });
+    const copied: ReportLine[] = [partnerLine(W1), partnerLine(W2)];
+    const out = refreshFromMasters(copied, m, '2026-11-01');
+    expect(out[0]).toMatchObject({ laborContract: 'ukeoi' });
+    expect(out[0]).not.toHaveProperty('affiliation');
+    expect(out[0]).not.toHaveProperty('supplierId');
+    expect(out[1]).toMatchObject({ laborContract: null });
   });
 });
