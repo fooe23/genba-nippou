@@ -15,7 +15,7 @@ import type { Affiliation, LaborContract, LaborLine, ReportLine } from '@/lib/ty
 //   ただし、この日報にすでに保存されている作業員（prev）は保存済みの所属のまま（保存し直しても変わらない）。
 //   その日報に新しく加えた作業員だけ、その時点のマスターの所属を写す。過去の行をまとめて写し直すときは
 //   supabase/recalc_2026-11-07_line_affiliation.sql を使う。
-// - 常用・請負（laborContract）：所属が協力会社の行だけ持つ（未選択 null は 'jouyou'）。自社・手入力・マスターに無い行は null。
+// - 常用・請負（laborContract）：所属が協力会社の行だけ持つ（未選択 null は 'jouyou'。保存済みの作業員で項目が無い（undefined）ときだけ保存済みの区分）。自社・手入力・マスターに無い行は null。
 // - 手入力の作業員（workerId なし）・マスターに無い作業員：所属は null（所属なし）。画面から届いた所属は使わない。
 
 export interface SnapshotMasters {
@@ -62,7 +62,8 @@ export function applyMasterSnapshots(
         return {
           ...l,
           ...rates,
-          laborContract: partner ? (l.laborContract ?? stored.laborContract ?? 'jouyou') : null,
+          // 画面から届いた区分を使う。null（常用を選んだ・選び直した）は常用。項目自体が無い（古い下書き・取り込み）ときだけ保存済みの区分。
+          laborContract: partner ? (l.laborContract === undefined ? (stored.laborContract ?? 'jouyou') : (l.laborContract ?? 'jouyou')) : null,
           affiliation: stored.affiliation,
           supplierId: partner ? stored.supplierId : null,
         };

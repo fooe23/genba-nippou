@@ -60,25 +60,50 @@ export function workerFilterOptions(workers: FilterableWorker[], supplierNames: 
   return [{ value: 'all', label: 'すべて' }, { value: 'own', label: OWN_LABEL }, ...companies];
 }
 
-/** 削除できるか：日報の作業員の行・繰越の初期値で一度も使っていない作業員だけ。 */
-export function canDeleteWorker(workerId: string, usedWorkerIds: ReadonlySet<string>): boolean {
-  return !usedWorkerIds.has(workerId);
+/** 作業員の編集画面の削除の欄：削除ボタン／「使用中のため削除できません」／何も出さない（確認中・確認できなかった）。 */
+export type WorkerDeleteView = 'deletable' | 'in_use' | 'none';
+
+/** 使用状況（workerUsage の結果）から削除の欄を決める。日報・繰越で一度も使っていない作業員だけ削除できる。 */
+export function workerDeleteView(usage: 'loading' | 'error' | { used: boolean }): WorkerDeleteView {
+  if (usage === 'loading' || usage === 'error') return 'none';
+  return usage.used ? 'in_use' : 'deletable';
+}
+
+/** この日報に保存済みの作業員の行の所属と常用・請負の写し（作業員 ID ごと。サーバーの保存し直しと同じ材料）。 */
+export type StoredLaborAffiliations = ReadonlyMap<string, { affiliation: Affiliation; supplierId: string | null; laborContract: LaborContract | null }>;
+
+/**
+ * 日報を開いたときに読み込んだ（保存済みの）行から、作業員ごとの所属の写し（最初の行）を集める。
+ * サーバーは保存し直しのとき、この日報に保存済みの作業員はこの写しを使う（src/lib/report/snapshots.ts）。
+ */
+export function storedLaborAffiliations(
+  lines: { kind: string; workerId?: string | null; affiliation?: Affiliation | null; supplierId?: string | null; laborContract?: LaborContract | null }[],
+): Map<string, { affiliation: Affiliation; supplierId: string | null; laborContract: LaborContract | null }> {
+  const out = new Map<string, { affiliation: Affiliation; supplierId: string | null; laborContract: LaborContract | null }>();
+  for (const l of lines) {
+    if (l.kind !== 'labor' || !l.workerId || !l.affiliation || out.has(l.workerId)) continue;
+    const partner = l.affiliation === 'partner';
+    out.set(l.workerId, {
+      affiliation: l.affiliation,
+      supplierId: partner ? (l.supplierId ?? null) : null,
+      laborContract: partner ? (l.laborContract ?? null) : null,
+    });
+  }
+  return out;
 }
 
 /**
- * 日報の作業員の行の所属（表示と、常用／請負の欄を出すかの判断に使う）。
+ * 日報の作業員の行の所属（表示と、常用／請負の欄を出すかの判断）。保存時にサーバーが決める値と同じにする。
  * - 手入力（workerId なし）：所属なし（null）。
- * - 行に保存済みの所属の写しがあればそれ（その日の所属。後でマスターを変えても動かない）。
- * - 同じ日報のほかの行に同じ作業員の写しがあればそれ（保存し直しでもサーバーは保存済みの所属を使う）。
- * - なければ作業員マスターのいまの所属。マスターにも無ければ所属なし。
+ * - この日報に保存済みの作業員：保存済みの所属（後でマスターを変えても動かない）。
+ * - それ以外：作業員マスターのいまの所属。マスターにも無ければ所属なし。
  */
 export function laborRowAffiliation(
-  line: { workerId: string | null; affiliation?: Affiliation | null; supplierId?: string | null },
-  stored: ReadonlyMap<string, { affiliation: Affiliation; supplierId: string | null }>,
+  line: { workerId: string | null },
+  stored: StoredLaborAffiliations,
   worker: { affiliation?: Affiliation; supplierId?: string | null } | undefined,
 ): { affiliation: Affiliation | null; supplierId: string | null } {
   if (!line.workerId) return { affiliation: null, supplierId: null };
-  if (line.affiliation) return { affiliation: line.affiliation, supplierId: line.affiliation === 'partner' ? (line.supplierId ?? null) : null };
   const s = stored.get(line.workerId);
   if (s) return { affiliation: s.affiliation, supplierId: s.affiliation === 'partner' ? s.supplierId : null };
   if (worker?.affiliation) {
@@ -87,16 +112,18 @@ export function laborRowAffiliation(
   return { affiliation: null, supplierId: null };
 }
 
-/** 日報のいまの行から、作業員ごとの保存済みの所属の写し（最初の行）を集める。 */
-export function storedLaborAffiliations(
-  lines: { workerId: string | null; affiliation?: Affiliation | null; supplierId?: string | null }[],
-): Map<string, { affiliation: Affiliation; supplierId: string | null }> {
-  const out = new Map<string, { affiliation: Affiliation; supplierId: string | null }>();
-  for (const l of lines) {
-    if (!l.workerId || !l.affiliation || out.has(l.workerId)) continue;
-    out.set(l.workerId, { affiliation: l.affiliation, supplierId: l.affiliation === 'partner' ? (l.supplierId ?? null) : null });
-  }
-  return out;
+/**
+ * 協力会社の作業員の行の常用・請負の表示値（保存時にサーバーが決める値と同じ）。
+ * 行に値があればそれ、null（常用を選んだ・選び直した）は常用。項目が無い（undefined。古い下書き・取り込み）ときだけ
+ * この日報に保存済みの区分、それも無ければ常用。
+ */
+export function laborContractValue(
+  line: { workerId: string | null; laborContract?: LaborContract | null },
+  stored: StoredLaborAffiliations,
+): LaborContract {
+  if (line.laborContract !== undefined) return line.laborContract ?? 'jouyou';
+  const s = line.workerId ? stored.get(line.workerId) : undefined;
+  return (s?.affiliation === 'partner' ? s.laborContract : null) ?? 'jouyou';
 }
 
 // ─── 現場の「協力会社と作業員」 ───

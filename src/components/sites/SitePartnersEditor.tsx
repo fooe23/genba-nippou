@@ -9,8 +9,9 @@ import {
   setSitePartnerWorkers,
   updateSitePartner,
 } from '@/lib/db/sites-actions';
+import { parseYenInput, partnerAmountError } from '@/lib/db/sites-schemas';
 import {
-  EmptyText, ErrorText, Field, inputClass, numOrNull, primaryButtonClass, secondaryButtonClass, str, useRunner,
+  EmptyText, ErrorText, Field, inputClass, primaryButtonClass, secondaryButtonClass, str, useRunner,
 } from '@/components/masters/common';
 
 export interface PartnerCardData {
@@ -23,11 +24,6 @@ export interface PartnerCardData {
 export interface PartnerWorkerChoice { id: string; name: string; trade: string | null; }
 export interface SiteChoice { id: string; name: string; done: boolean; }
 
-const MSG_AMOUNT = '請負金額は0以上の数値で入力してください（空欄可）';
-
-function amountError(amount: number | null): string | null {
-  return amount !== null && (!Number.isFinite(amount) || amount < 0) ? MSG_AMOUNT : null;
-}
 
 const dangerButtonClass =
   'min-h-11 rounded-lg border border-red-600 px-4 text-base font-medium text-red-700 disabled:opacity-50 dark:border-red-500 dark:text-red-400';
@@ -150,6 +146,7 @@ function PartnerCard({
           この現場で働く作業員
           <span className="ml-2 text-sm font-normal text-gray-600 dark:text-gray-400">（{checked.size}人登録）</span>
         </legend>
+        <p className="mb-1 text-xs text-gray-600 dark:text-gray-400">無効の作業員は表示されません。登録を保存すると外れます。</p>
         {workers.length === 0 ? (
           <p className="py-2 text-sm text-gray-600 dark:text-gray-400">
             この会社の有効な作業員がいません。管理者が マスター → 作業員 で所属を「協力会社」にして登録します。
@@ -211,8 +208,8 @@ function AmountForm({ partner, onDone }: { partner: PartnerCardData; onDone: () 
   function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const amount = numOrNull(str(fd, 'amount'));
-    const invalid = amountError(amount);
+    const amount = parseYenInput(str(fd, 'amount'));
+    const invalid = partnerAmountError(amount);
     if (invalid) {
       setError(invalid);
       return;
@@ -223,15 +220,7 @@ function AmountForm({ partner, onDone }: { partner: PartnerCardData; onDone: () 
   return (
     <form onSubmit={submit} className="mt-2 space-y-3">
       <Field label="請負金額（円・任意）">
-        <input
-          name="amount"
-          type="number"
-          inputMode="numeric"
-          min={0}
-          step="any"
-          defaultValue={partner.amount ?? ''}
-          className={inputClass}
-        />
+        <input name="amount" type="text" inputMode="numeric" defaultValue={partner.amount ?? ''} placeholder="例: 1500000" className={inputClass} />
       </Field>
       <Field label="メモ（任意）">
         <input name="note" maxLength={200} defaultValue={partner.note ?? ''} className={inputClass} />
@@ -267,8 +256,8 @@ function AddPartnerForm({ siteId, addable }: { siteId: string; addable: { id: st
       setError('この協力会社はすでに追加されています');
       return;
     }
-    const amount = numOrNull(str(fd, 'amount'));
-    const invalid = amountError(amount);
+    const amount = parseYenInput(str(fd, 'amount'));
+    const invalid = partnerAmountError(amount);
     if (invalid) {
       setError(invalid);
       return;
@@ -304,7 +293,7 @@ function AddPartnerForm({ siteId, addable }: { siteId: string; addable: { id: st
             </select>
           </Field>
           <Field label="請負金額（円・任意）">
-            <input name="amount" type="number" inputMode="numeric" min={0} step="any" className={inputClass} />
+            <input name="amount" type="text" inputMode="numeric" placeholder="例: 1500000" className={inputClass} />
           </Field>
           <Field label="メモ（任意）">
             <input name="note" maxLength={200} className={inputClass} />

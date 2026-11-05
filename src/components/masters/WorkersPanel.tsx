@@ -1,18 +1,19 @@
 'use client';
 
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { yen } from '@/lib/calc/format';
 import { rateAt } from '@/lib/calc/rates';
 import {
   affiliationLabel,
-  canDeleteWorker,
+  workerDeleteView,
+  type WorkerDeleteView,
   countInactive,
   filterWorkers,
   workerFilterOptions,
   type SupplierNames,
   type WorkerFilter,
 } from '@/lib/calc/affiliation';
-import { addWorkerRate, createWorkerWithRate, deleteWorker, upsertWorker } from '@/lib/db/masters-actions';
+import { addWorkerRate, createWorkerWithRate, deleteWorker, upsertWorker, workerUsage } from '@/lib/db/masters-actions';
 import type { Supplier, Worker } from '@/lib/db/masters';
 import type { Affiliation, LaborRule } from '@/lib/types';
 import { amountSchema, dateSchema, firstError, workerInputSchema } from '@/lib/db/masters-schemas';
@@ -26,15 +27,12 @@ import { RateHistoryEditor } from './RateHistoryEditor';
 export function WorkersPanel({
   workers,
   suppliers,
-  usedWorkerIds,
   today,
   rule,
   updaters,
 }: {
   workers: Worker[];
   suppliers: Supplier[];
-  /** 日報・繰越で使っている作業員の ID。null は読めなかった（削除ボタンを出さない）。 */
-  usedWorkerIds: string[] | null;
   today: string;
   rule: LaborRule;
   updaters: Updaters;
@@ -46,7 +44,6 @@ export function WorkersPanel({
   const editing = editingId && editingId !== 'new' ? (workers.find((w) => w.id === editingId) ?? null) : null;
   const close = () => setEditingId(null);
   const supplierNames: SupplierNames = useMemo(() => Object.fromEntries(suppliers.map((s) => [s.id, s.name])), [suppliers]);
-  const used = useMemo(() => (usedWorkerIds === null ? null : new Set(usedWorkerIds)), [usedWorkerIds]);
   const filterOptions = workerFilterOptions(workers, supplierNames);
   // 絞り込みの会社の作業員がいなくなった（削除・所属の変更）ときは「すべて」に戻す。
   const currentFilter = filterOptions.some((o) => o.value === filter) ? filter : 'all';
@@ -82,7 +79,11 @@ export function WorkersPanel({
             </label>
           </div>
           {shown.length === 0 ? (
-            <EmptyText>条件に合う作業員はいません。</EmptyText>
+            <EmptyText>
+              {!showInactive && inactiveCount > 0
+                ? '無効の作業員だけです。『無効も表示』で見られます。'
+                : '条件に合う作業員はいません。'}
+            </EmptyText>
           ) : (
             <ul>
               {shown.map((w) => {
@@ -116,9 +117,6 @@ export function WorkersPanel({
           key={editingId ?? 'none'}
           worker={editing}
           suppliers={suppliers}
-          // null（使用状況が読めない）は削除不可として扱う
-          deletable={editing !== null && used !== null && canDeleteWorker(editing.id, used)}
-          usageKnown={used !== null}
           rule={rule}
           updaters={updaters}
           onDone={close}
@@ -131,18 +129,12 @@ export function WorkersPanel({
 function WorkerForm({
   worker,
   suppliers,
-  deletable,
-  usageKnown,
   rule,
   updaters,
   onDone,
 }: {
   worker: Worker | null;
   suppliers: Supplier[];
-  /** 日報・繰越で一度も使っていない（削除できる）。 */
-  deletable: boolean;
-  /** 使用状況を読めたか（読めなければ削除の案内を出さない）。 */
-  usageKnown: boolean;
   rule: LaborRule;
   updaters: Updaters;
   onDone: () => void;
@@ -150,6 +142,24 @@ function WorkerForm({
   const { pending, error, setError, run } = useRunner();
   // 削除は結果の文言をボタンのそばに出すため、保存とは別に持つ。
   const remover = useRunner();
+  // 日報・繰越で使っているかは、編集画面を開いたときに確かめる（確認中・失敗のときは削除を出さない）。
+  const [usage, setUsage] = useState<'loading' | 'error' | { used: boolean }>('loading');
+  const workerId = worker?.id ?? null;
+  useEffect(() => {
+    if (!workerId) return;
+    let alive = true;
+    workerUsage(workerId)
+      .then((res) => {
+        if (alive) setUsage(res.ok ? { used: res.used } : 'error');
+      })
+      .catch(() => {
+        if (alive) setUsage('error');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [workerId]);
+  const deleteView: WorkerDeleteView = workerDeleteView(usage);
   const [affiliation, setAffiliation] = useState<Affiliation>(worker?.affiliation ?? 'own');
   // 取引先の選択肢：有効な取引先＋いま選んでいる取引先（無効になっていても消さない）。
   const supplierChoices = suppliers.filter((s) => s.active || s.id === worker?.supplierId);
@@ -228,6 +238,7 @@ function WorkerForm({
             </Field>
             <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
               協力会社は 取引先 タブで登録します。協力会社の作業員は、現場の「協力会社と作業員」で現場ごとに登録すると日報で選べます。
+              {worker?.affiliation === 'partner' && '協力会社を変えると、現場への登録は外れます（過去の日報は変わりません）。'}
             </p>
           </div>
         )}
@@ -284,7 +295,7 @@ function WorkerForm({
               }, onDone)
             }
           />
-          {deletable ? (
+          {deleteView === 'deletable' ? (
             <div className="space-y-2">
               <button
                 type="button"
@@ -300,7 +311,7 @@ function WorkerForm({
               </button>
               <ErrorText message={remover.error} />
             </div>
-          ) : usageKnown ? (
+          ) : deleteView === 'in_use' ? (
             <p className="text-sm text-gray-600 dark:text-gray-400">使用中のため削除できません。使わなくなったら無効にしてください。</p>
           ) : null}
           <UpdatedText updatedAt={worker.updatedAt} updatedBy={worker.updatedBy} updaters={updaters} />

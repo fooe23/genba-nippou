@@ -43,8 +43,6 @@ export interface MastersData {
   importLog: ImportLogEntry[];
   /** 更新者の表示名（profiles.id → 氏名、無ければメール）。 */
   updaters: Updaters;
-  /** 日報・繰越で使っている作業員の ID（削除ボタンを出すかの判断）。読めなかったときは null（削除ボタンを出さない）。 */
-  usedWorkerIds: string[] | null;
 }
 
 export function MastersTabs({ data }: { data: MastersData }) {
@@ -86,7 +84,6 @@ export function MastersTabs({ data }: { data: MastersData }) {
           <WorkersPanel
             workers={data.workers}
             suppliers={data.suppliers}
-            usedWorkerIds={data.usedWorkerIds}
             today={data.today}
             rule={data.settings.rule}
             updaters={data.updaters}

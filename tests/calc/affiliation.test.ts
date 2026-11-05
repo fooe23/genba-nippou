@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   addablePartnerSuppliers,
   affiliationLabel,
-  canDeleteWorker,
   countInactive,
   filterWorkers,
+  laborContractValue,
   laborRowAffiliation,
   partnerWorkerChoices,
   storedLaborAffiliations,
+  workerDeleteView,
   workerFilterOptions,
 } from '@/lib/calc/affiliation';
 import type { Affiliation } from '@/lib/types';
@@ -63,35 +64,45 @@ describe('filterWorkers・countInactive（作業員マスターの一覧）', ()
   });
 });
 
-describe('canDeleteWorker（削除ボタン）', () => {
-  it('日報・繰越で使っていない作業員だけ削除できる', () => {
-    const used = new Set(['o1', 'p1']);
-    expect(canDeleteWorker('o1', used)).toBe(false);
-    expect(canDeleteWorker('o2', used)).toBe(true);
+describe('workerDeleteView（削除の欄）', () => {
+  it('使っていなければ削除、使っていれば案内、確認中・失敗は何も出さない', () => {
+    expect(workerDeleteView({ used: false })).toBe('deletable');
+    expect(workerDeleteView({ used: true })).toBe('in_use');
+    expect(workerDeleteView('loading')).toBe('none');
+    expect(workerDeleteView('error')).toBe('none');
   });
 });
 
-describe('laborRowAffiliation（日報の作業員の行の所属）', () => {
+describe('laborRowAffiliation・laborContractValue（日報の作業員の行。サーバーの保存と同じ値）', () => {
   const master = { affiliation: 'partner' as const, supplierId: S1 };
+  const stored = storedLaborAffiliations([
+    { kind: 'labor', workerId: 'p1', affiliation: 'partner', supplierId: S2, laborContract: 'ukeoi' },
+    { kind: 'labor', workerId: 'p1', affiliation: 'own', supplierId: null, laborContract: null },
+    { kind: 'labor', workerId: 'o1', affiliation: 'own', supplierId: null, laborContract: null },
+    { kind: 'labor', workerId: null, affiliation: null },
+    { kind: 'fuel', workerId: 'x' },
+  ]);
+  it('保存済みの写しは作業員ごとに最初の行', () => {
+    expect(stored.get('p1')).toEqual({ affiliation: 'partner', supplierId: S2, laborContract: 'ukeoi' });
+    expect(stored.get('o1')).toEqual({ affiliation: 'own', supplierId: null, laborContract: null });
+    expect(stored.has('x')).toBe(false);
+  });
   it('手入力の行は所属なし', () => {
-    expect(laborRowAffiliation({ workerId: null }, new Map(), undefined)).toEqual({ affiliation: null, supplierId: null });
+    expect(laborRowAffiliation({ workerId: null }, stored, undefined)).toEqual({ affiliation: null, supplierId: null });
   });
-  it('行の保存済みの写しを優先する', () => {
-    expect(laborRowAffiliation({ workerId: 'p1', affiliation: 'own', supplierId: null }, new Map(), master)).toEqual({ affiliation: 'own', supplierId: null });
+  it('保存済みの作業員は保存済みの所属（マスターが変わっても）', () => {
+    expect(laborRowAffiliation({ workerId: 'p1' }, stored, master)).toEqual({ affiliation: 'partner', supplierId: S2 });
   });
-  it('同じ作業員のほかの行の写し → マスターの順', () => {
-    const stored = storedLaborAffiliations([
-      { workerId: 'p1', affiliation: 'partner', supplierId: S2 },
-      { workerId: 'p1', affiliation: 'own', supplierId: null },
-      { workerId: null, affiliation: null },
-    ]);
-    expect(stored.get('p1')).toEqual({ affiliation: 'partner', supplierId: S2 });
-    expect(laborRowAffiliation({ workerId: 'p1', affiliation: null }, stored, master)).toEqual({ affiliation: 'partner', supplierId: S2 });
+  it('新しく加えた作業員はマスター。マスターにも無ければ所属なし', () => {
     expect(laborRowAffiliation({ workerId: 'p3' }, stored, { affiliation: 'partner', supplierId: S2 })).toEqual({ affiliation: 'partner', supplierId: S2 });
-    expect(laborRowAffiliation({ workerId: 'o1' }, stored, { affiliation: 'own', supplierId: null })).toEqual({ affiliation: 'own', supplierId: null });
+    expect(laborRowAffiliation({ workerId: 'x' }, stored, undefined)).toEqual({ affiliation: null, supplierId: null });
   });
-  it('マスターにも無い作業員は所属なし', () => {
-    expect(laborRowAffiliation({ workerId: 'x' }, new Map(), undefined)).toEqual({ affiliation: null, supplierId: null });
+  it('常用・請負：行の値 → null は常用 → 項目が無いときだけ保存済み → 常用', () => {
+    expect(laborContractValue({ workerId: 'p1', laborContract: 'jouyou' }, stored)).toBe('jouyou');
+    expect(laborContractValue({ workerId: 'p1', laborContract: null }, stored)).toBe('jouyou');
+    expect(laborContractValue({ workerId: 'p1' }, stored)).toBe('ukeoi');
+    expect(laborContractValue({ workerId: 'p3' }, stored)).toBe('jouyou');
+    expect(laborContractValue({ workerId: 'p3', laborContract: 'ukeoi' }, stored)).toBe('ukeoi');
   });
 });
 

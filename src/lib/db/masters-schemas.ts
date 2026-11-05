@@ -46,6 +46,18 @@ function partnerNeedsSupplier(v: { affiliation?: 'own' | 'partner'; supplierId?:
   }
 }
 
+/**
+ * 協力会社の作業員の会社が変わるか（純関数）。前が協力会社で、自社になる・別の取引先になるとき true。
+ * そのときは前の会社として現場に登録した分を外す（upsertWorker）。所属を省略（undefined）した保存は変えないので false。
+ */
+export function partnerCompanyChanged(
+  before: { affiliation: string | null; supplier_id: string | null },
+  next: { affiliation?: 'own' | 'partner'; supplierId?: string | null },
+): boolean {
+  if (next.affiliation === undefined || before.affiliation !== 'partner') return false;
+  return next.affiliation !== 'partner' || (next.supplierId ?? null) !== (before.supplier_id ?? null);
+}
+
 const workerBaseSchema = z.object({
   id: idSchema.optional(),
   name: nameSchema,

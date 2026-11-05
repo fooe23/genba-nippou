@@ -248,6 +248,8 @@ create table if not exists public.gn_report_lines (
 alter table public.gn_report_lines add column if not exists overtime_hours numeric;
 alter table public.gn_report_lines add column if not exists overtime_rate  numeric;
 create index if not exists gn_report_lines_report_idx on public.gn_report_lines (report_id, sort_order);
+-- 作業員の使用確認（gn_delete_worker・アプリの workerUsage）用（2026-11-07）。
+create index if not exists gn_report_lines_labor_ref_idx on public.gn_report_lines (ref_id) where kind = 'labor' and ref_id is not null;
 
 create table if not exists public.gn_report_issues (
   id               uuid primary key default gen_random_uuid(),
@@ -361,6 +363,9 @@ create trigger gn_daily_reports_touch before update on public.gn_daily_reports
 drop trigger if exists gn_report_issues_touch on public.gn_report_issues;
 create trigger gn_report_issues_touch before update on public.gn_report_issues
   for each row execute function public.touch_updated_at();
+-- 作業員の使用確認用（2026-11-07）。unique (site_id, worker_id) は site_id が先頭なので別に持つ。
+create index if not exists gn_carryovers_worker_idx on public.gn_carryovers (worker_id);
+
 drop trigger if exists gn_carryovers_touch on public.gn_carryovers;
 create trigger gn_carryovers_touch before update on public.gn_carryovers
   for each row execute function public.touch_updated_at();

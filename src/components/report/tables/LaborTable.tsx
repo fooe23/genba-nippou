@@ -1,6 +1,6 @@
 'use client';
 
-import { affiliationLabel, LABOR_CONTRACT_LABELS, laborRowAffiliation, storedLaborAffiliations } from '@/lib/calc/affiliation';
+import { affiliationLabel, LABOR_CONTRACT_LABELS, laborContractValue, laborRowAffiliation, type StoredLaborAffiliations } from '@/lib/calc/affiliation';
 import { rateAt } from '@/lib/calc/rates';
 import { laborLineValues } from '@/lib/calc/report';
 import type { LaborContract, LaborLine, LaborRule, TimeSpec } from '@/lib/types';
@@ -27,6 +27,7 @@ export function LaborTable({
   date,
   workers,
   supplierNames = {},
+  stored = new Map(),
 }: {
   rows: Row<LaborLine>[];
   onChange: (update: (rows: Row<LaborLine>[]) => Row<LaborLine>[]) => void;
@@ -38,6 +39,8 @@ export function LaborTable({
   workers: WorkerOption[];
   /** 取引先 ID → 名前（所属の表示用）。 */
   supplierNames?: Record<string, string>;
+  /** 日報を開いたときに読み込んだ保存済みの行の所属・常用請負の写し（作業員ごと）。保存し直しでサーバーが使うものと同じ。 */
+  stored?: StoredLaborAffiliations;
 }) {
   const set = (i: number, patch: Partial<LaborLine>) => onChange((rs) => patchRow(rs, i, patch));
   // 作業員の選び直しと手入力の氏名：「（手入力）」の印（Row.manual）も一緒に付け外しする。
@@ -51,8 +54,6 @@ export function LaborTable({
     { value: MANUAL_WORKER, label: '（手入力）' },
   ];
   const workerById = new Map(workers.map((w) => [w.id, w]));
-  // 保存済みの所属の写し（作業員ごと）。保存し直しでもサーバーはこの写しを使うので、表示もそろえる。
-  const stored = storedLaborAffiliations(rows.map((r) => r.line));
   const contractOptions = (Object.keys(LABOR_CONTRACT_LABELS) as LaborContract[]).map((c) => ({ value: c, label: LABOR_CONTRACT_LABELS[c] }));
   const commonBreak = common.breakMin === null ? '' : `共通${common.breakMin}`;
   const commonGap = common.gapMin === null ? '' : `共通${common.gapMin}`;
@@ -77,7 +78,7 @@ export function LaborTable({
                 missingLabel={l.workerName || '（不明な作業員）'}
                 onChange={(id) => {
                   const w = workers.find((x) => x.id === id);
-                  // 選び直したら所属の写しと常用・請負は外す（所属はマスター、常用・請負は既定の常用に戻る）。
+                  // 選び直したら常用・請負は既定の常用（null）に戻す。所属の写しも外す（所属は保存済みの写しかマスターで決まる）。
                   const reset = { affiliation: null, supplierId: null, laborContract: null };
                   if (!w) select(i, { workerId: null, workerName: '', dailyRate: null, overtimeRate: null, ...reset }, id === MANUAL_WORKER);
                   else select(i, { workerId: w.id, workerName: w.name, dailyRate: rateAt(w.rates, date), overtimeRate: w.overtimeRate, ...reset }, false);
@@ -102,7 +103,7 @@ export function LaborTable({
                   <label className="block w-24 shrink-0">
                     <span className="sr-only">常用・請負（{i + 1}行目）</span>
                     <select
-                      value={l.laborContract ?? 'jouyou'}
+                      value={laborContractValue(l, stored)}
                       onChange={(e) => set(i, { laborContract: e.target.value === 'ukeoi' ? 'ukeoi' : 'jouyou' })}
                       className={fieldClass}
                     >

@@ -125,4 +125,11 @@ describe('refreshFromMasters（前回コピー・所属と常用請負）', () =
     expect(out[0]).not.toHaveProperty('supplierId');
     expect(out[1]).toMatchObject({ laborContract: null });
   });
+  it('マスターに無い作業員も所属の写しは持ち込まない', () => {
+    const line: LaborLine = { ...(labor('99999999-9999-4999-8999-999999999999', 1) as LaborLine), affiliation: 'partner', supplierId: 'OLD', laborContract: 'ukeoi' };
+    const out = refreshFromMasters([line], masters, '2026-11-01');
+    expect(out[0]).not.toHaveProperty('affiliation');
+    expect(out[0]).not.toHaveProperty('supplierId');
+    expect(out[0]).toMatchObject({ laborContract: 'ukeoi', dailyRate: 1 });
+  });
 });

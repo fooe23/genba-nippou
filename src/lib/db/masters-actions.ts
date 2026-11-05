@@ -14,6 +14,7 @@ import {
   vehicleInputSchema,
   workerInputSchema,
   WORKER_IN_USE_MESSAGE,
+  partnerCompanyChanged,
   workerIdSchema,
   workerWithRateSchema,
   type LeaseItemInput,
@@ -63,6 +64,13 @@ export async function upsertWorker(input: WorkerInput): Promise<string> {
   await requireAdmin();
   const v = parseOrThrow(workerInputSchema, input);
   const supabase = await createServerSupabase();
+  // 協力会社の作業員の所属（会社）を変えるときは、前の会社として現場に登録した分（gn_site_workers）を外す。
+  let before: { affiliation: string | null; supplier_id: string | null } | null = null;
+  if (v.id && v.affiliation !== undefined) {
+    const { data, error } = await supabase.from('gn_workers').select('affiliation, supplier_id').eq('id', v.id).maybeSingle();
+    if (error) throw new Error(error.message);
+    before = (data as { affiliation: string | null; supplier_id: string | null } | null) ?? null;
+  }
   const id = await saveRow(supabase, 'gn_workers', v.id, {
     name: v.name,
     trade: nullable(v.trade),
@@ -71,6 +79,13 @@ export async function upsertWorker(input: WorkerInput): Promise<string> {
     active: v.active,
     ...affiliationColumns(v),
   });
+  if (before && partnerCompanyChanged(before, v)) {
+    const { error } = await supabase.from('gn_site_workers').delete().eq('worker_id', id);
+    if (error) throw new Error(error.message);
+    revalidatePath('/admin/sites/[siteId]', 'page');
+    revalidatePath('/sites/[siteId]/partners', 'page');
+    revalidatePath('/sites/[siteId]/reports/[date]', 'page');
+  }
   revalidatePath(PATH);
   return id;
 }
@@ -112,6 +127,34 @@ export async function deleteWorker(id: string): Promise<DeleteWorkerResult> {
   revalidatePath(PATH);
   revalidatePath('/admin/sites/[siteId]', 'page');
   return { ok: true };
+}
+
+export type WorkerUsageResult = { ok: true; used: boolean } | { ok: false; error: string };
+
+/**
+ * 作業員を日報の作業員の行・繰越の初期値で使っているか（管理者のみ）。作業員の編集画面を開いたときに呼び、
+ * 使っていなければ「削除」を出す。削除の可否の最終判断は DB の gn_delete_worker。
+ */
+export async function workerUsage(id: string): Promise<WorkerUsageResult> {
+  await requireAdmin();
+  const parsed = workerIdSchema.safeParse(id);
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  try {
+    const supabase = await createServerSupabase();
+    // 1 件あるかだけを見る（索引 gn_report_lines_labor_ref_idx・gn_carryovers_worker_idx を使う。件数は数えない）。
+    const [lines, carryovers] = await Promise.all([
+      supabase.from('gn_report_lines').select('id').eq('kind', 'labor').eq('ref_id', parsed.data).limit(1),
+      supabase.from('gn_carryovers').select('id').eq('worker_id', parsed.data).limit(1),
+    ]);
+    if (lines.error || carryovers.error) {
+      console.error('[workerUsage]', lines.error?.message ?? carryovers.error?.message);
+      return { ok: false, error: '使用状況を確認できませんでした' };
+    }
+    return { ok: true, used: (lines.data ?? []).length > 0 || (carryovers.data ?? []).length > 0 };
+  } catch (e) {
+    console.error('[workerUsage]', e);
+    return { ok: false, error: '使用状況を確認できませんでした' };
+  }
 }
 
 export async function addWorkerRate(workerId: string, amount: number, effectiveFrom: string): Promise<void> {

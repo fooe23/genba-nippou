@@ -103,6 +103,11 @@ describe('保存時の所属の写しと常用・請負（2026-11-07）', () => 
     expect(applyMasterSnapshots([labor(P)], '2026-11-01', m, prev)[0]).toMatchObject({ laborContract: 'ukeoi' });
     expect(applyMasterSnapshots([labor(P, { laborContract: 'jouyou' })], '2026-11-01', m, prev)[0]).toMatchObject({ laborContract: 'jouyou' });
   });
+  it('保存し直し：常用・請負が null（常用を選んだ・選び直した）なら保存済みが請負でも常用', () => {
+    const prev = new Map([[P, { affiliation: 'partner' as const, supplierId: S, laborContract: 'ukeoi' as const }]]);
+    expect(applyMasterSnapshots([labor(P, { laborContract: null })], '2026-11-01', m, prev)[0]).toMatchObject({ laborContract: 'jouyou' });
+    expect(applyMasterSnapshots([labor(P, { laborContract: undefined })], '2026-11-01', m, prev)[0]).toMatchObject({ laborContract: 'ukeoi' });
+  });
   it('保存し直し：古い日報に新しく加えた作業員はいまのマスターを写す', () => {
     const prev = new Map([[W1, { affiliation: 'own' as const, supplierId: null, laborContract: null }]]);
     const out = applyMasterSnapshots([labor(W1), labor(P)], '2026-11-01', m, prev);

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   firstError,
   MSG_PARTNER_SUPPLIER,
+  partnerCompanyChanged,
   WORKER_IN_USE_MESSAGE,
   workerDeleteError,
   workerInputSchema,
@@ -44,5 +45,19 @@ describe('作業員の削除の可否（workerDeleteError）', () => {
     expect(workerDeleteError({ reportLines: 1, carryovers: 0 })).toBe(WORKER_IN_USE_MESSAGE);
     expect(workerDeleteError({ reportLines: 0, carryovers: 2 })).toBe(WORKER_IN_USE_MESSAGE);
     expect(WORKER_IN_USE_MESSAGE).toBe('日報や繰越で使っているため削除できません。無効にしてください');
+  });
+});
+
+describe('partnerCompanyChanged（会社を変えたら現場の登録を外す）', () => {
+  const S1 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1';
+  const S2 = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2';
+  it('協力会社 → 自社・別の会社は true', () => {
+    expect(partnerCompanyChanged({ affiliation: 'partner', supplier_id: S1 }, { affiliation: 'own', supplierId: null })).toBe(true);
+    expect(partnerCompanyChanged({ affiliation: 'partner', supplier_id: S1 }, { affiliation: 'partner', supplierId: S2 })).toBe(true);
+  });
+  it('同じ会社・所属を省略・前が自社は false', () => {
+    expect(partnerCompanyChanged({ affiliation: 'partner', supplier_id: S1 }, { affiliation: 'partner', supplierId: S1 })).toBe(false);
+    expect(partnerCompanyChanged({ affiliation: 'partner', supplier_id: S1 }, {})).toBe(false);
+    expect(partnerCompanyChanged({ affiliation: 'own', supplier_id: null }, { affiliation: 'partner', supplierId: S1 })).toBe(false);
   });
 });

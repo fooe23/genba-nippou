@@ -10,6 +10,7 @@
 --   * gn_partner_accounts（協力会社アカウント → 取引先）。本人と社員・管理者が読める、管理者だけ書ける
 --   * gn_site_partners（現場の協力会社・請負金額・メモ）。社員・管理者だけが読み書きできる（協力会社は読めない。完了現場は書けない）
 --   * gn_delete_worker(uuid)：使っていない作業員だけを一括で削除する（管理者のみ）
+--   * 索引 gn_report_lines_labor_ref_idx（労務の行の ref_id）・gn_carryovers_worker_idx（繰越の worker_id）：作業員の使用確認を速くする
 --   * gn_site_workers：社員も協力会社の作業員の登録を追加・削除できる（進行中の現場だけ。自社の作業員の選択は管理者だけのまま）
 -- 協力会社の上下（1 次・2 次）は持たない。
 -- アプリは新しい列・表を読むので、アプリを新しい版にする前に実行する（先にアプリを出すと作業員・日報の読み込みが失敗する）。
@@ -152,6 +153,10 @@ end;
 $$;
 
 -- 4b. 作業員の削除（使っていない作業員だけ・一括） --------------------------------
+-- 作業員の使用確認（gn_delete_worker・アプリの workerUsage）が日報の行・繰越を全件読まないための索引（2026-11-07）。
+create index if not exists gn_report_lines_labor_ref_idx on public.gn_report_lines (ref_id) where kind = 'labor' and ref_id is not null;
+create index if not exists gn_carryovers_worker_idx on public.gn_carryovers (worker_id);
+
 -- 作業員の削除（2026-11-07）：日報の作業員の行（ref_id、kind = 'labor'）と繰越の初期値のどちらにも使っていない作業員だけ、
 -- 現場の選択（gn_site_workers）から外してから削除する（単価の履歴は on delete cascade）。1 回の呼び出しで一括（途中で失敗すれば全部戻る）。
 -- 管理者だけ（not_admin）。見つからなければ worker_not_found、使っていれば worker_in_use（アプリが文言に変える）。

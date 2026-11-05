@@ -5,6 +5,8 @@ import {
   copySitePartnersMessage,
   copySitePartnersSchema,
   memberSchema,
+  parseYenInput,
+  partnerAmountError,
   planSitePartnerCopy,
   siteInputSchema,
   sitePartnerAddSchema,
@@ -223,5 +225,24 @@ describe('現場の協力会社と作業員の登録（2026-11-07）', () => {
     expect(planSitePartnerCopy({ supplierIds: ['s1'], workers: [] }, { supplierIds: ['s1'], workerIds: [] })).toEqual({ supplierIds: [], workerIds: [] });
     expect(copySitePartnersMessage({ partners: 2, workers: 5 })).toBe('協力会社 2 社・作業員 5 人を写しました');
     expect(copySitePartnersMessage({ partners: 0, workers: 0 })).toBe('写す協力会社・作業員はありませんでした（すでに登録済みです）');
+  });
+});
+
+describe('請負金額の入力（parseYenInput・partnerAmountError）', () => {
+  it('カンマ・空白・円・全角数字を受け付け、空欄は null', () => {
+    expect(parseYenInput('1,500,000')).toBe(1500000);
+    expect(parseYenInput(' １５０００００円 ')).toBe(1500000);
+    expect(parseYenInput('')).toBeNull();
+    expect(parseYenInput('abc')).toBeNaN();
+  });
+  it('円単位の整数・0以上・上限まで', () => {
+    expect(partnerAmountError(null)).toBeNull();
+    expect(partnerAmountError(1500000)).toBeNull();
+    expect(partnerAmountError(99_999_999_999)).toBeNull();
+    expect(partnerAmountError(1.5)).toBe('請負金額は円単位の整数で入力してください（小数は使えません）');
+    expect(partnerAmountError(100_000_000_000)).toBe('請負金額が大きすぎます（999億9999万9999円まで）');
+    expect(partnerAmountError(-1)).toBe('請負金額は0以上の数値で入力してください');
+    expect(partnerAmountError(Number.NaN)).toBe('請負金額は0以上の数値で入力してください');
+    expect(sitePartnerUpdateSchema.safeParse({ id: '11111111-1111-4111-8111-111111111111', amount: 1.5 }).success).toBe(false);
   });
 });

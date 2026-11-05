@@ -192,12 +192,12 @@ export function refreshFromMasters(lines: ReportLine[], masters: ReportMasters, 
   return lines.map((l) => {
     if (l.kind === 'labor') {
       const w = masters.workers.find((x) => x.id === l.workerId);
-      if (!w) return l;
-      // 所属の写しは複写元の日のもの。この日報ではマスターのいまの所属で保存されるので、写しは持ち込まない。
+      // 所属の写しは複写元の日のもの。この日報ではサーバーが保存時に決め直すので、写しは持ち込まない。
       // 常用・請負は複写する（いまの所属が自社なら外す）。
       const { affiliation: _affiliation, supplierId: _supplierId, ...rest } = l;
       void _affiliation;
       void _supplierId;
+      if (!w) return rest;
       return {
         ...rest,
         workerName: w.name,

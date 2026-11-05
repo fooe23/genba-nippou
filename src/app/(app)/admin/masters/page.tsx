@@ -6,7 +6,6 @@ import {
   listUnitOptions,
   listVehicles,
   listWeatherOptions,
-  listUsedWorkerIds,
   listWorkers,
 } from '@/lib/db/masters';
 import { listImportLog } from '@/lib/db/import';
@@ -34,20 +33,10 @@ async function loadUpdaters(): Promise<Record<string, string>> {
   }
 }
 
-/** 日報・繰越で使っている作業員の ID。読めなければ null（削除ボタンを出さない。削除の可否は DB でも確かめる）。 */
-async function loadUsedWorkerIds(): Promise<string[] | null> {
-  try {
-    return [...(await listUsedWorkerIds())];
-  } catch (e) {
-    console.error('[masters] used workers', e);
-    return null;
-  }
-}
-
 export default async function MastersPage() {
   await requireAdmin();
 
-  const [workers, suppliers, vehicles, leaseItems, units, weather, settings, importLog, updaters, usedWorkerIds] = await Promise.all([
+  const [workers, suppliers, vehicles, leaseItems, units, weather, settings, importLog, updaters] = await Promise.all([
     listWorkers(),
     listSuppliers(),
     listVehicles(),
@@ -57,7 +46,6 @@ export default async function MastersPage() {
     getSettings(),
     listImportLog(50),
     loadUpdaters(),
-    loadUsedWorkerIds(),
   ]);
 
   return (
@@ -66,7 +54,7 @@ export default async function MastersPage() {
       <h1 className="mb-4 text-xl font-bold">マスター管理</h1>
       <Suspense>
         <MastersTabs
-          data={{ today: todayJst(), workers, suppliers, vehicles, leaseItems, units, weather, settings, importLog, updaters, usedWorkerIds }}
+          data={{ today: todayJst(), workers, suppliers, vehicles, leaseItems, units, weather, settings, importLog, updaters }}
         />
       </Suspense>
     </main>

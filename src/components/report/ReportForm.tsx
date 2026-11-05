@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState, useTransition, type ReactNode } from 'react';
+import { storedLaborAffiliations } from '@/lib/calc/affiliation';
 import { jpDate } from '@/lib/calc/format';
 import { changeTotals } from '@/lib/calc/change';
 import { commonHours, reportTotals } from '@/lib/calc/report';
@@ -354,6 +355,8 @@ function ReportFormBody({
   const dirty = json !== baseline;
   const changes = useMemo(() => changeTotals(state.rows.work.map((r) => r.line)), [state.rows.work]);
   // 作業内容の根拠の件の候補：この日報の件と、現場の対応中の件（重複は WorkTable で除く）。
+  // この日報に保存済みの作業員の所属・常用請負（サーバーが保存し直しで使う写しと同じ。表示をそろえる）。
+  const storedAffiliations = useMemo(() => storedLaborAffiliations(p.initial.lines), [p.initial.lines]);
   const issueCandidates = useMemo(() => [...p.issues, ...p.openIssues], [p.issues, p.openIssues]);
 
   const draft = useReportDraft({
@@ -753,6 +756,7 @@ function ReportFormBody({
           date={p.date}
           workers={p.masters.workers}
           supplierNames={p.masters.supplierNames}
+          stored={storedAffiliations}
         />
         <FuelTable rows={state.rows.fuel} onChange={setRows('fuel')} vehicles={p.masters.vehicles} />
         <LeaseTable rows={state.rows.lease} onChange={setRows('lease')} date={p.date} items={p.masters.leaseItems} units={p.masters.units} />

@@ -110,6 +110,10 @@ export function partnerRoleError(accountType: 'employee' | 'partner', role: (typ
 // ─── 現場の協力会社（gn_site_partners）と協力会社の作業員の登録（gn_site_workers の協力会社の作業員） ───
 
 const MSG_CONTRACT_AMOUNT = '請負金額は0以上の数値で入力してください';
+/** 請負金額の上限（円）。 */
+export const MAX_PARTNER_AMOUNT = 99_999_999_999;
+export const MSG_PARTNER_AMOUNT_INT = '請負金額は円単位の整数で入力してください（小数は使えません）';
+export const MSG_PARTNER_AMOUNT_MAX = '請負金額が大きすぎます（999億9999万9999円まで）';
 const MSG_NOTE = 'メモは200文字以内で入力してください';
 
 /** 完了・削除済みの現場で、現場の協力会社・作業員の登録を変えようとしたとき。 */
@@ -120,8 +124,31 @@ export const SITE_PARTNERS_FORBIDDEN_MESSAGE = '協力会社と作業員の登�
 // 請負金額（任意。空欄は null）。メモ（任意。空欄は null）。
 const contractAmountSchema = z.preprocess(
   (v) => (v === '' || v === undefined ? null : v),
-  z.number({ error: MSG_CONTRACT_AMOUNT }).min(0, MSG_CONTRACT_AMOUNT).nullable(),
+  z
+    .number({ error: MSG_CONTRACT_AMOUNT })
+    .min(0, MSG_CONTRACT_AMOUNT)
+    .int(MSG_PARTNER_AMOUNT_INT)
+    .max(MAX_PARTNER_AMOUNT, MSG_PARTNER_AMOUNT_MAX)
+    .nullable(),
 );
+
+/**
+ * 請負金額の入力欄の文字 → 数値（純関数）。カンマ・空白・「円」を除き、全角数字は半角にする。空欄は null、
+ * 数値にできなければ NaN（検証でエラーにする）。小数・上限は contractAmountSchema で弾く。
+ */
+export function parseYenInput(raw: string): number | null {
+  const t = raw
+    .replace(/[０-９．－]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    .replace(/[,，\s　円]/g, '');
+  if (t === '') return null;
+  return /^-?\d+(\.\d+)?$/.test(t) ? Number(t) : Number.NaN;
+}
+
+/** 請負金額の検証（画面用）。問題なければ null。 */
+export function partnerAmountError(amount: number | null): string | null {
+  const r = contractAmountSchema.safeParse(amount);
+  return r.success ? null : (r.error.issues[0]?.message ?? MSG_CONTRACT_AMOUNT);
+}
 const partnerNoteSchema = z.preprocess(
   (v) => (v === undefined ? null : v),
   z
