@@ -154,7 +154,7 @@ function TableRow({
 }
 
 /**
- * 表（列見出し・行・合計行）。行が無いとき、emptyText があれば行の代わりにその 1 行を出し、合計行は出さない。
+ * 表（列見出し・行・合計行・合計行の下の行）。行が無いとき、emptyText があれば行の代わりにその 1 行を出し、合計行は出さない。
  * fontSize が 9 未満なら左右の余白を詰める（列の多い表）。
  */
 export function Table({ table, fontSize = 9, emptyText }: { table: SectionTable; fontSize?: number; emptyText?: string }) {
@@ -173,6 +173,9 @@ export function Table({ table, fontSize = 9, emptyText }: { table: SectionTable;
       ) : table.total ? (
         <TableRow table={table} cells={table.total} kind="total" compact={compact} />
       ) : null}
+      {none
+        ? null
+        : table.after?.map((r, i) => <TableRow key={`after-${i}`} table={table} cells={r} kind="body" compact={compact} />)}
     </View>
   );
 }

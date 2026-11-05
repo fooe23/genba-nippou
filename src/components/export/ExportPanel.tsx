@@ -15,7 +15,7 @@ export interface ExportMonthOption {
 
 /**
  * 出力画面：原本 Excel（.xlsm、月ごと）、工事原価集計表（工期全体または月、PDF・Excel・CSV）、
- * 変更増減 精算資料（案）（工期全体または月、PDF・Excel）、日報（1 日分または月まとめ、PDF・CSV）。
+ * 変更増減 精算資料（工期全体または月。客先用「精算のご提案」と社内確認用の 2 組、各 PDF・Excel）、日報（1 日分または月まとめ、PDF・CSV）。
  * PDF は「プレビュー」（新しいタブでブラウザに開く。disposition=inline）と「ダウンロード」の 2 つ。
  * today は日報の日付の初期値（JST の 'YYYY-MM-DD'）。
  */
@@ -88,6 +88,17 @@ const COST_FORMATS: readonly FormatButton[] = [...PDF_BUTTONS, { format: 'xlsx',
 
 const CHANGE_FORMATS: readonly FormatButton[] = [...PDF_BUTTONS, { format: 'xlsx', label: 'Excel' }];
 
+/** 同じ期間で出し分ける組（見出しと、クエリに足す文字列）。 */
+interface ReportGroup {
+  label: string;
+  extraQuery: string;
+}
+
+const CHANGE_GROUPS: readonly ReportGroup[] = [
+  { label: '客先用（精算のご提案）', extraQuery: '&audience=client' },
+  { label: '社内確認用', extraQuery: '' },
+];
+
 const DAILY_FORMATS: readonly FormatButton[] = [...PDF_BUTTONS, { format: 'csv', label: 'CSV' }];
 
 /**
@@ -150,13 +161,17 @@ function CostReportSection({ siteId, months }: { siteId: string; months: ExportM
   );
 }
 
-/** 変更増減 精算資料（案）：期間（工期全体／日報のある月）を選び、PDF（プレビュー・ダウンロード）・Excel を出す。 */
+/**
+ * 変更増減 精算資料：期間（工期全体／日報のある月。2 組で共通）を選び、客先用（精算のご提案。&audience=client）と
+ * 社内確認用のそれぞれで PDF（プレビュー・ダウンロード）・Excel を出す。
+ */
 function ChangeReportSection({ siteId, months }: { siteId: string; months: ExportMonthOption[] }) {
   return (
     <PeriodReportSection
       id="export-changes"
-      title="変更増減 精算資料（案）"
-      description="追加・増・変更・減の記録と実績原価から、客先に出す精算のご提案（案）を作ります。"
+      title="変更増減 精算資料"
+      description="客先用は原価を出さず、件ごとの金額と作業の明細を載せます（見積中の件は金額に入れません）。社内確認用は実績原価・提案額も載せます。"
+      groups={CHANGE_GROUPS}
       note={
         <Link
           href={`/sites/${siteId}/changes`}
@@ -173,12 +188,16 @@ function ChangeReportSection({ siteId, months }: { siteId: string; months: Expor
   );
 }
 
-/** 期間（工期全体／日報のある月）を選んで、endpoint?site=&period=&format=（PDF は &disposition=inline でプレビュー）を出す帳票の欄。 */
+/**
+ * 期間（工期全体／日報のある月）を選んで、endpoint?site=&period=&format=（PDF は &disposition=inline でプレビュー）を出す帳票の欄。
+ * groups があれば、組ごとに小見出しとボタンの並びを出す（期間は共通）。
+ */
 function PeriodReportSection({
   id,
   title,
   description,
   note,
+  groups,
   endpoint,
   formats,
   siteId,
@@ -189,12 +208,14 @@ function PeriodReportSection({
   description: string;
   /** 説明の下に出す 1 行（関連する画面へのリンクなど）。 */
   note?: ReactNode;
+  groups?: readonly ReportGroup[];
   endpoint: string;
   formats: readonly FormatButton[];
   siteId: string;
   months: ExportMonthOption[];
 }) {
   const [period, setPeriod] = useState('all');
+  const query = `site=${encodeURIComponent(siteId)}&period=${encodeURIComponent(period)}`;
   return (
     <section aria-labelledby={id}>
       <h2 id={id} className="mb-1 text-lg font-bold">
@@ -212,11 +233,16 @@ function PeriodReportSection({
           ))}
         </select>
       </Field>
-      <FormatButtons
-        endpoint={endpoint}
-        query={`site=${encodeURIComponent(siteId)}&period=${encodeURIComponent(period)}`}
-        buttons={formats}
-      />
+      {groups ? (
+        groups.map((g) => (
+          <div key={g.label} className="mt-4">
+            <h3 className="text-base font-bold">{g.label}</h3>
+            <FormatButtons endpoint={endpoint} query={`${query}${g.extraQuery}`} buttons={formats} />
+          </div>
+        ))
+      ) : (
+        <FormatButtons endpoint={endpoint} query={query} buttons={formats} />
+      )}
     </section>
   );
 }

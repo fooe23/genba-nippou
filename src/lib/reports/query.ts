@@ -50,23 +50,46 @@ function periodFileName(siteName: string, title: string, period: CostReportPerio
   return `${fileNameStem(siteName)}_${title}_${when}.${ext}`;
 }
 
-// ─── 変更増減 精算資料（/api/reports/changes） ───
+// ─── 追加・変更の精算（/api/reports/changes）：客先用「精算のご提案」と「変更増減 社内確認用」 ───
 
 export type ChangesFormat = 'pdf' | 'xlsx';
 
-/** `?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx[&disposition=inline]` を読む（工事原価集計表と同じ。CSV は無い）。 */
-export function parseChangesQuery(
-  url: URL | string,
-): { siteId: string; period: CostReportPeriod; format: ChangesFormat; disposition: Disposition } | { error: string } {
-  const query = parseCostQuery(url);
-  if ('error' in query) return query;
-  if (query.format === 'csv') return { error: '出力形式の指定が正しくありません' };
-  return { ...query, format: query.format };
+/** 帳票の宛先：'client' は客先に渡す資料（原価を出さない）、'internal' は社内確認用。 */
+export type ReportAudience = 'client' | 'internal';
+
+/** `audience=client` だけ客先用。指定なし・別の値は社内確認用（エラーにしない）。 */
+function readAudience(params: URLSearchParams): ReportAudience {
+  return params.get('audience') === 'client' ? 'client' : 'internal';
 }
 
-/** `現場名_変更増減精算資料_YYYYMMDD.拡張子`、月は `現場名_変更増減精算資料_YYYY年MM月.拡張子`。 */
-export function changeReportFileName(siteName: string, period: CostReportPeriod, outputDate: string, ext: ChangesFormat): string {
-  return periodFileName(siteName, '変更増減精算資料', period, outputDate, ext);
+/**
+ * `?site=<uuid>&period=all|YYYY-MM&format=pdf|xlsx[&disposition=inline][&audience=client]` を読む（工事原価集計表と同じ。
+ * CSV は無い）。
+ */
+export function parseChangesQuery(
+  url: URL | string,
+):
+  | { siteId: string; period: CostReportPeriod; format: ChangesFormat; disposition: Disposition; audience: ReportAudience }
+  | { error: string } {
+  const u = typeof url === 'string' ? new URL(url) : url;
+  const query = parseCostQuery(u);
+  if ('error' in query) return query;
+  if (query.format === 'csv') return { error: '出力形式の指定が正しくありません' };
+  return { ...query, format: query.format, audience: readAudience(u.searchParams) };
+}
+
+/**
+ * 客先用 `現場名_精算のご提案_YYYYMMDD.拡張子`、社内確認用 `現場名_変更増減_社内確認用_YYYYMMDD.拡張子`
+ * （月は `_YYYY年MM月`）。
+ */
+export function changeReportFileName(
+  siteName: string,
+  period: CostReportPeriod,
+  outputDate: string,
+  ext: ChangesFormat,
+  audience: ReportAudience,
+): string {
+  return periodFileName(siteName, audience === 'client' ? '精算のご提案' : '変更増減_社内確認用', period, outputDate, ext);
 }
 
 // ─── 日報（/api/reports/daily） ───

@@ -3,7 +3,6 @@ import { Document, Image, Page, renderToBuffer, StyleSheet, Text, View } from '@
 import { Footer, InfoGrid, MM, MUTED, NAVY, RULE, s, SectionHead, Signature, Table } from '@/lib/pdf/common';
 import { registerPdfFonts } from '@/lib/pdf/fonts';
 import {
-  addressee,
   CHANGE_REPORT_TITLE,
   CHANGE_SUBJECT,
   changeDetail,
@@ -21,11 +20,12 @@ import {
 import { formatCell, type Cell, type Column, type SectionTable } from '@/lib/reports/cost-sections';
 import type { ChangeLedgerModel } from '@/lib/reports/types';
 
-// 変更増減 精算資料（案）の PDF（A4 縦・余白 15mm・本文 9pt・明細 8pt）。見た目と部品は common.tsx。
-// 1 ページ目：ロゴ・宛先・件名・見出し・サマリー表・注記、続けて件ごとの精算（入りきらない行は次のページへ）。
-// 次のページから：明細一覧（1 件を 2 段で表示）・末尾。客先向けなので実績原価は出さない。
+// 変更増減 社内確認用の PDF（A4 縦・余白 15mm・本文 9pt・明細 8pt）。見た目と部品は common.tsx。
+// 1 ページ目：ロゴ・件名・見出し・サマリー表・注記、続けて件ごとの精算（入りきらない行は次のページへ）。宛先は出さない。
+// 次のページから：明細一覧（1 件を 2 段で表示）・末尾。客先用の「精算のご提案（案）」は client-change-ledger.tsx（ロゴ・
+// 件名・注記・末尾の部品はここから使う）。
 
-const LOGO = path.join(process.cwd(), 'public/logo.png');
+export const LOGO = path.join(process.cwd(), 'public/logo.png');
 
 /** 明細の段組み（changeDetail の列番号）：日付は 2 段をまたぎ、上段は区分〜提案額（9 列）、下段は指示者〜客先確認（5 列）。 */
 const LEAD = 0;
@@ -33,7 +33,7 @@ const UPPER = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const LOWER = [10, 11, 12, 13, 14];
 const DETAIL_FONT = 8;
 
-const c = StyleSheet.create({
+export const c = StyleSheet.create({
   top: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logo: { width: 18 * MM },
   addressee: {
@@ -105,8 +105,8 @@ function Ledger({ table }: { table: SectionTable }) {
   );
 }
 
-/** 末尾：発行者（会社名・担当者・連絡先。未設定は空の枠）と客先確認欄（確認者・確認日・サイン）。 */
-function Tail({ meta }: { meta: ChangeReportMeta }) {
+/** 末尾：発行者（会社名・担当者・連絡先。未設定は空の枠）と確認欄（確認者・確認日・サイン。見出しは checkTitle）。 */
+export function Tail({ meta, checkTitle = '客先確認欄' }: { meta: ChangeReportMeta; checkTitle?: string }) {
   return (
     <View style={c.tail} wrap={false}>
       <View style={c.sender}>
@@ -115,7 +115,7 @@ function Tail({ meta }: { meta: ChangeReportMeta }) {
         <InfoGrid lines={senderRows(meta).map(([label, value]) => [[label, value || '\u3000']])} />
       </View>
       <View style={c.check}>
-        <SectionHead title="客先確認欄" marginTop={0} />
+        <SectionHead title={checkTitle} marginTop={0} />
         <View style={{ marginTop: -16 }}>
           <Signature boxes={CLIENT_CHECK_BOXES.map((label) => [label, ''])} />
         </View>
@@ -146,10 +146,6 @@ function ChangeLedgerDocument({ model, meta }: { model: ChangeLedgerModel; meta:
           </View>
         </View>
 
-        {/* 下線は View の罫線で引く（Text の borderBottom は文字に重なる） */}
-        <View style={c.addressee}>
-          <Text>{addressee(meta.site)}</Text>
-        </View>
         <Text style={c.subject}>{CHANGE_SUBJECT}</Text>
 
         <InfoGrid lines={info.filter(([label]) => label !== '出力日時').map((item) => [item])} />
@@ -187,7 +183,7 @@ function ChangeLedgerDocument({ model, meta }: { model: ChangeLedgerModel; meta:
   );
 }
 
-/** 変更増減 精算資料（案）の PDF を作る（Node で実行。フォントは初回だけ登録）。 */
+/** 変更増減 社内確認用の PDF を作る（Node で実行。フォントは初回だけ登録）。 */
 export async function renderChangePdf(model: ChangeLedgerModel, meta: ChangeReportMeta): Promise<Buffer> {
   registerPdfFonts();
   return renderToBuffer(<ChangeLedgerDocument model={model} meta={meta} />);

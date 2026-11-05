@@ -26,6 +26,8 @@ export interface SectionTable {
   rows: Cell[][];
   /** 合計行（太字）。 */
   total?: Cell[];
+  /** 合計行の下に続ける行（普通の太さ。変更増減 社内確認用の「客先提示額」）。 */
+  after?: Cell[][];
   /** 太字にする行（rows の添字。日報の作業内容の追加・増・変更・減の行）。PDF だけが使う。 */
   boldRows?: number[];
 }

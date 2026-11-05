@@ -1,15 +1,20 @@
 import { jpDateTime } from '@/lib/calc/format';
 import type { Site } from '@/lib/db/sites';
+import { clientSettlement } from '@/lib/reports/change-model';
 import { CHANGE_KIND_LABELS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, SETTLEMENT_METHOD_LABELS } from '@/lib/report/change-labels';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
 import type { ChangeIssueSettlement, ChangeLedgerKind, ChangeLedgerModel, ChangeLedgerRow } from '@/lib/reports/types';
 
-// 変更増減 精算資料（案）の中身（宛先・見出し・サマリー表・注記・件ごとの精算・明細・末尾）を PDF・Excel 共通の形にする（純関数）。
+// 変更増減 社内確認用の中身（見出し・サマリー表・注記・件ごとの精算・明細・末尾）を PDF・Excel 共通の形にする（純関数）。
+// 客先に渡す「精算のご提案（案）」は client-change-sections.ts（原価・見込み額・提案額を出さない）。宛先（addressee）・
+// 発行者（senderRows）・NO_CHANGES などはそちらでも使う。
 // セルの形（Cell・NumFmt）と文字列化（formatCell）は工事原価集計表（cost-sections.ts）と同じ。
 
-export const CHANGE_REPORT_TITLE = '変更増減 精算資料（案）';
-export const CHANGE_SUBJECT = '追加・変更工事 精算のご提案（案）';
-export const CHANGE_SHEET_NAME = '変更増減精算資料';
+export const CHANGE_REPORT_TITLE = '変更増減 社内確認用';
+export const CHANGE_SUBJECT = '追加・変更の精算 社内確認';
+export const CHANGE_SHEET_NAME = '変更増減_社内確認用';
+/** 社内確認用のサマリーで、精算提案額の下に出す客先用の精算提案額（clientSettlement）の行の名前。 */
+export const CLIENT_PROPOSED_LABEL = '客先提示額（見積中を除く）';
 export const NO_CHANGES = '追加・増・変更・減の記録はありません';
 export const NO_BASE_NOTE = '当初金額が未設定のため算出できません';
 export const ISSUES_TITLE = '件ごとの精算';
@@ -58,7 +63,7 @@ function periodText(model: ChangeLedgerModel, meta: ChangeReportMeta): string {
   return from && to ? `工期全体（${slashDate(from)}〜${slashDate(to)}）` : '工期全体';
 }
 
-/** 見出しの項目（ラベル, 値）。値の null は「—」。工事名は入っているときだけ。 */
+/** 見出しの項目（ラベル, 値）。客先用（精算のご提案）も同じ。値の null は「—」。工事名は入っているときだけ。 */
 export function changeInfoRows(model: ChangeLedgerModel, meta: ChangeReportMeta): [string, string | null][] {
   const site = meta.site;
   return [
@@ -80,7 +85,8 @@ function ratePercent(rate: number): string {
 /**
  * サマリー表（当初／契約内出来高／追加・増・変更・減（件数・申告額・提案額・精算額）／精算提案額）と注記。
  * 月の期間では、件数・申告額・提案額・契約内出来高は当月分、精算額と精算提案額は月末までの累計（モデルの summary[区分].settled・
- * settlement）。精算額の列見出しも「精算額（累計）」にする。客先向けなので実績原価は出さない。
+ * settlement）。精算額の列見出しも「精算額（累計）」にする。精算提案額の下に、客先用の精算提案額（見積中の件を除く。
+ * clientSettlement）を「客先提示額（見積中を除く）」として 1 行足す（社内で客先用と突き合わせるため）。
  */
 export function changeSummary(model: ChangeLedgerModel): { table: SectionTable; notes: string[] } {
   const st = model.settlement;
@@ -102,6 +108,7 @@ export function changeSummary(model: ChangeLedgerModel): { table: SectionTable; 
       }),
     ],
     total: [st.through ? `精算提案額（${slashDate(st.through)} までの累計）` : '精算提案額', ...blank, cell.yen(st.proposed)],
+    after: [[CLIENT_PROPOSED_LABEL, ...blank, cell.yen(clientSettlement(model).proposed)]],
   };
   const { overheadRate, profitRate } = model.rates;
   const notes = [
@@ -248,7 +255,7 @@ export function senderRows(meta: ChangeReportMeta): [string, string][] {
   ];
 }
 
-/** 脚注の左側「現場日報アプリ ― 変更増減 精算資料（案） YYYY/MM/DD HH:mm」。 */
+/** 脚注の左側「現場日報アプリ ― 変更増減 社内確認用 YYYY/MM/DD HH:mm」。 */
 export function changeFooterText(meta: ChangeReportMeta): string {
   return `現場日報アプリ ― ${CHANGE_REPORT_TITLE} ${jpDateTime(meta.outputAt)}`;
 }

@@ -6,7 +6,7 @@ import { changeMeta, emptyChangeModel, sampleChangeModel, settledChangeModel } f
 async function read(buf: Buffer): Promise<ExcelJS.Worksheet> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf as unknown as ArrayBuffer);
-  expect(wb.worksheets.map((w) => w.name)).toEqual(['変更増減精算資料']);
+  expect(wb.worksheets.map((w) => w.name)).toEqual(['変更増減_社内確認用']);
   return wb.worksheets[0];
 }
 
@@ -19,9 +19,11 @@ function rowOf(ws: ExcelJS.Worksheet, text: string): ExcelJS.Row {
 describe('buildChangeXlsx', () => {
   it('件名・宛先・見出し、サマリー（#,##0）、率（0.0%）、明細（太字の列見出し）、末尾', async () => {
     const ws = await read(await buildChangeXlsx(sampleChangeModel(), changeMeta()));
-    expect(ws.getCell('A1').value).toBe('追加・変更工事 精算のご提案（案）');
+    expect(ws.getCell('A1').value).toBe('追加・変更の精算 社内確認');
     expect(ws.getCell('A1').font?.bold).toBe(true);
-    expect(ws.getCell('A2').value).toBe('〇〇様');
+    // 社内確認用は宛先を出さない
+    expect(ws.getCell('A2').value).toBeNull();
+    expect(() => rowOf(ws, '〇〇様')).toThrow();
     expect(rowOf(ws, '現場名').getCell(2).value).toBe('〇〇邸新築工事');
 
     const extra = rowOf(ws, '追加');
@@ -34,6 +36,10 @@ describe('buildChangeXlsx', () => {
     const total = rowOf(ws, '精算提案額');
     expect(total.getCell(5).value).toBe(1029342);
     expect(total.getCell(1).font?.bold).toBe(true);
+    // 精算提案額のすぐ下に客先提示額（見積中の件 i1 を除く）
+    const client = ws.getRow(total.number + 1);
+    expect(client.getCell(1).value).toBe('客先提示額（見積中を除く）');
+    expect(client.getCell(5).value).toBe(1000000 - 25000 + 13586);
 
     const overhead = rowOf(ws, '経費率');
     expect(overhead.getCell(2).value).toBe(0.15);
@@ -68,7 +74,7 @@ describe('buildChangeXlsx', () => {
 
   it('変更行 0 件：見出しと「追加・増・変更・減の記録はありません」だけ', async () => {
     const ws = await read(await buildChangeXlsx(emptyChangeModel(), changeMeta({ site: { ...changeMeta().site, clientName: null } })));
-    expect(ws.getCell('A2').value).toBe('お客様 各位');
+    expect(() => rowOf(ws, 'お客様 各位')).toThrow();
     rowOf(ws, '追加・増・変更・減の記録はありません');
     expect(() => rowOf(ws, '精算提案額')).toThrow();
     expect(() => rowOf(ws, '日付（当月N回目）')).toThrow();

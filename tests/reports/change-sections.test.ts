@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   addressee,
+  CHANGE_REPORT_TITLE,
+  CHANGE_SHEET_NAME,
+  CHANGE_SUBJECT,
   changeDetail,
   changeFooterText,
   changeInfoRows,
@@ -79,6 +82,14 @@ describe('changeSummary（サマリー表と注記）', () => {
     expect(texts(table.rows[4])).toEqual(['変更', '1', '8,000', '13,236', '15,000']);
     expect(texts(table.rows[5])).toEqual(['減', '1', '-25,000', '-25,000', '-20,000']);
     expect(texts(table.total!)).toEqual(['精算提案額', '', '', '', '1,147,942']);
+  });
+
+  it('精算提案額の下に「客先提示額（見積中を除く）」の行（clientSettlement の精算提案額。当初が無ければ「—」）', () => {
+    const { table } = changeSummary(settledChangeModel());
+    expect(table.after?.map(texts)).toEqual([['客先提示額（見積中を除く）', '', '', '', '1,108,236']]);
+    const m = settledChangeModel();
+    const noBase = changeSummary({ ...m, settlement: { ...m.settlement, base: null, proposed: null } }).table;
+    expect(noBase.after?.map(texts)).toEqual([['客先提示額（見積中を除く）', '', '', '', '—']]);
   });
 
   it('注記：精算額の決め方（やり直しは参考で合計に入れない）', () => {
@@ -241,7 +252,13 @@ describe('末尾・脚注', () => {
     ]);
   });
 
-  it('脚注：現場日報アプリ ― 変更増減 精算資料（案） 出力日時', () => {
-    expect(changeFooterText(changeMeta())).toBe('現場日報アプリ ― 変更増減 精算資料（案） 2026/11/10 10:23');
+  it('脚注：現場日報アプリ ― 変更増減 社内確認用 出力日時', () => {
+    expect(changeFooterText(changeMeta())).toBe('現場日報アプリ ― 変更増減 社内確認用 2026/11/10 10:23');
+  });
+
+  it('題名は「変更増減 社内確認用」、件名行は「追加・変更の精算 社内確認」、シート名は「変更増減_社内確認用」', () => {
+    expect(CHANGE_REPORT_TITLE).toBe('変更増減 社内確認用');
+    expect(CHANGE_SUBJECT).toBe('追加・変更の精算 社内確認');
+    expect(CHANGE_SHEET_NAME).toBe('変更増減_社内確認用');
   });
 });

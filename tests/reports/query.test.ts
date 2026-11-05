@@ -145,12 +145,14 @@ describe('parseChangesQuery', () => {
       period: { kind: 'all' },
       format: 'pdf',
       disposition: 'attachment',
+      audience: 'internal',
     });
     expect(parseChangesQuery(new URL(changesUrl(`format=xlsx&period=2026-11&site=${SITE}`)))).toEqual({
       siteId: SITE,
       period: { kind: 'month', month: '2026-11' },
       format: 'xlsx',
       disposition: 'attachment',
+      audience: 'internal',
     });
   });
 
@@ -170,16 +172,29 @@ describe('parseChangesQuery', () => {
       disposition: 'attachment',
     });
   });
+
+  it('audience=client は客先用、指定なし・別の値は社内確認用', () => {
+    expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=pdf&audience=client`))).toMatchObject({ audience: 'client' });
+    expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=xlsx&audience=client`))).toMatchObject({ audience: 'client' });
+    for (const a of ['internal', 'CLIENT', 'x', '']) {
+      expect(parseChangesQuery(changesUrl(`site=${SITE}&period=all&format=pdf&audience=${a}`))).toMatchObject({ audience: 'internal' });
+    }
+  });
 });
 
 describe('changeReportFileName', () => {
-  it('工期全体は出力日（YYYYMMDD）、月は YYYY年MM月', () => {
-    expect(changeReportFileName('〇〇邸新築工事', { kind: 'all' }, '2026-11-03', 'pdf')).toBe('〇〇邸新築工事_変更増減精算資料_20261103.pdf');
-    expect(changeReportFileName('〇〇邸', { kind: 'month', month: '2026-01' }, '2026-11-03', 'xlsx')).toBe('〇〇邸_変更増減精算資料_2026年01月.xlsx');
+  it('社内確認用：工期全体は出力日（YYYYMMDD）、月は YYYY年MM月', () => {
+    expect(changeReportFileName('〇〇邸新築工事', { kind: 'all' }, '2026-11-03', 'pdf', 'internal')).toBe('〇〇邸新築工事_変更増減_社内確認用_20261103.pdf');
+    expect(changeReportFileName('〇〇邸', { kind: 'month', month: '2026-01' }, '2026-11-03', 'xlsx', 'internal')).toBe('〇〇邸_変更増減_社内確認用_2026年01月.xlsx');
+  });
+
+  it('客先用：現場名_精算のご提案_YYYYMMDD、月は YYYY年MM月', () => {
+    expect(changeReportFileName('〇〇邸新築工事', { kind: 'all' }, '2026-11-03', 'pdf', 'client')).toBe('〇〇邸新築工事_精算のご提案_20261103.pdf');
+    expect(changeReportFileName('〇〇邸', { kind: 'month', month: '2026-01' }, '2026-11-03', 'xlsx', 'client')).toBe('〇〇邸_精算のご提案_2026年01月.xlsx');
   });
 
   it('禁止文字は _、空なら「現場」', () => {
-    expect(changeReportFileName(' A/B:C*? ', { kind: 'all' }, '2026-11-03', 'pdf')).toBe('A_B_C___変更増減精算資料_20261103.pdf');
-    expect(changeReportFileName('  ', { kind: 'all' }, '2026-11-03', 'xlsx')).toBe('現場_変更増減精算資料_20261103.xlsx');
+    expect(changeReportFileName(' A/B:C*? ', { kind: 'all' }, '2026-11-03', 'pdf', 'client')).toBe('A_B_C___精算のご提案_20261103.pdf');
+    expect(changeReportFileName('  ', { kind: 'all' }, '2026-11-03', 'xlsx', 'internal')).toBe('現場_変更増減_社内確認用_20261103.xlsx');
   });
 });

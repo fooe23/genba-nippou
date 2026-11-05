@@ -74,6 +74,7 @@ export function writeTable(ws: ExcelJS.Worksheet, t: SectionTable): void {
       cell.border = { ...box, top: { style: 'medium', color: { argb: NAVY } } };
     });
   }
+  for (const r of t.after ?? []) body(r);
 }
 
 export async function buildCostXlsx(model: CostReportModel): Promise<Buffer> {
