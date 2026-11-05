@@ -8,6 +8,8 @@
 
 **Tech Stack:** Next.js 16、Supabase（RLS・plpgsql）、Zod 4、react-pdf、exceljs、Vitest。
 
+**変更（2026-11-06）：** 設計書末尾の「変更」節が優先。上位の協力会社（parent_supplier_id）は作らない。現場の協力会社は `gn_site_partners`（請負金額は任意、いつでも追加・削除）。協力会社の職長の選択肢＝自社＋その現場の協力会社の作業員＋手入力（純関数 `workersForSiteLabor(workers, sitePartnerIds)`）。所属別の集計は会社ごと（上下の内訳なし）。下の記述で parent・2 次・1 次に触れる箇所はこの変更で読み替える。
+
 **Spec:** `docs/superpowers/specs/2026-11-06-worker-affiliation-design.md`（「設計レビューの問いへの答え」を含む。計画と食い違えば設計書が正）。
 
 ## Global Constraints
