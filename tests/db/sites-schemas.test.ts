@@ -5,12 +5,17 @@ import {
   copySitePartnersMessage,
   copySitePartnersSchema,
   memberSchema,
+  newPartnerWorkerEffectiveFrom,
   parseYenInput,
   partnerAmountError,
   planSitePartnerCopy,
   siteInputSchema,
   sitePartnerAddSchema,
+  SITE_PARTNERS_CLOSED_MESSAGE,
+  SITE_PARTNERS_FORBIDDEN_MESSAGE,
   sitePartnerUpdateSchema,
+  sitePartnerWorkerAddSchema,
+  sitePartnerWorkerRpcError,
   siteStatusSchema,
 } from '@/lib/db/sites-schemas';
 import { firstError } from '@/lib/db/masters-schemas';
@@ -265,5 +270,75 @@ describe('請負金額の入力（parseYenInput・partnerAmountError）', () => 
     expect(partnerAmountError(-1)).toBe('請負金額は0以上の数値で入力してください');
     expect(partnerAmountError(Number.NaN)).toBe('請負金額は0以上の数値で入力してください');
     expect(sitePartnerUpdateSchema.safeParse({ id: '11111111-1111-4111-8111-111111111111', amount: 1.5 }).success).toBe(false);
+  });
+});
+
+describe('sitePartnerWorkerAddSchema（現場から協力会社の作業員を新しく登録）', () => {
+  const base = {
+    siteId: '11111111-1111-4111-8111-111111111111',
+    supplierId: '22222222-2222-4222-8222-222222222222',
+    name: ' 山田 太郎 ',
+    trade: '鳶',
+    amount: 20000,
+    overtimeRate: null,
+  };
+  it('名前・日当があれば通り、名前は前後の空白を除く', () => {
+    const r = sitePartnerWorkerAddSchema.safeParse(base);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.name).toBe('山田 太郎');
+      expect(r.data.overtimeRate).toBeNull();
+    }
+  });
+  it('名前が空・日当が無い（NaN）・負はエラー', () => {
+    expect(sitePartnerWorkerAddSchema.safeParse({ ...base, name: '  ' }).success).toBe(false);
+    expect(sitePartnerWorkerAddSchema.safeParse({ ...base, amount: Number.NaN }).success).toBe(false);
+    expect(sitePartnerWorkerAddSchema.safeParse({ ...base, amount: -1 }).success).toBe(false);
+  });
+  it('残業単価は空欄（null・空文字）なら null、負はエラー', () => {
+    const r = sitePartnerWorkerAddSchema.safeParse({ ...base, overtimeRate: '' });
+    expect(r.success && r.data.overtimeRate).toBeNull();
+    expect(sitePartnerWorkerAddSchema.safeParse({ ...base, overtimeRate: 3125 }).success).toBe(true);
+    expect(sitePartnerWorkerAddSchema.safeParse({ ...base, overtimeRate: -5 }).success).toBe(false);
+  });
+  it('名前は 100 文字まで（作業員マスターと同じ）', () => {
+    expect(sitePartnerWorkerAddSchema.safeParse({ ...base, name: 'あ'.repeat(101) }).success).toBe(false);
+  });
+  it('現場・会社の ID が不正ならエラー', () => {
+    expect(sitePartnerWorkerAddSchema.safeParse({ ...base, siteId: 'x' }).success).toBe(false);
+    expect(sitePartnerWorkerAddSchema.safeParse({ ...base, supplierId: '' }).success).toBe(false);
+  });
+});
+
+describe('newPartnerWorkerEffectiveFrom（最初の日当の適用開始日）', () => {
+  it('着工日・最初の日報の日付・今日のうち最も早い日', () => {
+    expect(newPartnerWorkerEffectiveFrom({ startDate: '2026-10-01', firstReportDate: '2026-09-28', today: '2026-11-06' })).toBe('2026-09-28');
+    expect(newPartnerWorkerEffectiveFrom({ startDate: '2026-10-01', firstReportDate: '2026-10-05', today: '2026-11-06' })).toBe('2026-10-01');
+  });
+  it('着工日が先（未来）でも今日より後にはしない', () => {
+    expect(newPartnerWorkerEffectiveFrom({ startDate: '2026-12-01', firstReportDate: null, today: '2026-11-06' })).toBe('2026-11-06');
+  });
+  it('どちらも無ければ今日。形式の正しくない日付は無視する', () => {
+    expect(newPartnerWorkerEffectiveFrom({ startDate: null, firstReportDate: null, today: '2026-11-06' })).toBe('2026-11-06');
+    expect(newPartnerWorkerEffectiveFrom({ startDate: '2026-02-30', firstReportDate: null, today: '2026-11-06' })).toBe('2026-11-06');
+  });
+});
+
+describe('sitePartnerWorkerRpcError（gn_add_site_partner_worker のエラー → 文言）', () => {
+  it('それぞれの理由を日本語にする', () => {
+    expect(sitePartnerWorkerRpcError('not_employee')).toBe(SITE_PARTNERS_FORBIDDEN_MESSAGE);
+    expect(sitePartnerWorkerRpcError('site_closed')).toBe(SITE_PARTNERS_CLOSED_MESSAGE);
+    expect(sitePartnerWorkerRpcError('not_member')).toContain('権限');
+    expect(sitePartnerWorkerRpcError('not_site_partner')).toContain('この現場の協力会社ではない');
+    expect(sitePartnerWorkerRpcError('invalid_input')).toContain('日当');
+  });
+  it('関数が無い（SQL 未実行）ときは管理者への連絡を促す', () => {
+    expect(sitePartnerWorkerRpcError('Could not find the function public.gn_add_site_partner_worker(p_daily_rate, ...) in the schema cache')).toContain(
+      'データベースの更新',
+    );
+  });
+  it('それ以外・不明は再試行の文言', () => {
+    expect(sitePartnerWorkerRpcError('boom')).toBe('作業員の登録に失敗しました。もう一度お試しください。');
+    expect(sitePartnerWorkerRpcError(null)).toBe('作業員の登録に失敗しました。もう一度お試しください。');
   });
 });

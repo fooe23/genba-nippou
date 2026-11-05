@@ -121,6 +121,14 @@ export const workerWithRateSchema = workerBaseSchema
   .superRefine(partnerNeedsSupplier);
 export type WorkerWithRateInput = z.input<typeof workerWithRateSchema>;
 
+/**
+ * 作業員の新規登録の項目（名前・職種・残業単価・日当）。管理者の新規登録（workerWithRateSchema）と同じ規則。
+ * 現場の「協力会社と作業員」からの登録（sites-schemas の sitePartnerWorkerAddSchema）で使う。
+ */
+export const newWorkerFieldsSchema = workerBaseSchema
+  .pick({ name: true, trade: true, overtimeRate: true })
+  .extend({ amount: amountSchema });
+
 export const leaseItemWithRateSchema = leaseItemInputSchema
   .pick({ name: true, spec: true, note: true })
   .extend({ amount: amountSchema, effectiveFrom: dateSchema });

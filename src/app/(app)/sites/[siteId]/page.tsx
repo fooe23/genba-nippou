@@ -67,11 +67,18 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
       </div>
       {/* 協力会社と作業員の登録は社員・管理者だけ（協力会社には出さない） */}
       {isEmployeeOrAdmin(profile) && (
-        <div className="mt-2 flex">
-          <Link href={`/sites/${siteId}/partners`} className={siteLinkClass}>
-            協力会社と作業員
-          </Link>
-        </div>
+        <Link
+          href={`/sites/${siteId}/partners`}
+          className="mt-3 flex min-h-14 w-full items-center justify-between gap-3 rounded-lg border-2 border-blue-700 px-4 py-2 text-blue-700 dark:border-blue-400 dark:text-blue-400"
+        >
+          <span className="min-w-0">
+            <span className="block text-base font-bold">協力会社と作業員</span>
+            <span className="block text-sm text-gray-700 dark:text-gray-300">協力会社の追加・作業員の登録</span>
+          </span>
+          <span aria-hidden="true" className="shrink-0 text-xl font-bold">
+            →
+          </span>
+        </Link>
       )}
 
       {profile.isAdmin && <SiteStatusButton siteId={siteId} status={site.status} />}

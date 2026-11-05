@@ -33,6 +33,11 @@ export function SuppliersPanel({ suppliers, updaters, mode = 'vendor' }: { suppl
   return (
     <div>
       <ListHeader title={label} onAdd={() => setEditingId('new')} />
+      {mode === 'partner' && (
+        <p className="mb-3 rounded-lg border border-gray-300 bg-gray-50 p-3 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-300">
+          作業員は 作業員 タブで所属を「協力会社」にして登録します。社員は現場の「協力会社と作業員」から、その現場に入っている協力会社の作業員を新しく登録できます。
+        </p>
+      )}
       {shown.length === 0 ? (
         <EmptyText>{label}がまだ登録されていません。</EmptyText>
       ) : (

@@ -4,12 +4,14 @@ import { useState, type FormEvent } from 'react';
 import { yen } from '@/lib/calc/format';
 import {
   addSitePartner,
+  addSitePartnerWorker,
   copySitePartners,
   removeSitePartner,
   setSitePartnerWorkers,
   updateSitePartner,
 } from '@/lib/db/sites-actions';
-import { parseYenInput, partnerAmountError } from '@/lib/db/sites-schemas';
+import { parseYenInput, partnerAmountError, sitePartnerWorkerAddSchema } from '@/lib/db/sites-schemas';
+import { firstError } from '@/lib/db/masters-schemas';
 import {
   EmptyText, ErrorText, Field, inputClass, primaryButtonClass, secondaryButtonClass, str, useRunner,
 } from '@/components/masters/common';
@@ -23,10 +25,18 @@ export interface PartnerCardData {
 }
 export interface PartnerWorkerChoice { id: string; name: string; trade: string | null; }
 export interface SiteChoice { id: string; name: string; done: boolean; }
+/** 残業単価を空欄にしたときの計算（設定）。 */
+export interface OvertimeHint { baseHours: number; multiplier: number; }
 
 
 const dangerButtonClass =
   'min-h-11 rounded-lg border border-red-600 px-4 text-base font-medium text-red-700 disabled:opacity-50 dark:border-red-500 dark:text-red-400';
+/** 青い枠のボタン（新しい作業員の登録）。 */
+const outlineBlueButtonClass =
+  'min-h-11 rounded-lg border-2 border-blue-700 px-4 text-base font-bold text-blue-700 disabled:opacity-50 dark:border-blue-400 dark:text-blue-400';
+/** 区切りのはっきりした枠（協力会社の追加・ほかの現場からコピー）。 */
+const sectionCardClass = 'space-y-3 rounded-lg border border-gray-300 bg-gray-50 p-3 dark:border-gray-700 dark:bg-gray-900';
+const sectionHeadingClass = 'text-lg font-bold';
 
 /**
  * 現場の「協力会社と作業員」：協力会社（請負金額・メモは任意）の追加・編集・削除、会社ごとの作業員の現場登録、
@@ -40,6 +50,7 @@ export function SitePartnersEditor({
   registeredWorkerIds,
   addable,
   otherSites,
+  overtimeHint,
 }: {
   siteId: string;
   readOnly: boolean;
@@ -51,26 +62,33 @@ export function SitePartnersEditor({
   /** 追加できる協力会社（有効な協力会社で、まだこの現場に無いもの）。 */
   addable: { id: string; name: string }[];
   otherSites: SiteChoice[];
+  overtimeHint: OvertimeHint;
 }) {
   const registered = new Set(registeredWorkerIds);
   return (
     <div className="space-y-8">
-      {partners.length === 0 ? (
-        <EmptyText>この現場の協力会社はまだありません。</EmptyText>
-      ) : (
-        <ul className="space-y-4">
-          {partners.map((p) => (
-            <PartnerCard
-              key={p.id}
-              siteId={siteId}
-              partner={p}
-              workers={workersBySupplier[p.supplierId] ?? []}
-              registered={registered}
-              readOnly={readOnly}
-            />
-          ))}
-        </ul>
-      )}
+      <section aria-labelledby="site-partners" className="space-y-3">
+        <h2 id="site-partners" className={sectionHeadingClass}>
+          この現場の協力会社（{partners.length}社）
+        </h2>
+        {partners.length === 0 ? (
+          <EmptyText>この現場の協力会社はまだありません。{readOnly ? '' : '下の「協力会社を追加」から追加します。'}</EmptyText>
+        ) : (
+          <ul className="space-y-4">
+            {partners.map((p) => (
+              <PartnerCard
+                key={p.id}
+                siteId={siteId}
+                partner={p}
+                workers={workersBySupplier[p.supplierId] ?? []}
+                registered={registered}
+                readOnly={readOnly}
+                overtimeHint={overtimeHint}
+              />
+            ))}
+          </ul>
+        )}
+      </section>
       {!readOnly && <AddPartnerForm siteId={siteId} addable={addable} />}
       {!readOnly && <CopyFromSiteForm siteId={siteId} sites={otherSites} />}
     </div>
@@ -83,23 +101,35 @@ function PartnerCard({
   workers,
   registered,
   readOnly,
+  overtimeHint,
 }: {
   siteId: string;
   partner: PartnerCardData;
   workers: PartnerWorkerChoice[];
   registered: Set<string>;
   readOnly: boolean;
+  overtimeHint: OvertimeHint;
 }) {
   const [editing, setEditing] = useState(false);
   const registeredIds = workers.filter((w) => registered.has(w.id)).map((w) => w.id);
   const registeredKey = registeredIds.join(',');
   const [checked, setChecked] = useState<Set<string>>(() => new Set(registeredIds));
-  // サーバーの登録が変わった（保存・ほかの現場からのコピー）ときは、チェックをサーバーの登録に合わせ直す。
-  const [prevKey, setPrevKey] = useState(registeredKey);
-  if (prevKey !== registeredKey) {
-    setPrevKey(registeredKey);
-    setChecked(new Set(registeredIds));
+  // サーバーの登録が変わった（保存・ほかの現場からのコピー・新しい作業員の登録）ときは、チェックをサーバーの登録に
+  // 合わせ直す。まだ保存していないチェックの付け外しは残す（新しい作業員を登録しても、付け外しの途中が消えない）。
+  const [prevIds, setPrevIds] = useState(registeredIds);
+  if (prevIds.join(',') !== registeredKey) {
+    const before = new Set(prevIds);
+    const now = new Set(registeredIds);
+    setPrevIds(registeredIds);
+    setChecked((prev) => {
+      const next = new Set(registeredIds);
+      for (const id of prev) if (!before.has(id) && !now.has(id)) next.add(id); // 保存前に付けた
+      for (const id of before) if (!prev.has(id) && now.has(id)) next.delete(id); // 保存前に外した
+      return next;
+    });
   }
+  const [adding, setAdding] = useState(false);
+  const [addedName, setAddedName] = useState<string | null>(null);
   const [savedWorkers, setSavedWorkers] = useState(false);
   const remover = useRunner();
   const workerRunner = useRunner();
@@ -123,7 +153,7 @@ function PartnerCard({
   }
 
   return (
-    <li className="rounded-lg border border-gray-300 p-3 dark:border-gray-700">
+    <li className="rounded-lg border-2 border-gray-300 p-3 dark:border-gray-700">
       <h3 className="break-words text-lg font-bold">{name}</h3>
       {editing ? (
         <AmountForm partner={partner} onDone={() => setEditing(false)} />
@@ -149,7 +179,9 @@ function PartnerCard({
         <p className="mb-1 text-xs text-gray-600 dark:text-gray-400">無効の作業員は表示されません。登録を保存すると外れます。</p>
         {workers.length === 0 ? (
           <p className="py-2 text-sm text-gray-600 dark:text-gray-400">
-            この会社の有効な作業員がいません。管理者が マスター → 作業員 で所属を「協力会社」にして登録します。
+            {readOnly
+              ? 'この会社の有効な作業員がいません。'
+              : 'この会社の有効な作業員がいません。下の「＋ 新しい作業員を登録」から登録できます。'}
           </p>
         ) : (
           <ul>
@@ -166,8 +198,38 @@ function PartnerCard({
             ))}
           </ul>
         )}
+        {addedName && !adding && (
+          <p role="status" className="mt-2 text-sm font-medium text-green-700 dark:text-green-400">
+            {addedName} を登録しました（この現場に登録済み）
+          </p>
+        )}
+        {!readOnly &&
+          (adding ? (
+            <NewWorkerForm
+              siteId={siteId}
+              supplierId={partner.supplierId}
+              companyName={name}
+              overtimeHint={overtimeHint}
+              onCancel={() => setAdding(false)}
+              onDone={(workerName) => {
+                setAdding(false);
+                setAddedName(workerName);
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => {
+                setAddedName(null);
+                setAdding(true);
+              }}
+              className={`${outlineBlueButtonClass} mt-3 w-full`}
+            >
+              ＋ 新しい作業員を登録
+            </button>
+          ))}
         {!readOnly && workers.length > 0 && (
-          <div className="mt-2 space-y-2">
+          <div className="mt-3 space-y-2">
             <ErrorText message={workerRunner.error} />
             {savedWorkers && !workerRunner.error && (
               <p role="status" className="text-sm font-medium text-green-700 dark:text-green-400">
@@ -199,6 +261,90 @@ function PartnerCard({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * 協力会社のカードから、その会社の作業員を新しく登録する小さなフォーム。作業員マスターに協力会社（この会社）として
+ * 作られ、この現場に登録される（日当の適用開始日はサーバーが決める）。
+ */
+function NewWorkerForm({
+  siteId,
+  supplierId,
+  companyName,
+  overtimeHint,
+  onCancel,
+  onDone,
+}: {
+  siteId: string;
+  supplierId: string;
+  companyName: string;
+  overtimeHint: OvertimeHint;
+  onCancel: () => void;
+  onDone: (workerName: string) => void;
+}) {
+  const { pending, error, setError, runResult } = useRunner();
+
+  function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const input = {
+      siteId,
+      supplierId,
+      name: str(fd, 'name'),
+      trade: str(fd, 'trade'),
+      // 日当は必須（空欄は数値でないので検証エラー）。残業単価の空欄は null（標準の計算式）。
+      amount: parseYenInput(str(fd, 'amount')) ?? Number.NaN,
+      overtimeRate: parseYenInput(str(fd, 'overtimeRate')),
+    };
+    const message = firstError(sitePartnerWorkerAddSchema, input);
+    if (message) {
+      setError(message);
+      return;
+    }
+    const workerName = input.name.trim();
+    runResult(
+      async () => {
+        const res = await addSitePartnerWorker(input);
+        return res.ok ? { ok: true } : res;
+      },
+      () => onDone(workerName),
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-3 space-y-3 rounded-lg border-2 border-blue-700 p-3 dark:border-blue-400">
+      <p className="font-bold">新しい作業員を登録</p>
+      <Field label="名前（必須）">
+        <input name="name" maxLength={100} autoComplete="off" className={inputClass} />
+      </Field>
+      <Field label="職種">
+        <input name="trade" maxLength={500} placeholder="例: 鳶" className={inputClass} />
+      </Field>
+      <Field label="日当（円・必須）">
+        <input name="amount" type="text" inputMode="numeric" placeholder="例: 20000" className={inputClass} />
+      </Field>
+      <div>
+        <Field label="残業単価（円/H・任意）">
+          <input name="overtimeRate" type="text" inputMode="numeric" className={inputClass} />
+        </Field>
+        <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+          空欄なら 日当 ÷ {overtimeHint.baseHours} × {overtimeHint.multiplier}
+        </p>
+      </div>
+      <p className="text-sm text-gray-700 dark:text-gray-300">
+        作業員マスターに{companyName}の作業員として登録され、この現場に登録されます。日当は管理者が後から直せます。
+      </p>
+      <ErrorText message={error} />
+      <div className="flex gap-2">
+        <button type="button" onClick={onCancel} className={`${secondaryButtonClass} flex-1`}>
+          キャンセル
+        </button>
+        <button type="submit" disabled={pending} className={`${primaryButtonClass} flex-1`}>
+          {pending ? '登録中…' : '登録'}
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -272,8 +418,8 @@ function AddPartnerForm({ siteId, addable }: { siteId: string; addable: { id: st
   }
 
   return (
-    <section aria-labelledby="add-partner" className="space-y-3">
-      <h2 id="add-partner" className="border-b border-gray-300 pb-1 text-lg font-bold dark:border-gray-700">
+    <section aria-labelledby="add-partner" className={sectionCardClass}>
+      <h2 id="add-partner" className={sectionHeadingClass}>
         協力会社を追加
       </h2>
       {addable.length === 0 ? (
@@ -300,7 +446,7 @@ function AddPartnerForm({ siteId, addable }: { siteId: string; addable: { id: st
           </Field>
           <ErrorText message={error} />
           <button type="submit" disabled={pending} className={`${primaryButtonClass} w-full`}>
-            {pending ? '追加中…' : '追加'}
+            {pending ? '追加中…' : '＋ 協力会社を追加'}
           </button>
         </form>
       )}
@@ -328,8 +474,8 @@ function CopyFromSiteForm({ siteId, sites }: { siteId: string; sites: SiteChoice
   }
 
   return (
-    <section aria-labelledby="copy-partners" className="space-y-3">
-      <h2 id="copy-partners" className="border-b border-gray-300 pb-1 text-lg font-bold dark:border-gray-700">
+    <section aria-labelledby="copy-partners" className={sectionCardClass}>
+      <h2 id="copy-partners" className={sectionHeadingClass}>
         ほかの現場からコピー
       </h2>
       <p className="text-sm text-gray-600 dark:text-gray-400">

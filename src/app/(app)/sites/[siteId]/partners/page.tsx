@@ -5,6 +5,7 @@ import { addablePartnerSuppliers, partnerWorkerChoices } from '@/lib/calc/affili
 import { listSuppliers, listWorkers } from '@/lib/db/masters';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { getSite, getSiteMasters, listMySites, listSitePartners } from '@/lib/db/sites';
+import { getSettings } from '@/lib/db/settings';
 import { SitePartnersEditor, type PartnerWorkerChoice } from '@/components/sites/SitePartnersEditor';
 
 export const metadata = { title: '協力会社と作業員' };
@@ -22,12 +23,13 @@ export default async function SitePartnersPage({ params }: PageProps<'/sites/[si
   if (!site || site.deletedAt !== null) notFound();
   const readOnly = site.status === 'done';
 
-  const [partners, masters, workers, suppliers, sites] = await Promise.all([
+  const [partners, masters, workers, suppliers, sites, settings] = await Promise.all([
     listSitePartners(siteId),
     getSiteMasters(siteId),
     listWorkers(),
     listSuppliers(),
     listMySites(),
+    getSettings(),
   ]);
 
   const workersBySupplier: Record<string, PartnerWorkerChoice[]> = Object.fromEntries(
@@ -49,7 +51,7 @@ export default async function SitePartnersPage({ params }: PageProps<'/sites/[si
       </Link>
       <h1 className="mb-2 text-xl font-bold">協力会社と作業員</h1>
       <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">
-        この現場に入る協力会社と、会社ごとにこの現場で働く作業員を登録します。登録した作業員は日報の作業員のプルダウンに出ます（自社の作業員と手入力はいつでも選べます）。請負金額は社内用で、協力会社には見えません。
+        この現場に入る協力会社と、会社ごとにこの現場で働く作業員を登録します。登録した作業員は日報の作業員のプルダウンに出ます（自社の作業員と手入力はいつでも選べます）。まだマスターにいない作業員は、会社のカードの「＋ 新しい作業員を登録」で登録できます。請負金額は社内用で、協力会社には見えません。
       </p>
       {readOnly && (
         <p role="status" className="mb-4 rounded-lg border border-blue-500 bg-blue-50 p-3 font-bold text-blue-900 dark:bg-blue-950 dark:text-blue-50">
@@ -64,6 +66,7 @@ export default async function SitePartnersPage({ params }: PageProps<'/sites/[si
         registeredWorkerIds={masters.workerIds}
         addable={addable}
         otherSites={otherSites}
+        overtimeHint={{ baseHours: settings.rule.overtimeBaseHours, multiplier: settings.rule.overtimeMultiplier }}
       />
     </main>
   );

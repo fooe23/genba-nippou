@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { dateSchema } from '@/lib/db/masters-schemas';
+import { dateSchema, newWorkerFieldsSchema } from '@/lib/db/masters-schemas';
 import { optionalMinutesSchema, optionalTimeSchema } from '@/lib/db/settings-schemas';
 
 // 現場管理の入力検証スキーマ。サーバー（Server Actions）とクライアント（フォーム）の両方で使う。
@@ -233,4 +233,40 @@ export function copySitePartnersMessage(counts: { partners: number; workers: num
     return skipped ? `写す協力会社・作業員はありませんでした${skipped}` : '写す協力会社・作業員はありませんでした（すでに登録済みです）';
   }
   return `協力会社 ${counts.partners} 社・作業員 ${counts.workers} 人を写しました${skipped}`;
+}
+
+// ─── 現場から協力会社の作業員を新しく登録する（gn_add_site_partner_worker） ───
+
+/** 現場の協力会社のカードから、その会社の作業員を新しく登録する。名前・職種・日当・残業単価は作業員マスターと同じ規則。 */
+export const sitePartnerWorkerAddSchema = newWorkerFieldsSchema.extend({
+  siteId: idSchema,
+  supplierId: idSchema,
+});
+export type SitePartnerWorkerAddInput = z.input<typeof sitePartnerWorkerAddSchema>;
+
+/**
+ * 新しく登録する作業員の最初の日当の適用開始日（純関数。日付はすべて YYYY-MM-DD）。
+ * 作業員マスターの規則（適用開始日は日報の日付以前にする）に合わせ、この現場の着工日・最初の日報の日付・今日の
+ * うち最も早い日にする。新しい作業員なので、これより前の日当は無い。
+ */
+export function newPartnerWorkerEffectiveFrom(dates: {
+  startDate: string | null;
+  firstReportDate: string | null;
+  today: string;
+}): string {
+  return [dates.startDate, dates.firstReportDate, dates.today]
+    .filter((d): d is string => !!d && dateSchema.safeParse(d).success)
+    .reduce((min, d) => (d < min ? d : min), dates.today);
+}
+
+/** gn_add_site_partner_worker のエラー → 画面の文言（純関数）。 */
+export function sitePartnerWorkerRpcError(dbMessage: string | null | undefined): string {
+  const m = dbMessage ?? '';
+  if (m.includes('not_employee')) return SITE_PARTNERS_FORBIDDEN_MESSAGE;
+  if (m.includes('site_closed')) return SITE_PARTNERS_CLOSED_MESSAGE;
+  if (m.includes('not_member')) return 'この現場を見る権限がありません';
+  if (m.includes('not_site_partner')) return 'この会社はこの現場の協力会社ではないか、協力会社として有効ではありません。画面を読み込み直してください';
+  if (m.includes('invalid_input')) return '名前と日当（0以上）を入力してください。残業単価は空欄か0以上にします';
+  if (m.includes('gn_add_site_partner_worker')) return '作業員の登録の準備ができていません。管理者に連絡してください（データベースの更新が必要です）';
+  return '作業員の登録に失敗しました。もう一度お試しください。';
 }

@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -739,6 +739,65 @@ begin
     else fails := fails + 1; rep := rep || format(E'FAIL 11-10 労務=%s 現金=%s\n', n, n2); end if;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 11-10 エラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 12. 現場から協力会社の作業員を新しく登録する（update_2026-11-07b） =====
+  -- d1 は X の協力会社（11-1 で追加済み）。d2 は協力会社だが X に入っていない。Y は完了。
+  update public.gn_suppliers set is_partner = true where id = '00000000-0000-0000-0000-0000000000d1';
+  insert into public.gn_suppliers (id, name, is_partner) values ('00000000-0000-0000-0000-0000000000d2', '検証協力会社2', true);
+  insert into public.gn_site_partners (site_id, supplier_id) values (y, '00000000-0000-0000-0000-0000000000d1')
+    on conflict (site_id, supplier_id) do nothing;
+  begin
+    perform pg_temp.as_user(v_c);
+    u := public.gn_add_site_partner_worker(x, '00000000-0000-0000-0000-0000000000d1', ' 検証 新規作業員 ', '鳶', 20000, null, '2026-11-01');
+    perform pg_temp.as_editor();
+    select count(*) into n from public.gn_workers w
+     where w.id = u and w.name = '検証 新規作業員' and w.trade = '鳶' and w.affiliation = 'partner'
+       and w.supplier_id = '00000000-0000-0000-0000-0000000000d1' and w.active and w.updated_by = v_c;
+    select count(*) into n2 from public.gn_worker_rates r where r.worker_id = u and r.amount = 20000 and r.effective_from = '2026-11-01';
+    select count(*) into procedure_dummy from public.gn_site_workers sw
+     where sw.site_id = x and sw.worker_id = u
+       and sw.sort_order = (select max(sort_order) from public.gn_site_workers where site_id = x);
+    if n = 1 and n2 = 1 and procedure_dummy = 1 then rep := rep || E'PASS 12-1 社員は現場の協力会社の作業員を新しく登録できる（マスター・日当・現場の登録・更新者）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 12-1 作業員=%s 日当=%s 現場の登録=%s\n', n, n2, procedure_dummy); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 12-1 エラー: %s\n', sqlerrm);
+  end;
+  begin
+    perform pg_temp.as_user(v_c);
+    perform public.gn_add_site_partner_worker(x, '00000000-0000-0000-0000-0000000000d2', '検証 他社作業員', null, 20000, null, '2026-11-01');
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 12-2 現場に入っていない協力会社の作業員を登録できてしまった\n';
+  exception when others then
+    perform pg_temp.as_editor();
+    if sqlerrm = 'not_site_partner' then rep := rep || E'PASS 12-2 現場に入っていない協力会社では登録できない（not_site_partner）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 12-2 エラー: %s\n', sqlerrm); end if;
+  end;
+  begin
+    perform pg_temp.as_user(v_c);
+    perform public.gn_add_site_partner_worker(y, '00000000-0000-0000-0000-0000000000d1', '検証 完了現場', null, 20000, null, '2026-11-01');
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 12-3 完了現場で作業員を登録できてしまった\n';
+  exception when others then
+    perform pg_temp.as_editor();
+    if sqlerrm = 'site_closed' then rep := rep || E'PASS 12-3 完了現場では登録できない（site_closed）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 12-3 エラー: %s\n', sqlerrm); end if;
+  end;
+  begin
+    perform pg_temp.as_user(v_a);
+    perform public.gn_add_site_partner_worker(x, '00000000-0000-0000-0000-0000000000d1', '検証 協力会社から', null, 20000, null, '2026-11-01');
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 12-4 協力会社のアカウントが作業員を登録できてしまった\n';
+  exception when others then
+    perform pg_temp.as_editor();
+    if sqlerrm = 'not_employee' then rep := rep || E'PASS 12-4 協力会社のアカウントは登録できない（not_employee）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 12-4 エラー: %s\n', sqlerrm); end if;
+  end;
+  begin
+    perform pg_temp.as_user(v_c);
+    perform public.gn_add_site_partner_worker(x, '00000000-0000-0000-0000-0000000000d1', '   ', null, -1, null, '2026-11-01');
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 12-5 名前が空・日当が負でも登録できてしまった\n';
+  exception when others then
+    perform pg_temp.as_editor();
+    if sqlerrm = 'invalid_input' then rep := rep || E'PASS 12-5 名前が空・日当が負は登録できない（invalid_input）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 12-5 エラー: %s\n', sqlerrm); end if;
   end;
 
   -- ===== 終わり：すべて取り消す =====

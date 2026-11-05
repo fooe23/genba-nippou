@@ -144,8 +144,17 @@ export function SiteMastersSection({ siteId, selected, workers, suppliers, vehic
           ここの作業員は自社の作業員だけです。協力会社の作業員は「協力会社と作業員」で現場ごとに登録します。
         </p>
         {partnersHref && (
-          <Link href={partnersHref} className="inline-flex min-h-11 items-center text-base font-medium text-blue-700 underline dark:text-blue-400">
-            協力会社と作業員を開く →
+          <Link
+            href={partnersHref}
+            className="flex min-h-12 w-full items-center justify-between gap-3 rounded-lg border-2 border-blue-700 px-4 py-2 text-blue-700 sm:w-auto sm:justify-start dark:border-blue-400 dark:text-blue-400"
+          >
+            <span className="min-w-0">
+              <span className="block text-base font-bold">協力会社と作業員を開く</span>
+              <span className="block text-sm text-gray-700 dark:text-gray-300">協力会社の追加・作業員の登録</span>
+            </span>
+            <span aria-hidden="true" className="shrink-0 text-xl font-bold">
+              →
+            </span>
           </Link>
         )}
         <Checklist title="作業員（自社）" items={workers} checked={sel.workerIds} onToggle={(id) => toggle('workerIds', id)} onSetAll={(ids) => setAll('workerIds', ids)} />
