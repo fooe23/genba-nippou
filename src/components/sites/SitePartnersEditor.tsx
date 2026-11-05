@@ -213,6 +213,7 @@ function PartnerCard({
               onCancel={() => setAdding(false)}
               onDone={(workerName) => {
                 setAdding(false);
+                setSavedWorkers(false);
                 setAddedName(workerName);
               }}
             />
@@ -221,6 +222,7 @@ function PartnerCard({
               type="button"
               onClick={() => {
                 setAddedName(null);
+                setSavedWorkers(false);
                 setAdding(true);
               }}
               className={`${outlineBlueButtonClass} mt-3 w-full`}

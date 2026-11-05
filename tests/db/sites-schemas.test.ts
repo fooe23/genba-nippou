@@ -5,12 +5,12 @@ import {
   copySitePartnersMessage,
   copySitePartnersSchema,
   memberSchema,
-  newPartnerWorkerEffectiveFrom,
   parseYenInput,
   partnerAmountError,
   planSitePartnerCopy,
   siteInputSchema,
   sitePartnerAddSchema,
+  SITE_PARTNER_DUPLICATE_WORKER_MESSAGE,
   SITE_PARTNERS_CLOSED_MESSAGE,
   SITE_PARTNERS_FORBIDDEN_MESSAGE,
   sitePartnerUpdateSchema,
@@ -310,20 +310,6 @@ describe('sitePartnerWorkerAddSchema（現場から協力会社の作業員を�
   });
 });
 
-describe('newPartnerWorkerEffectiveFrom（最初の日当の適用開始日）', () => {
-  it('着工日・最初の日報の日付・今日のうち最も早い日', () => {
-    expect(newPartnerWorkerEffectiveFrom({ startDate: '2026-10-01', firstReportDate: '2026-09-28', today: '2026-11-06' })).toBe('2026-09-28');
-    expect(newPartnerWorkerEffectiveFrom({ startDate: '2026-10-01', firstReportDate: '2026-10-05', today: '2026-11-06' })).toBe('2026-10-01');
-  });
-  it('着工日が先（未来）でも今日より後にはしない', () => {
-    expect(newPartnerWorkerEffectiveFrom({ startDate: '2026-12-01', firstReportDate: null, today: '2026-11-06' })).toBe('2026-11-06');
-  });
-  it('どちらも無ければ今日。形式の正しくない日付は無視する', () => {
-    expect(newPartnerWorkerEffectiveFrom({ startDate: null, firstReportDate: null, today: '2026-11-06' })).toBe('2026-11-06');
-    expect(newPartnerWorkerEffectiveFrom({ startDate: '2026-02-30', firstReportDate: null, today: '2026-11-06' })).toBe('2026-11-06');
-  });
-});
-
 describe('sitePartnerWorkerRpcError（gn_add_site_partner_worker のエラー → 文言）', () => {
   it('それぞれの理由を日本語にする', () => {
     expect(sitePartnerWorkerRpcError('not_employee')).toBe(SITE_PARTNERS_FORBIDDEN_MESSAGE);
@@ -331,6 +317,7 @@ describe('sitePartnerWorkerRpcError（gn_add_site_partner_worker のエラー �
     expect(sitePartnerWorkerRpcError('not_member')).toContain('権限');
     expect(sitePartnerWorkerRpcError('not_site_partner')).toContain('この現場の協力会社ではない');
     expect(sitePartnerWorkerRpcError('invalid_input')).toContain('日当');
+    expect(sitePartnerWorkerRpcError('duplicate_worker')).toBe(SITE_PARTNER_DUPLICATE_WORKER_MESSAGE);
   });
   it('関数が無い（SQL 未実行）ときは管理者への連絡を促す', () => {
     expect(sitePartnerWorkerRpcError('Could not find the function public.gn_add_site_partner_worker(p_daily_rate, ...) in the schema cache')).toContain(

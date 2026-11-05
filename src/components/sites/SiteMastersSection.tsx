@@ -146,7 +146,7 @@ export function SiteMastersSection({ siteId, selected, workers, suppliers, vehic
         {partnersHref && (
           <Link
             href={partnersHref}
-            className="flex min-h-12 w-full items-center justify-between gap-3 rounded-lg border-2 border-blue-700 px-4 py-2 text-blue-700 sm:w-auto sm:justify-start dark:border-blue-400 dark:text-blue-400"
+            className="flex min-h-12 w-full items-center justify-between gap-3 rounded-lg border-2 border-blue-700 px-4 py-2 text-blue-700 sm:inline-flex sm:w-auto sm:justify-start dark:border-blue-400 dark:text-blue-400"
           >
             <span className="min-w-0">
               <span className="block text-base font-bold">協力会社と作業員を開く</span>

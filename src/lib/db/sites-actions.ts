@@ -19,7 +19,6 @@ import {
   siteMastersSchema,
   sitePartnerAddSchema,
   sitePartnerUpdateSchema,
-  newPartnerWorkerEffectiveFrom,
   sitePartnerWorkerAddSchema,
   sitePartnerWorkerRpcError,
   sitePartnerWorkersSchema,
@@ -29,7 +28,6 @@ import {
   type SitePartnerWorkerAddInput,
 } from '@/lib/db/sites-schemas';
 import { createServerSupabase } from '@/lib/supabase/server';
-import { todayJst } from '@/lib/calc/format';
 import { loadSupplierRoles, notPartnerError } from '@/lib/db/supplier-roles';
 import { isPartnerSupplier, MSG_NOT_VENDOR, nonVendorAdditions } from '@/lib/calc/supplier-roles';
 import type { SiteRole } from '@/lib/types';
@@ -586,7 +584,7 @@ export type AddSitePartnerWorkerResult = { ok: true; workerId: string } | { ok: 
 /**
  * 現場の協力会社のカードから、その会社の作業員を新しく登録する（社員・管理者。進行中の現場だけ）。
  * DB の gn_add_site_partner_worker が権限・現場・協力会社を確かめ、作業員マスター（所属＝その会社）・最初の日当・
- * この現場への登録を 1 回で作る（更新者は呼び出しユーザー）。日当の適用開始日は newPartnerWorkerEffectiveFrom。
+ * この現場への登録を 1 回で作る（更新者は呼び出しユーザー）。日当の適用開始日も関数が決める（着工日・最初の日報・今日の早い日）。
  */
 export async function addSitePartnerWorker(input: SitePartnerWorkerAddInput): Promise<AddSitePartnerWorkerResult> {
   const forbidden = await staffError();
@@ -596,23 +594,6 @@ export async function addSitePartnerWorker(input: SitePartnerWorkerAddInput): Pr
   const v = parsed.data;
   try {
     const supabase = await createServerSupabase();
-    const [siteRes, firstRes] = await Promise.all([
-      supabase.from('gn_sites').select('start_date').eq('id', v.siteId).maybeSingle(),
-      supabase
-        .from('gn_daily_reports')
-        .select('report_date')
-        .eq('site_id', v.siteId)
-        .order('report_date', { ascending: true })
-        .limit(1)
-        .maybeSingle(),
-    ]);
-    if (siteRes.error) throw new Error(siteRes.error.message);
-    if (firstRes.error) throw new Error(firstRes.error.message);
-    const effectiveFrom = newPartnerWorkerEffectiveFrom({
-      startDate: (siteRes.data as { start_date: string | null } | null)?.start_date ?? null,
-      firstReportDate: (firstRes.data as { report_date: string } | null)?.report_date ?? null,
-      today: todayJst(),
-    });
     const { data, error } = await supabase.rpc('gn_add_site_partner_worker', {
       p_site_id: v.siteId,
       p_supplier_id: v.supplierId,
@@ -620,7 +601,6 @@ export async function addSitePartnerWorker(input: SitePartnerWorkerAddInput): Pr
       p_trade: v.trade ?? null,
       p_daily_rate: v.amount,
       p_overtime_rate: v.overtimeRate ?? null,
-      p_effective_from: effectiveFrom,
     });
     if (error) {
       console.error('[addSitePartnerWorker]', error.message);
