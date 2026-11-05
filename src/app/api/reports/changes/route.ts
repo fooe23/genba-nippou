@@ -58,7 +58,8 @@ export async function GET(request: Request): Promise<Response> {
     site,
     company: settings.company,
     outputAt: new Date().toISOString(),
-    by: profile.name || profile.email,
+    // 客先用の資料にはメールアドレスを出さない（名前が無ければ空欄）。
+    by: audience === 'client' ? profile.name : profile.name || profile.email,
     reportSpan: reportSpan(input.reports),
   };
 

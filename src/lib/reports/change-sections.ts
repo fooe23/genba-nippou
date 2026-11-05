@@ -205,7 +205,7 @@ function issueText(row: ChangeLedgerRow): string {
 /**
  * 明細一覧（15 列）。PDF は 1 件を 2 段（上段：区分〜提案額、下段：指示者〜客先確認。日付は 2 段をまたぐ）、
  * Excel は 1 行に並べる。列幅の比 w は PDF の各段の中での比（mm の目安。上段・下段とも合計 162、日付 18 と合わせて 180）。
- * 減の数量は負で表示する（提案額は申告額）。客先向けなので実績原価の列は無い。未入力の文字は空欄。
+ * 減の数量は負で表示する（提案額は申告額）。社内確認用の明細なので実績原価の列がある。未入力の文字は空欄。
  */
 export function changeDetail(model: ChangeLedgerModel): SectionTable {
   return {
