@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { buildDailyReport, buildEmptyDailyReport } from '@/lib/reports/daily-model';
-import { COST_TOTAL, dailyInput, report, sampleDaily, site, withChanges } from './daily-fixture';
+import { COST_TOTAL, dailyInput, issues, report, sampleDaily, site, withChanges } from './daily-fixture';
 
 describe('buildDailyReport', () => {
   it('見出し：現場名・工事番号・日付・当月 N 回目／通算 M 回目・天候・作業責任者・共通時間', () => {
@@ -135,12 +135,25 @@ describe('buildDailyReport', () => {
     expect(m.issues).toEqual({
       text: '施主より追加の依頼あり',
       items: [
-        { body: '棚の追加', status: 'open', doneAt: null },
-        { body: '窓の変更', status: 'done', doneAt: '2026-11-04T03:00:00Z' },
+        { number: 1, body: '棚の追加', status: 'open', doneAt: null, kind: 'other', instructedBy: null, instructionMethod: null },
+        { number: 2, body: '窓の変更', status: 'done', doneAt: '2026-11-04T03:00:00Z', kind: 'other', instructedBy: null, instructionMethod: null },
       ],
     });
     expect(m.notes).toBe('明日は雨天予報');
     expect(m.signature).toEqual({ createdBy: '作成 太郎', reviewedBy: '確認 次郎', approvedBy: '承認 三郎', approvedAt: '2026-11-03T01:00:00Z' });
+  });
+
+  it('件の番号（その日報の中での登録順）・種別・指示者・指示の方法', () => {
+    const m = sampleDaily({
+      issues: [
+        { ...issues[0], kind: 'extra', instructedBy: '施主 山田様', instructionMethod: 'oral' },
+        { ...issues[1], kind: 'rework' },
+      ],
+    });
+    expect(m.issues.items.map(({ number, kind, instructedBy, instructionMethod }) => ({ number, kind, instructedBy, instructionMethod }))).toEqual([
+      { number: 1, kind: 'extra', instructedBy: '施主 山田様', instructionMethod: 'oral' },
+      { number: 2, kind: 'rework', instructedBy: null, instructionMethod: null },
+    ]);
   });
 
   it('名前が読めない作成者は作業責任者で代える。確認者・承認者は null', () => {

@@ -21,7 +21,7 @@ describe('buildChangeXlsx', () => {
     const ws = await read(await buildChangeXlsx(sampleChangeModel(), changeMeta()));
     expect(ws.getCell('A1').value).toBe('追加・変更工事 精算のご提案（案）');
     expect(ws.getCell('A1').font?.bold).toBe(true);
-    expect(ws.getCell('A2').value).toBe('〇〇様 御中');
+    expect(ws.getCell('A2').value).toBe('〇〇様');
     expect(rowOf(ws, '現場名').getCell(2).value).toBe('〇〇邸新築工事');
 
     const extra = rowOf(ws, '追加');
@@ -68,7 +68,7 @@ describe('buildChangeXlsx', () => {
 
   it('変更行 0 件：見出しと「追加・増・変更・減の記録はありません」だけ', async () => {
     const ws = await read(await buildChangeXlsx(emptyChangeModel(), changeMeta({ site: { ...changeMeta().site, clientName: null } })));
-    expect(ws.getCell('A2').value).toBe('（客先名未設定）');
+    expect(ws.getCell('A2').value).toBe('お客様 各位');
     rowOf(ws, '追加・増・変更・減の記録はありません');
     expect(() => rowOf(ws, '精算提案額')).toThrow();
     expect(() => rowOf(ws, '日付（当月N回目）')).toThrow();

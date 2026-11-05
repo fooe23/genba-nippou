@@ -14,6 +14,7 @@ import type {
   ChangeLedgerModel,
   ChangeLedgerRow,
   ChangeRates,
+  ClientSettlement,
   CostReportPeriod,
   ReportWithLines,
 } from '@/lib/reports/types';
@@ -186,6 +187,7 @@ function settleIssues(
   throughRows: ChangeLedgerRow[],
   through: string | null,
   refs: Map<string, ChangeIssueRef>,
+  confirmedReportIds: Set<string>,
 ): ChangeIssueSettlement[] {
   const rowsByIssue = new Map<string, ChangeLedgerRow[]>();
   for (const row of throughRows) {
@@ -206,6 +208,7 @@ function settleIssues(
       kind: issue.kind,
       bodyHead: bodyHead(issue.body),
       instructedBy: issue.instructedBy,
+      instructionMethod: issue.instructionMethod,
       amountEstimate: issue.amountEstimate,
       settlementMethod: issue.settlementMethod,
       fixedAmount: issue.fixedAmount,
@@ -213,6 +216,7 @@ function settleIssues(
       fixedOn: issue.fixedOn,
       ...sumRows(linked),
       ...settleIssue(issue, linked),
+      reportClientConfirmed: confirmedReportIds.has(issue.reportId),
     });
   }
   // Array.prototype.sort は安定（同じ日は input.issues の並びのまま）
@@ -288,8 +292,11 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
 
   const rows = throughRows.filter((row) => inPeriod(row.date));
   const summary = summarize(rows);
-  const issues = settleIssues(input.issues, throughRows, through, refs);
+  const confirmedReportIds = new Set(input.reports.filter((r) => r.clientConfirmedAt !== null).map((r) => r.id));
+  const issues = settleIssues(input.issues, throughRows, through, refs, confirmedReportIds);
   const unlinkedRows = throughRows.filter((row) => row.issue === null);
+  const unlinkedByKind: Record<ChangeLedgerKind, number> = { extra: 0, increase: 0, change: 0, minus: 0 };
+  for (const row of unlinkedRows) unlinkedByKind[row.changeKind] += row.proposal;
   // 区分ごとの精算額（期間末までの累計）= 件の精算額 ＋ 件に紐づかない行の提案額
   for (const i of issues) if (i.countsToward && i.category !== null) summary[i.category].settled += i.settled;
   for (const row of unlinkedRows) summary[row.changeKind].settled += row.proposal;
@@ -307,6 +314,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
     summary,
     issues,
     unlinked: sumRows(unlinkedRows),
+    unlinkedByKind,
     contractOutput,
     settlement: {
       base: base.amount,
@@ -319,4 +327,43 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
       proposed: base.amount === null ? null : base.amount + extra + increase + change + minus,
     },
   };
+}
+
+/** 客先用で「確定」した件：一式は確定額あり、常用は単価あり（未定は確定でない）。 */
+function isFixedForClient(issue: ChangeIssueSettlement): boolean {
+  if (issue.settlementMethod === 'lump_sum') return issue.fixedAmount !== null;
+  if (issue.settlementMethod === 'daily_rate') return issue.dailyRate !== null;
+  return false;
+}
+
+/**
+ * 客先用の精算額の規則（ここだけに書く。tests/reports/change-model.test.ts で固定）。社内用の settlement とは別に計算する。
+ *
+ * - 確定した件（一式＝確定額あり、常用＝単価あり）の精算額（settled。減は負）を区分（category）に足し、件数を 1 増やす。
+ * - 見積中（未定・確定額の無い一式・単価の無い常用）は金額に入れず pendingCount に数える（未定の件に紐づく行の提案額も入れない）。
+ * - 件なしの行の提案額（期間末まで。unlinkedByKind）は区分の金額に足す（件数には入れない）。
+ * - やり直し（countsToward false）はどこにも入れない。
+ * - 精算提案額 = 当初 ＋ 区分ごとの金額の和（当初が無ければ null）。
+ */
+export function clientSettlement(model: ChangeLedgerModel): ClientSettlement {
+  const kinds: ClientSettlement['kinds'] = {
+    extra: { count: 0, amount: model.unlinkedByKind.extra },
+    increase: { count: 0, amount: model.unlinkedByKind.increase },
+    change: { count: 0, amount: model.unlinkedByKind.change },
+    minus: { count: 0, amount: model.unlinkedByKind.minus },
+  };
+  const issues = model.issues.filter((i) => i.countsToward && i.category !== null);
+  const pendingIds = new Set<string>();
+  for (const i of issues) {
+    if (!isFixedForClient(i)) {
+      pendingIds.add(i.id);
+      continue;
+    }
+    const k = kinds[i.category!];
+    k.count += 1;
+    k.amount += i.settled;
+  }
+  const { base, baseBasis } = model.settlement;
+  const sum = kinds.extra.amount + kinds.increase.amount + kinds.change.amount + kinds.minus.amount;
+  return { base, baseBasis, kinds, proposed: base === null ? null : base + sum, pendingCount: pendingIds.size, issues, pendingIds };
 }

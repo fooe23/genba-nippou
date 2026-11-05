@@ -430,8 +430,22 @@ export interface DailyReportModel {
    * 追加・増・変更・減の行が無い日は null。
    */
   work: { rows: DailyWorkRow[]; total: { manDays: number; amount: number }; changes: ChangeTotals | null };
-  /** 重要事項（本文と、この日報の件）。 */
-  issues: { text: string; items: { body: string; status: Issue['status']; doneAt: string | null }[] };
+  /**
+   * 重要事項（本文と、この日報の件）。件の number はこの日報の件の中での登録順（1 始まり。issueNumbers と同じ）。
+   * kind・instructedBy・instructionMethod はお客様用日報で使う（社内用の日報 PDF には出さない）。
+   */
+  issues: {
+    text: string;
+    items: {
+      number: number;
+      body: string;
+      status: Issue['status'];
+      doneAt: string | null;
+      kind: IssueKind;
+      instructedBy: string | null;
+      instructionMethod: InstructionMethod | null;
+    }[];
+  };
   /** 連絡事項。 */
   notes: string;
   /**
@@ -542,6 +556,8 @@ export interface ChangeIssueSettlement {
   bodyHead: string;
   /** 指示者（未入力は null）。 */
   instructedBy: string | null;
+  /** 指示の方法（未入力は null）。 */
+  instructionMethod: InstructionMethod | null;
   /** 金額見込み（円。未入力は null）。参考で、精算額には使わない。 */
   amountEstimate: number | null;
   /** 精算の方法（未定・一式・常用）と、確定額（一式）・常用単価（常用）・確定日（件の保存値）。 */
@@ -564,6 +580,26 @@ export interface ChangeIssueSettlement {
   settledBasis: 'fixed' | 'daily_rate' | 'proposal';
   /** 区分ごとの精算額・精算提案額に入れる（category が null のやり直しは参考で、入れない）。 */
   countsToward: boolean;
+  /** この件を登録した日報に客先確認（client_confirmed_at）がある。 */
+  reportClientConfirmed: boolean;
+}
+
+/**
+ * 客先用の精算（clientSettlement）。見積中の件（未定・確定額の無い一式・単価の無い常用）は金額に入れない。
+ * 区分ごとの金額 = 確定した件の精算額 ＋ 件なしの行の提案額（期間末まで）。件数は確定した件の数（件なしの行は数えない）。
+ */
+export interface ClientSettlement {
+  base: number | null;
+  baseBasis: 'contract' | 'estimate';
+  kinds: Record<ChangeLedgerKind, { count: number; amount: number }>;
+  /** 当初 ＋ 区分ごとの金額の和（減は負）。当初が無ければ null。 */
+  proposed: number | null;
+  /** 見積中の件の数（載せる件のうち、やり直し以外で確定していないもの）。 */
+  pendingCount: number;
+  /** 客先用に載せる件（やり直しを除く。見積中も含む）。件の日報日順（model.issues の並び）。 */
+  issues: ChangeIssueSettlement[];
+  /** 見積中の件の id。 */
+  pendingIds: Set<string>;
 }
 
 export interface ChangeLedgerModel {
@@ -579,6 +615,8 @@ export interface ChangeLedgerModel {
   issues: ChangeIssueSettlement[];
   /** 期間末までの、件に紐づかない（未選択・読めない件）追加・増・変更・減の行の件数・人工・実績原価・提案額の合計。 */
   unlinked: { lineCount: number; manDays: number; actualCost: number; proposal: number };
+  /** 期間末までの、件に紐づかない行の提案額の合計（区分ごと。減は負）。客先用の精算額（clientSettlement）で使う。 */
+  unlinkedByKind: Record<ChangeLedgerKind, number>;
   /** 集計期間の契約内の作業内容の出来高（保存値 amount の合計）。 */
   contractOutput: number;
   /**

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
-import { allocateDayCost, buildChangeLedger, dayCostBasis, proposalFromCost, settleIssue } from '@/lib/reports/change-model';
+import { allocateDayCost, buildChangeLedger, clientSettlement, dayCostBasis, proposalFromCost, settleIssue } from '@/lib/reports/change-model';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import type { ChangeLedgerInput, ChangeLedgerRow, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
@@ -450,6 +450,81 @@ describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary
     expect(lump.isEmpty).toBe(false);
     expect(lump.rows).toEqual([]);
     expect(lump.unlinked).toEqual({ lineCount: 0, manDays: 0, actualCost: 0, proposal: 0 });
+  });
+});
+
+describe('客先用の精算額（clientSettlement）', () => {
+  // 労務 20,000・1 人工の日：人工 1 の行の実績原価 20,000 → 提案 25,300、人工 0.5 → 12,650。
+  const day = (date: string, lines: SavedReportLine[], o: Partial<ReportWithLines> = {}) => report(date, [labor(1, 20000), ...lines], o);
+  const reports = () => [
+    day('2026-11-02', [
+      work('extra', 1, 1, 1000, { issueId: 'aL' }), // 一式（確定）に紐づく行：提案額は数えない
+      work('extra', 1, 1, 1000, { issueId: 'aU' }), // 未定（見積中）に紐づく行：提案額を客先用に入れない
+      work('extra', 1, 1, 1000), // 件なし（追加）25,300
+      work('minus', 0, 1, 3000), // 件なし（減）−3,000
+    ], { clientConfirmedAt: '2026-11-02T08:00:00Z' }),
+    day('2026-11-05', [
+      work('change', 1.5, 1, 1000, { issueId: 'aD' }),
+      work('extra', 1, 1, 1000, { issueId: 'aR' }),
+      work('increase', 0.5, 1, 1000, { issueId: 'aE' }),
+      work('increase', 1, 1, 1000), // 件なし（増）25,300
+    ]),
+  ];
+  const issues = () => [
+    issue('aL', '2026-11-02', '棚の追加', { settlementMethod: 'lump_sum', fixedAmount: 100000, instructionMethod: 'oral' }),
+    issue('aU', '2026-11-02', '照明の追加（見積中）'),
+    issue('aM', '2026-11-05', '巾木をやめる', { kind: 'minus', settlementMethod: 'lump_sum', fixedAmount: 30000 }),
+    issue('aD', '2026-11-05', '扉の変更', { kind: 'change', settlementMethod: 'daily_rate', dailyRate: 30000 }),
+    issue('aE', '2026-11-05', '確定額の無い一式', { kind: 'increase', settlementMethod: 'lump_sum', fixedAmount: null }),
+    issue('aR', '2026-11-05', '手直し', { kind: 'rework', settlementMethod: 'lump_sum', fixedAmount: 8000 }),
+    issue('aP', '2026-11-05', '単価の無い常用', { settlementMethod: 'daily_rate', dailyRate: null }),
+    issue('aN', '2026-11-05', '行の無い未定の件'),
+  ];
+  const m = buildChangeLedger(input(reports(), { issues: issues() }), RATES, ALL);
+  const c = clientSettlement(m);
+
+  it('件なしの行の提案額（期間末まで）を区分ごとに持つ', () => {
+    expect(m.unlinkedByKind).toEqual({ extra: 25300, increase: 25300, change: 0, minus: -3000 });
+  });
+  it('区分ごと：確定した件（一式＝確定額、常用＝人工×単価）の精算額 ＋ 件なしの行の提案額。件数は確定した件だけ。減は負', () => {
+    expect(c.kinds).toEqual({
+      extra: { count: 1, amount: 100000 + 25300 },
+      increase: { count: 0, amount: 25300 },
+      change: { count: 1, amount: 45000 },
+      minus: { count: 1, amount: -30000 - 3000 },
+    });
+  });
+  it('見積中（未定・確定額の無い一式・単価の無い常用）は金額に入れず pendingCount に数える', () => {
+    expect(c.pendingCount).toBe(3);
+    expect([...c.pendingIds].sort()).toEqual(['aE', 'aP', 'aU']);
+  });
+  it('精算提案額 = 当初 ＋ 区分ごとの金額（社内用の settlement.proposed とは見積中の分だけ違う）', () => {
+    expect(c.base).toBe(1_000_000);
+    expect(c.baseBasis).toBe('contract');
+    expect(c.proposed).toBe(1_000_000 + 125300 + 25300 + 45000 - 33000);
+    expect(m.settlement.proposed).not.toBe(c.proposed);
+  });
+  it('載せる件：やり直しを除く（見積中は含む）、日付順。未定で行の無い件は載らない', () => {
+    expect(c.issues.map((i) => i.id)).toEqual(['aL', 'aU', 'aM', 'aD', 'aE', 'aP']);
+  });
+  it('当初が無ければ base・proposed は null（区分ごとの金額は出す）', () => {
+    const none = clientSettlement(buildChangeLedger(input(reports(), { site: site({ contractAmount: null }), issues: issues() }), RATES, ALL));
+    expect(none.base).toBeNull();
+    expect(none.proposed).toBeNull();
+    expect(none.kinds.change.amount).toBe(45000);
+  });
+  it('見積中の件が無ければ pendingCount 0', () => {
+    const only = clientSettlement(
+      buildChangeLedger(input([day('2026-11-02', [])], { issues: [issue('x', '2026-11-02', '一式', { settlementMethod: 'lump_sum', fixedAmount: 5000 })] }), RATES, ALL),
+    );
+    expect(only).toMatchObject({ pendingCount: 0, proposed: 1_005_000 });
+    expect(only.pendingIds.size).toBe(0);
+  });
+  it('件の reportClientConfirmed：その件を登録した日報に客先確認があるか。instructionMethod も持つ', () => {
+    const byId = new Map(m.issues.map((i) => [i.id, i]));
+    expect(byId.get('aL')).toMatchObject({ reportClientConfirmed: true, instructionMethod: 'oral' });
+    expect(byId.get('aU')?.reportClientConfirmed).toBe(true);
+    expect(byId.get('aM')).toMatchObject({ reportClientConfirmed: false, instructionMethod: null });
   });
 });
 

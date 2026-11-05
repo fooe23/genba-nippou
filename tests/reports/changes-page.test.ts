@@ -13,10 +13,10 @@ const issue = (id: string, reportDate: string, kind: IssueKind = 'extra', o: Par
 });
 
 const settled = (i: Issue, o: Partial<ChangeIssueSettlement> = {}): ChangeIssueSettlement => ({
-  id: i.id, reportDate: i.reportDate, number: 1, kind: i.kind, bodyHead: i.body, instructedBy: i.instructedBy, amountEstimate: i.amountEstimate,
+  id: i.id, reportDate: i.reportDate, number: 1, kind: i.kind, bodyHead: i.body, instructedBy: i.instructedBy, instructionMethod: i.instructionMethod, amountEstimate: i.amountEstimate,
   settlementMethod: i.settlementMethod, fixedAmount: i.fixedAmount, dailyRate: i.dailyRate, fixedOn: i.fixedOn,
   category: i.kind === 'rework' ? null : 'extra', lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, settled: 0,
-  settledBasis: 'proposal', countsToward: i.kind !== 'rework', ...o,
+  settledBasis: 'proposal', countsToward: i.kind !== 'rework', reportClientConfirmed: false, ...o,
 });
 
 type Ledger = Pick<ChangeLedgerModel, 'issues' | 'unlinked'>;

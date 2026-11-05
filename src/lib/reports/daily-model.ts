@@ -1,6 +1,7 @@
 import type { ChangeTotals } from '@/lib/calc/change';
 import { productivity } from '@/lib/calc/report';
 import { visitNumbers } from '@/lib/calc/visit';
+import { issueNumbers } from '@/lib/reports/change-model';
 import type { Site } from '@/lib/db/sites';
 import type {
   DailyLeaseRow,
@@ -63,6 +64,7 @@ function storedChangeTotals(rows: DailyWorkRow[]): ChangeTotals | null {
 /** 日報のある日の帳票データ。 */
 export function buildDailyReport(input: DailyReportInput): DailyReportModel {
   const { site, report, names } = input;
+  const issueNumber = issueNumbers(input.issues);
   const workers: DailyWorkerRow[] = [];
   const vehicles: DailyVehicleRow[] = [];
   const leases: DailyLeaseRow[] = [];
@@ -172,7 +174,18 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
     costs: { labor, fuel, lease, cash: cashTotal, credit: creditTotal, total: labor + fuel + lease + cashTotal + creditTotal, costTotal: report.costTotal },
     output: { today: report.outputTotal, cumulative, contractAmount: contract, progress: contract ? cumulative / contract : null, ...contractBasis(site) },
     work: { rows: work, total: { manDays: sum(work.map((r) => r.manDays)), amount: sum(work.map((r) => r.amount)) }, changes: storedChangeTotals(work) },
-    issues: { text: report.issuesText, items: input.issues.map((i) => ({ body: i.body, status: i.status, doneAt: i.doneAt })) },
+    issues: {
+      text: report.issuesText,
+      items: input.issues.map((i) => ({
+        number: issueNumber.get(i.id) ?? 0,
+        body: i.body,
+        status: i.status,
+        doneAt: i.doneAt,
+        kind: i.kind,
+        instructedBy: i.instructedBy,
+        instructionMethod: i.instructionMethod,
+      })),
+    },
     notes: report.notesText,
     signature: {
       createdBy: nameOf(report.createdBy) ?? report.supervisor,

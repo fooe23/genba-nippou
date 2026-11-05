@@ -16,10 +16,18 @@ const texts = (cells: Cell[]) => cells.map(formatCell);
 const site = changeMeta().site;
 
 describe('宛先・見出し', () => {
-  it('客先名 ＋「御中」。客先名が無ければ「（客先名未設定）」（御中は付けない）', () => {
-    expect(addressee(site)).toBe('〇〇様 御中');
-    expect(addressee({ ...site, clientName: null })).toBe('（客先名未設定）');
-    expect(addressee({ ...site, clientName: '  ' })).toBe('（客先名未設定）');
+  it('敬称：様／御中で終わればそのまま、会社名なら「御中」、それ以外は「様」、客先名が無ければ「お客様 各位」', () => {
+    expect(addressee(site)).toBe('〇〇様');
+    expect(addressee({ ...site, clientName: '山田工務店御中' })).toBe('山田工務店御中');
+    expect(addressee({ ...site, clientName: ' 株式会社山田工務店 ' })).toBe('株式会社山田工務店 御中');
+    expect(addressee({ ...site, clientName: '山田建設有限会社' })).toBe('山田建設有限会社 御中');
+    expect(addressee({ ...site, clientName: '合同会社ヤマダ' })).toBe('合同会社ヤマダ 御中');
+    expect(addressee({ ...site, clientName: '（株）山田' })).toBe('（株）山田 御中');
+    expect(addressee({ ...site, clientName: '(株)山田' })).toBe('(株)山田 御中');
+    expect(addressee({ ...site, clientName: '山田（有）' })).toBe('山田（有） 御中');
+    expect(addressee({ ...site, clientName: '山田 太郎' })).toBe('山田 太郎 様');
+    expect(addressee({ ...site, clientName: null })).toBe('お客様 各位');
+    expect(addressee({ ...site, clientName: '  ' })).toBe('お客様 各位');
   });
 
   it('現場名・工事番号・期間（工期全体は最初〜最後の日報日、月は YYYY年MM月）・出力日時', () => {

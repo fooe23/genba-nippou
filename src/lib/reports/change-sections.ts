@@ -38,10 +38,17 @@ export function reportSpan(reports: { reportDate: string }[]): ChangeReportMeta[
   return { from: dates[0] ?? null, to: dates.at(-1) ?? null };
 }
 
-/** 宛先：「客先名 御中」。客先名が無ければ「（客先名未設定）」（御中は付けない）。 */
+const COMPANY_MARKS = ['株式会社', '有限会社', '合同会社', '（株）', '(株)', '（有）'];
+
+/**
+ * 宛先の敬称：客先名が「様」「御中」で終わればそのまま、会社名（株式会社・有限会社・合同会社・（株）・(株)・（有）を
+ * 含む）なら「客先名 御中」、それ以外は「客先名 様」。客先名が無ければ「お客様 各位」。
+ */
 export function addressee(site: Pick<Site, 'clientName'>): string {
   const name = site.clientName?.trim();
-  return name ? `${name} 御中` : '（客先名未設定）';
+  if (!name) return 'お客様 各位';
+  if (name.endsWith('様') || name.endsWith('御中')) return name;
+  return COMPANY_MARKS.some((m) => name.includes(m)) ? `${name} 御中` : `${name} 様`;
 }
 
 function periodText(model: ChangeLedgerModel, meta: ChangeReportMeta): string {
