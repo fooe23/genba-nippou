@@ -204,3 +204,34 @@ describe('客先用に社内の数字を出さない', () => {
     }
   });
 });
+
+describe('客先用に所属（自社・協力会社・会社名）を出さない', () => {
+  const PARTNER = 'ひかり工務店';
+  /** settledInput の労務の行を協力会社（請負）にし、自社の行も 1 行足したもの。 */
+  function partnerModel(period: CostReportPeriod = { kind: 'all' }) {
+    const input = settledInput();
+    const reports = input.reports.map((r) => ({
+      ...r,
+      lines: [
+        ...r.lines.map((l) => (l.kind === 'labor' ? ({ ...l, affiliation: 'partner', supplierId: 'pZ', laborContract: 'ukeoi' } as SavedReportLine) : l)),
+        ...r.lines.filter((l) => l.kind === 'labor').map((l) => ({ ...l, workerId: 'w9', workerName: '山本 次郎', affiliation: 'own', supplierId: null } as SavedReportLine)),
+      ],
+    }));
+    const suppliers = [
+      ...input.suppliers,
+      { ...input.suppliers[0], id: 'pZ', name: PARTNER, isVendor: false, isPartner: true },
+    ];
+    return buildChangeLedger({ ...input, reports, suppliers }, RATES, period);
+  }
+
+  it('まとめ・注記・件ごとの内容・明細（件ごとの見出し・小計を含む）に 所属／自社／協力会社／所属なし・会社名が無い', () => {
+    for (const m of [partnerModel(), partnerModel(MONTH)]) {
+      // 社内用の按分には所属が入っている（前提の確認）
+      expect(m.rows.some((r) => r.affiliationManDays.some((a) => a.label === PARTNER))).toBe(true);
+      const tables = [clientChangeSummary(m), clientChangeIssues(m), clientChangeDetail(m)];
+      expect(clientChangeDetail(m).groups?.length).toBeGreaterThan(0);
+      const words = [...allLabels(tables), ...allTexts(tables), ...clientNotes(m), ...clientChangeInfoRows(m, changeMeta()).flat().filter((v): v is string => v !== null)];
+      for (const word of ['所属', '自社', '協力会社', '所属なし', PARTNER]) expect(words.filter((w) => w.includes(word))).toEqual([]);
+    }
+  });
+});

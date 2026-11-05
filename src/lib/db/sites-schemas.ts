@@ -192,18 +192,24 @@ export const copySitePartnersSchema = z
  * 別の現場から写すものを決める（純関数）。
  * - 協力会社：写し元の協力会社（請負金額・メモは写さない）と、写す作業員の会社のうち、写し先に無いもの。
  * - 作業員：写し元に登録された協力会社の作業員のうち、有効で、写し先にまだ登録されていないもの（無効な作業員は飛ばす）。
+ * - isPartner を渡すと、協力会社の印の無い会社（後から印を外した会社など）とその作業員は写さない。skippedPartners は
+ *   写さなかった会社の数（写し元の会社と作業員の会社。重複なし）。
  * 写し元の登録順を保つ。
  */
 export function planSitePartnerCopy(
   source: { supplierIds: string[]; workers: { id: string; supplierId: string | null; active: boolean }[] },
   target: { supplierIds: string[]; workerIds: string[] },
-): { supplierIds: string[]; workerIds: string[] } {
+  isPartner: (supplierId: string) => boolean = () => true,
+): { supplierIds: string[]; workerIds: string[]; skippedPartners: number } {
+  const skipped = new Set(
+    [...source.supplierIds, ...source.workers.map((w) => w.supplierId)].filter((id): id is string => !!id && !isPartner(id)),
+  );
   const haveSuppliers = new Set(target.supplierIds);
   const haveWorkers = new Set(target.workerIds);
-  const workers = source.workers.filter((w) => w.active && !haveWorkers.has(w.id));
+  const workers = source.workers.filter((w) => w.active && !haveWorkers.has(w.id) && !(w.supplierId && skipped.has(w.supplierId)));
   const supplierIds: string[] = [];
   for (const id of [...source.supplierIds, ...workers.map((w) => w.supplierId)]) {
-    if (id && !haveSuppliers.has(id)) {
+    if (id && !haveSuppliers.has(id) && !skipped.has(id)) {
       supplierIds.push(id);
       haveSuppliers.add(id);
     }
@@ -215,11 +221,16 @@ export function planSitePartnerCopy(
       haveWorkers.add(w.id);
     }
   }
-  return { supplierIds, workerIds };
+  return { supplierIds, workerIds, skippedPartners: skipped.size };
 }
 
 /** 写した結果の文言。 */
-export function copySitePartnersMessage(counts: { partners: number; workers: number }): string {
-  if (counts.partners === 0 && counts.workers === 0) return '写す協力会社・作業員はありませんでした（すでに登録済みです）';
-  return `協力会社 ${counts.partners} 社・作業員 ${counts.workers} 人を写しました`;
+export function copySitePartnersMessage(counts: { partners: number; workers: number; skippedPartners?: number }): string {
+  const skipped = counts.skippedPartners
+    ? `（協力会社の印の無い会社 ${counts.skippedPartners} 社とその作業員は写していません）`
+    : '';
+  if (counts.partners === 0 && counts.workers === 0) {
+    return skipped ? `写す協力会社・作業員はありませんでした${skipped}` : '写す協力会社・作業員はありませんでした（すでに登録済みです）';
+  }
+  return `協力会社 ${counts.partners} 社・作業員 ${counts.workers} 人を写しました${skipped}`;
 }

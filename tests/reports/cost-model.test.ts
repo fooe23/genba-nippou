@@ -569,13 +569,14 @@ describe('④ 所属の列・④-2 所属別の人工・労務費', () => {
       ['〇〇工業', 1, 20_000, 1.5, 31_000, 2.5, 51_000, 100_000, 69_000],
       // あさひ建設：田中の 11 月（請負金額は未入力 → 空欄）
       ['あさひ建設', 1, 18_000, 0, 0, 1, 18_000, null, null],
-      // 現場に登録したが行の無い会社も出す
-      ['未使用の協力会社', 0, 0, 0, 0, 0, 0, 50_000, 50_000],
+      // 現場に登録したが行の無い会社も出す（請負の日が無いので差額は空欄）
+      ['未使用の協力会社', 0, 0, 0, 0, 0, 0, 50_000, null],
       ['所属なし', 1, 15_000, 0, 0, 1, 15_000, null, null],
     ]);
     expect(m.affiliations.total).toEqual({
       jouyouManDays: 7, jouyouCost: 131_000, ukeoiManDays: 1.5, ukeoiCost: 31_000, manDays: 8.5, cost: 162_000,
-      partnerAmount: 150_000, difference: 119_000,
+      // 差額の合計は差額の出ている行（〇〇工業）だけの和
+      partnerAmount: 150_000, difference: 69_000,
     });
     expect(m.affiliations.total.manDays).toBe(m.workers.total.manDays);
     expect(m.affiliations.total.cost).toBe(m.workers.total.cost);
@@ -593,8 +594,31 @@ describe('④ 所属の列・④-2 所属別の人工・労務費', () => {
   it('月の帳票も ④ と同じ範囲（月末までの累計）。請負金額は現場全体の額のまま', () => {
     const oct = buildCostReport(input(reports, { workers, suppliers, carryovers, sitePartners }), { kind: 'month', month: '2026-10' }, now, RATES);
     const a = oct.affiliations.rows.find((r) => r.label === '〇〇工業')!;
-    expect(a).toMatchObject({ jouyouManDays: 1, ukeoiManDays: 0, ukeoiCost: 0, partnerAmount: 100_000, difference: 100_000 });
+    expect(a).toMatchObject({ jouyouManDays: 1, ukeoiManDays: 0, ukeoiCost: 0, partnerAmount: 100_000, difference: null });
+    expect(oct.affiliations.total.difference).toBeNull();
     expect(oct.affiliations.rows.map((r) => r.label)).not.toContain('所属なし');
     expect(oct.affiliations.total.manDays).toBe(oct.workers.total.manDays);
+  });
+
+  it('マスターに無い協力会社の行は、現場の協力会社の名前で出す（「協力会社」のままにしない）', () => {
+    const withoutB = suppliers.filter((sp) => sp.id !== 'pB');
+    const m = buildCostReport(input(reports, { workers, suppliers: withoutB, carryovers, sitePartners }), ALL, now, RATES);
+    const labels = m.affiliations.rows.map((r) => r.label);
+    expect(labels).toContain('あさひ建設');
+    expect(labels).not.toContain('協力会社');
+    expect(m.affiliations.rows.find((r) => r.label === 'あさひ建設')).toMatchObject({ jouyouManDays: 1, jouyouCost: 18_000 });
+  });
+
+  it('繰越のある作業員の、繰越の基準日より前の行は ④-2 にも入らない（合計は ④ と一致）', () => {
+    const early = report('2026-09-15', [
+      aLabor('w2', '佐藤', 2, 40_000, 'own'),
+      aLabor('w3', '鈴木', 1, 20_000, 'partner', 'pA', 'ukeoi'),
+    ]);
+    const co: Carryover[] = [...carryovers, { workerId: 'w3', manDays: 1, laborCost: 20_000, beforeDate: '2026-10-01' }];
+    const m = buildCostReport(input([early, ...reports], { workers, suppliers, carryovers: co, sitePartners }), ALL, now, RATES);
+    expect(m.affiliations.total.manDays).toBe(m.workers.total.manDays);
+    expect(m.affiliations.total.cost).toBe(m.workers.total.cost);
+    // 9 月の請負の行（基準日より前）は請負人工に入らない
+    expect(m.affiliations.rows.find((r) => r.label === '〇〇工業')!.ukeoiManDays).toBe(1.5);
   });
 });

@@ -61,7 +61,13 @@ function affiliationColumns(v: { affiliation?: 'own' | 'partner'; supplierId?: s
     : { affiliation: 'own', supplier_id: null };
 }
 
-export async function upsertWorker(input: WorkerInput): Promise<string> {
+/**
+ * 作業員の保存結果。協力会社の印の無い会社を選んだときは、本番でも文言が画面に届くよう { ok: false, error } を返す
+ * （それ以外の失敗は従来どおり throw）。
+ */
+export type SaveWorkerResult = { ok: true; id: string } | { ok: false; error: string };
+
+export async function upsertWorker(input: WorkerInput): Promise<SaveWorkerResult> {
   await requireAdmin();
   const v = parseOrThrow(workerInputSchema, input);
   const supabase = await createServerSupabase();
@@ -75,7 +81,7 @@ export async function upsertWorker(input: WorkerInput): Promise<string> {
   // 協力会社の会社は、協力会社の印のある会社だけ。いまと同じ会社のまま保存し直すとき（後から印を外した会社）は止めない。
   if (v.affiliation === 'partner' && v.supplierId && !(before?.affiliation === 'partner' && before.supplier_id === v.supplierId)) {
     const notPartner = await notPartnerError(supabase, v.supplierId);
-    if (notPartner) throw new Error(notPartner);
+    if (notPartner) return { ok: false, error: notPartner };
   }
   const id = await saveRow(supabase, 'gn_workers', v.id, {
     name: v.name,
@@ -93,7 +99,7 @@ export async function upsertWorker(input: WorkerInput): Promise<string> {
     revalidatePath('/sites/[siteId]/reports/[date]', 'page');
   }
   revalidatePath(PATH);
-  return id;
+  return { ok: true, id };
 }
 
 export type DeleteWorkerResult = { ok: true } | { ok: false; error: string };
@@ -286,12 +292,12 @@ async function createWithRate(
   return id;
 }
 
-export async function createWorkerWithRate(input: WorkerWithRateInput): Promise<string> {
+export async function createWorkerWithRate(input: WorkerWithRateInput): Promise<SaveWorkerResult> {
   await requireAdmin();
   const v = parseOrThrow(workerWithRateSchema, input);
   if (v.affiliation === 'partner' && v.supplierId) {
     const notPartner = await notPartnerError(await createServerSupabase(), v.supplierId);
-    if (notPartner) throw new Error(notPartner);
+    if (notPartner) return { ok: false, error: notPartner };
   }
   const id = await createWithRate(
     'gn_workers',
@@ -302,7 +308,7 @@ export async function createWorkerWithRate(input: WorkerWithRateInput): Promise<
     v.effectiveFrom,
   );
   revalidatePath(PATH);
-  return id;
+  return { ok: true, id };
 }
 
 export async function createLeaseItemWithRate(input: LeaseItemWithRateInput): Promise<string> {

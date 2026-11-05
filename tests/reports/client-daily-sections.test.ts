@@ -10,7 +10,8 @@ import {
   clientDailyTables,
   NO_ISSUES_TODAY,
 } from '@/lib/reports/client-daily-sections';
-import { issues, lines, report, sampleDaily, site, withChanges } from './daily-fixture';
+import type { SavedReportLine } from '@/lib/reports/types';
+import { changeWorkLines, issues, lines, report, sampleDaily, site, withChanges } from './daily-fixture';
 
 const text = (t: SectionTable) => t.rows.map((r) => r.map(formatCell));
 const heads = (t: SectionTable) => t.columns.map((c) => c.label);
@@ -124,5 +125,28 @@ describe('お客様確認', () => {
     expect(t.work.rows).toEqual([]);
     expect(t.issues.rows).toEqual([]);
     expect(t.workersLine).toBeNull();
+  });
+});
+
+describe('お客様用日報に所属を出さない', () => {
+  it('協力会社（請負）・自社の作業員がいても、見出し・表・作業員の行・確認欄に 所属／自社／協力会社／所属なし が無い', () => {
+    const affiliated = lines.map((l, i) =>
+      l.kind === 'labor'
+        ? ({ ...l, affiliation: i === 0 ? 'own' : 'partner', supplierId: i === 0 ? null : 'pZ', laborContract: i === 0 ? null : 'ukeoi' } as SavedReportLine)
+        : l,
+    );
+    const m = sampleDaily({ report: report('2026-11-02', { lines: [...affiliated, ...changeWorkLines] }) });
+    const { work, workersLine, issues: issueTable } = clientDailyTables(m);
+    const conf = clientDailyConfirmation(m);
+    const words = [
+      ...clientDailyHeaderRows(m).flat(),
+      ...heads(work), ...text(work).flat(),
+      ...heads(issueTable), ...text(issueTable).flat(),
+      workersLine,
+      ...conf.boxes.flat(),
+      conf.note,
+    ].filter((v): v is string => typeof v === 'string');
+    expect(workersLine).not.toBeNull();
+    for (const word of ['所属', '自社', '協力会社', '所属なし']) expect(words.filter((w) => w.includes(word))).toEqual([]);
   });
 });

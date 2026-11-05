@@ -191,10 +191,9 @@ function WorkerForm({
     run(async () => {
       // 新規＋初回単価は1アクション（途中失敗は巻き戻され、成功後はダイアログを閉じるので重複しない）
       if (!worker && rateRaw !== '') {
-        await createWorkerWithRate({ ...input, amount: rateAmount, effectiveFrom: rateDate });
-      } else {
-        await upsertWorker(input);
+        return createWorkerWithRate({ ...input, amount: rateAmount, effectiveFrom: rateDate });
       }
+      return upsertWorker(input);
     }, onDone);
   }
 
@@ -291,9 +290,7 @@ function WorkerForm({
             active={worker.active}
             pending={pending}
             onToggle={() =>
-              run(async () => {
-                await upsertWorker({ id: worker.id, name: worker.name, active: !worker.active });
-              }, onDone)
+              run(() => upsertWorker({ id: worker.id, name: worker.name, active: !worker.active }), onDone)
             }
           />
           {deleteView === 'deletable' ? (

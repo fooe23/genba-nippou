@@ -50,7 +50,7 @@ describe('buildClientChangeXlsx', () => {
     // 客先用には所属別の人工（社内用）を出さない
     const texts: string[] = [];
     ws.eachRow((row) => row.eachCell((c) => texts.push(String(c.value))));
-    expect(texts.some((t) => t.includes('所属') || t.includes('自社'))).toBe(false);
+    expect(texts.some((t) => t.includes('所属') || t.includes('自社') || t.includes('協力会社'))).toBe(false);
     const minus = ws.getRow(head.number + 8);
     expect(minus.getCell(4).value).toBe('外壁塗装の一部取りやめ');
     expect(minus.getCell(5).value).toBe(-10);

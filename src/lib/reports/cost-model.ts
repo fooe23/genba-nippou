@@ -8,6 +8,7 @@ import {
   type MonthlyRow,
   type Period,
 } from '@/lib/calc/aggregate';
+import { UNKNOWN_PARTNER_LABEL } from '@/lib/calc/affiliation';
 import { daysBetween, monthEnd } from '@/lib/calc/calendar';
 import { monthKey } from '@/lib/calc/format';
 import type { Site } from '@/lib/db/sites';
@@ -364,7 +365,7 @@ const emptyAffiliation = (g: AffiliationGroup): AffiliationRow => ({
 /**
  * ④-2 所属別の人工・労務費。範囲は ④ と同じなので、合計人工・合計労務費は ④ の合計と一致する。
  * 協力会社は会社ごと（現場に登録した会社は行が無くても出し、請負金額を出す）。請負金額と請負労務費（請負の日の
- * 人工 × 設定日当）の差を出す。
+ * 人工 × 設定日当）の差を出す（請負金額があり請負の日がある会社だけ。合計の差額もその会社の分の和）。
  */
 function buildAffiliations(input: CostReportInput, labor: AffiliatedLabor[]): AffiliationSection {
   const supplierNames = new Map(input.suppliers.map((sp) => [sp.id, sp.name]));
@@ -397,6 +398,8 @@ function buildAffiliations(input: CostReportInput, labor: AffiliatedLabor[]): Af
     // 名前はマスター → 現場の協力会社の読み込み時の名前 → 「協力会社」（affiliationGroup）
     const name = supplierNames.get(p.supplierId) || p.supplierName;
     const row = ensure(affiliationGroup({ affiliation: 'partner', supplierId: p.supplierId }, { [p.supplierId]: name }));
+    // 行の写しから作った行が「協力会社」の仮の名前なら、現場の協力会社の名前に置き換える
+    if (row.label === UNKNOWN_PARTNER_LABEL && name) row.label = name;
     row.partnerAmount = p.amount;
   }
 
@@ -410,7 +413,8 @@ function buildAffiliations(input: CostReportInput, labor: AffiliatedLabor[]): Af
         ukeoiManDays,
         manDays: round2(jouyouManDays + ukeoiManDays),
         cost: r.jouyouCost + r.ukeoiCost,
-        difference: r.partnerAmount === null ? null : r.partnerAmount - r.ukeoiCost,
+        // 差額は請負金額があり、請負の日がある会社だけ（請負の日が無ければ比べられないので空欄）
+        difference: r.partnerAmount === null || ukeoiManDays === 0 ? null : r.partnerAmount - r.ukeoiCost,
       };
     })
     .filter((r) => r.kind === 'partner' || r.manDays !== 0 || r.cost !== 0)
@@ -434,6 +438,7 @@ function buildAffiliations(input: CostReportInput, labor: AffiliatedLabor[]): Af
     total.manDays = round2(total.manDays + r.manDays);
     total.cost += r.cost;
     if (r.partnerAmount !== null) total.partnerAmount = (total.partnerAmount ?? 0) + r.partnerAmount;
+    // 合計の差額は差額の出ている行（請負金額と請負の日のある会社）の和。請負労務費の合計とは範囲が違う
     if (r.difference !== null) total.difference = (total.difference ?? 0) + r.difference;
   }
   return { rows, total };

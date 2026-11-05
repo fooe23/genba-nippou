@@ -26,7 +26,7 @@ import {
 } from '@/lib/db/sites-schemas';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { loadSupplierRoles, notPartnerError } from '@/lib/db/supplier-roles';
-import { MSG_NOT_VENDOR, nonVendorAdditions } from '@/lib/calc/supplier-roles';
+import { isPartnerSupplier, MSG_NOT_VENDOR, nonVendorAdditions } from '@/lib/calc/supplier-roles';
 import type { SiteRole } from '@/lib/types';
 
 function revalidateSite(siteId: string): void {
@@ -164,7 +164,11 @@ async function syncSelection(
   }
 }
 
-export async function setSiteMasters(siteId: string, m: SiteMasters): Promise<void> {
+/**
+ * 現場で使うマスターの選択。協力会社（取引先の印の無い会社）を新しく選んだときは、本番でも文言が画面に届くよう
+ * { ok: false, error } を返す（それ以外の失敗は従来どおり throw）。
+ */
+export async function setSiteMasters(siteId: string, m: SiteMasters): Promise<ActionResult> {
   await requireAdmin();
   const v = parseOrThrow(siteMastersSchema, { siteId, ...m });
   const supabase = await createServerSupabase();
@@ -180,11 +184,12 @@ export async function setSiteMasters(siteId: string, m: SiteMasters): Promise<vo
   if (currentSuppliersError) throw new Error(currentSuppliersError.message);
   const selectedSupplierIds = ((currentSuppliers ?? []) as { supplier_id: string }[]).map((r) => r.supplier_id);
   const roles = await loadSupplierRoles(supabase, v.supplierIds);
-  if (nonVendorAdditions(v.supplierIds, roles, selectedSupplierIds).length > 0) throw new Error(MSG_NOT_VENDOR);
+  if (nonVendorAdditions(v.supplierIds, roles, selectedSupplierIds).length > 0) return { ok: false, error: MSG_NOT_VENDOR };
   await syncSelection(supabase, 'gn_site_suppliers', 'supplier_id', v.siteId, v.supplierIds);
   await syncSelection(supabase, 'gn_site_vehicles', 'vehicle_id', v.siteId, v.vehicleIds);
   await syncSelection(supabase, 'gn_site_lease_items', 'lease_item_id', v.siteId, v.leaseItemIds);
   revalidateSite(v.siteId);
+  return { ok: true };
 }
 
 export async function upsertCarryover(siteId: string, c: Carryover): Promise<void> {
@@ -605,15 +610,19 @@ export async function copySitePartners(fromSiteId: string, toSiteId: string): Pr
       .filter((r) => r.w?.affiliation === 'partner')
       .map((r) => ({ id: r.id, supplierId: r.w?.supplier_id ?? null, active: r.w?.active !== false }));
     const targetWorkers = (dstWorkers.data ?? []) as { worker_id: string; sort_order: number | null }[];
+    const sourceSupplierIds = ((srcPartners.data ?? []) as { supplier_id: string }[]).map((r) => r.supplier_id);
+    // 協力会社の印の無い会社（後から印を外した会社など）とその作業員は写さない
+    const roles = await loadSupplierRoles(supabase, [
+      ...sourceSupplierIds,
+      ...sourceWorkers.map((w) => w.supplierId).filter((id): id is string => id !== null),
+    ]);
     const plan = planSitePartnerCopy(
-      {
-        supplierIds: ((srcPartners.data ?? []) as { supplier_id: string }[]).map((r) => r.supplier_id),
-        workers: sourceWorkers,
-      },
+      { supplierIds: sourceSupplierIds, workers: sourceWorkers },
       {
         supplierIds: ((dstPartners.data ?? []) as { supplier_id: string }[]).map((r) => r.supplier_id),
         workerIds: targetWorkers.map((r) => r.worker_id),
       },
+      (id) => isPartnerSupplier(roles, id),
     );
 
     if (plan.supplierIds.length > 0) {
@@ -637,7 +646,7 @@ export async function copySitePartners(fromSiteId: string, toSiteId: string): Pr
     }
     revalidateSitePartners(v.toSiteId);
     const counts = { partners: plan.supplierIds.length, workers: plan.workerIds.length };
-    return { ok: true, ...counts, message: copySitePartnersMessage(counts) };
+    return { ok: true, ...counts, message: copySitePartnersMessage({ ...counts, skippedPartners: plan.skippedPartners }) };
   } catch (e) {
     console.error('[copySitePartners]', e);
     return { ok: false, error: '協力会社の写しに失敗しました。もう一度お試しください。' };

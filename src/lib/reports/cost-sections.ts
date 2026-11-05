@@ -9,9 +9,10 @@ export const COST_REPORT_TITLE = '工事原価集計表';
 export const NO_REPORTS = '日報がありません';
 /**
  * ④-2 の見出しの補足（PDF では見出しの横に 1 行で出すので短く）。請負労務費は請負の日の人工 × 設定日当（残業を含む）、
- * 請負金額は現場の協力会社の欄の額（現場全体。月の帳票でもそのまま）。
+ * 請負金額は現場の協力会社の欄の額（現場全体。月の帳票でもそのまま）。差額と合計の差額は、請負金額を入れて請負の日が
+ * ある会社の分だけ。
  */
-export const AFFILIATION_NOTES = ['繰越初期値は自社の常用', '差額＝請負金額−請負労務費'] as const;
+export const AFFILIATION_NOTES = ['繰越初期値は自社の常用', '差額＝請負金額−請負労務費（請負金額と請負の日のある会社だけ）'] as const;
 
 /** yen・int = #,##0、dec1 = 0.0（人工・歩掛・距離・残業 H）、qty = 小数 2 桁まで、pct = 0.0%（値は 0..1）。 */
 export type NumFmt = 'yen' | 'int' | 'dec1' | 'qty' | 'pct';

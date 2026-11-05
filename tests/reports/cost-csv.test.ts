@@ -115,7 +115,8 @@ describe('buildCostCsv ④-2 所属別', () => {
     expect(csv).toContain('所属,常用人工,常用労務費(円),請負人工,請負労務費(円),合計人工,合計労務費(円),請負金額(円),差額(円)\r\n');
     expect(csv).toContain('自社,2,36000,0,0,2,36000,,\r\n');
     expect(csv).toContain('"\'=HYPERLINK(""x"")",0,0,0,0,0,0,,\r\n');
-    expect(csv).toContain('山本工業,0,0,0,0,0,0,80000,80000\r\n');
+    // 請負の日が無いので差額は空欄
+    expect(csv).toContain('山本工業,0,0,0,0,0,0,80000,\r\n');
     expect(csv).toContain('所属なし,2,30000,0,0,2,30000,,\r\n');
   });
 });

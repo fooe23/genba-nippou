@@ -219,10 +219,31 @@ describe('現場の協力会社と作業員の登録（2026-11-07）', () => {
       { supplierIds: ['s2'], workerIds: ['w4'] },
     );
     // s3 は写し元の協力会社に無いが、写す作業員 w3 の会社なので足す。w2 は無効、w4 は登録済み。
-    expect(plan).toEqual({ supplierIds: ['s1', 's3'], workerIds: ['w1', 'w3'] });
+    expect(plan).toEqual({ supplierIds: ['s1', 's3'], workerIds: ['w1', 'w3'], skippedPartners: 0 });
+  });
+  it('planSitePartnerCopy：協力会社の印の無い会社とその作業員は写さず、数を返す', () => {
+    const plan = planSitePartnerCopy(
+      {
+        supplierIds: ['s1', 'sx'],
+        workers: [
+          { id: 'w1', supplierId: 's1', active: true },
+          { id: 'w2', supplierId: 'sx', active: true },
+          { id: 'w3', supplierId: 'sy', active: true },
+        ],
+      },
+      { supplierIds: [], workerIds: [] },
+      (id) => id === 's1',
+    );
+    expect(plan).toEqual({ supplierIds: ['s1'], workerIds: ['w1'], skippedPartners: 2 });
+    expect(copySitePartnersMessage({ partners: 1, workers: 1, skippedPartners: 2 })).toBe(
+      '協力会社 1 社・作業員 1 人を写しました（協力会社の印の無い会社 2 社とその作業員は写していません）',
+    );
+    expect(copySitePartnersMessage({ partners: 0, workers: 0, skippedPartners: 1 })).toBe(
+      '写す協力会社・作業員はありませんでした（協力会社の印の無い会社 1 社とその作業員は写していません）',
+    );
   });
   it('写すものが無ければ空。文言は件数で変える', () => {
-    expect(planSitePartnerCopy({ supplierIds: ['s1'], workers: [] }, { supplierIds: ['s1'], workerIds: [] })).toEqual({ supplierIds: [], workerIds: [] });
+    expect(planSitePartnerCopy({ supplierIds: ['s1'], workers: [] }, { supplierIds: ['s1'], workerIds: [] })).toEqual({ supplierIds: [], workerIds: [], skippedPartners: 0 });
     expect(copySitePartnersMessage({ partners: 2, workers: 5 })).toBe('協力会社 2 社・作業員 5 人を写しました');
     expect(copySitePartnersMessage({ partners: 0, workers: 0 })).toBe('写す協力会社・作業員はありませんでした（すでに登録済みです）');
   });

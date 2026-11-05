@@ -134,11 +134,16 @@ export function useRunner() {
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  function run(task: () => Promise<void>, onDone?: () => void) {
+  /** task が { ok: false, error } を返したら（検証の文言）error をそのまま画面に出し、onDone は呼ばない。 */
+  function run(task: () => Promise<void | { ok: boolean; error?: string }>, onDone?: () => void) {
     setError(null);
     startTransition(async () => {
       try {
-        await task();
+        const res = await task();
+        if (res && !res.ok) {
+          setError(res.error ?? '保存に失敗しました。もう一度お試しください。');
+          return;
+        }
         onDone?.();
       } catch (e) {
         // 本番では Server Action のエラー文言が伏せられるため、検証は事前にクライアントで行う。
