@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { Fragment, type ReactNode } from 'react';
 import { Document, Image, Page, renderToBuffer, StyleSheet, Text, View } from '@react-pdf/renderer';
 import { Footer, InfoGrid, MM, MUTED, NAVY, RULE, s, SectionHead, Signature, Table } from '@/lib/pdf/common';
 import { registerPdfFonts } from '@/lib/pdf/fonts';
@@ -17,12 +18,12 @@ import {
   senderRows,
   type ChangeReportMeta,
 } from '@/lib/reports/change-sections';
-import { formatCell, type Cell, type Column, type SectionTable } from '@/lib/reports/cost-sections';
+import { formatCell, type Cell, type Column, type SectionTable, type TableGroup } from '@/lib/reports/cost-sections';
 import type { ChangeLedgerModel } from '@/lib/reports/types';
 
 // 変更増減 社内確認用の PDF（A4 縦・余白 15mm・本文 9pt・明細 8pt）。見た目と部品は common.tsx。
 // 1 ページ目：ロゴ・件名・見出し・サマリー表・注記、続けて件ごとの精算（入りきらない行は次のページへ）。宛先は出さない。
-// 次のページから：明細一覧（1 件を 2 段で表示）・末尾。客先用の「精算のご提案（案）」は client-change-ledger.tsx（ロゴ・
+// 次のページから：明細一覧（1 行を 2 段で表示。根拠の件ごとに見出しと小計）・末尾。客先用の「精算のご提案（案）」は client-change-ledger.tsx（ロゴ・
 // 件名・注記・末尾の部品はここから使う）。
 
 export const LOGO = path.join(process.cwd(), 'public/logo.png');
@@ -57,7 +58,78 @@ export const c = StyleSheet.create({
   tail: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginTop: 16 },
   sender: { width: '52%' },
   check: { alignItems: 'flex-end' },
+  // 明細の件ごとのまとまり：見出し行（表の幅いっぱい・太字・薄い帯）と小計の行（太字）
+  groupHead: { flexDirection: 'row', borderLeftWidth: 0.5, borderLeftColor: RULE, backgroundColor: '#f3f6fa' },
+  subtotal: { flexDirection: 'row', borderLeftWidth: 0.5, borderLeftColor: RULE },
 });
+
+/** まとまりの見出し行（表の幅いっぱい）。 */
+function GroupHead({ title }: { title: string }) {
+  return (
+    <View style={c.groupHead}>
+      <Text style={[s.cell, s.bold, { flexGrow: 1, flexShrink: 1, flexBasis: 0 }]}>{title}</Text>
+    </View>
+  );
+}
+
+/** 小計の行：文は左から left の幅の右端（人工の列の右端）に揃え、残り right の幅は空ける。 */
+function GroupSubtotal({ label, left, right }: { label: string; left: number; right: number }) {
+  return (
+    <View style={c.subtotal}>
+      <Text style={[s.cell, s.bold, s.right, { flexGrow: left, flexShrink: 1, flexBasis: 0, paddingHorizontal: 2 }]}>{label}</Text>
+      {right > 0 ? <Text style={[s.cell, { flexGrow: right, flexShrink: 1, flexBasis: 0 }]}>{''}</Text> : null}
+    </View>
+  );
+}
+
+/**
+ * 明細の件ごとのまとまり（SectionTable.groups）を描く。見出しと最初の行、最後の行と小計はそれぞれ 1 つにまとめて
+ * 改ページで離さない（行が 1 つなら見出し・行・小計をまとめる）。row は 1 行（wrap={false}）を描く。
+ * width(at) は列 0〜at の幅の比の和、full は表の幅の比（小計を人工の列に揃える）。
+ */
+export function DetailGroups({
+  groups,
+  row,
+  width,
+  full,
+}: {
+  groups: TableGroup[];
+  row: (cells: Cell[], key: number) => ReactNode;
+  width: (at: number) => number;
+  full: number;
+}) {
+  return groups.map((g, gi) => {
+    const left = width(g.subtotal.at);
+    const sub = <GroupSubtotal label={g.subtotal.label} left={left} right={full - left} />;
+    const head = <GroupHead title={g.title} />;
+    const n = g.rows.length;
+    if (n <= 1) {
+      return (
+        <View key={gi} wrap={false}>
+          {head}
+          {g.rows.map(row)}
+          {sub}
+        </View>
+      );
+    }
+    return (
+      <Fragment key={gi}>
+        <View wrap={false}>
+          {head}
+          {row(g.rows[0], 0)}
+        </View>
+        {g.rows.slice(1, -1).map((r, i) => row(r, i + 1))}
+        <View wrap={false}>
+          {row(g.rows[n - 1], n - 1)}
+          {sub}
+        </View>
+      </Fragment>
+    );
+  });
+}
+
+/** 列 0〜at の幅の比の和。 */
+export const widthTo = (table: SectionTable) => (at: number) => table.columns.slice(0, at + 1).reduce((sum, col) => sum + col.w, 0);
 
 /** 1 セル（列の比 w で幅を決める）。 */
 function LedgerCell({ column, value, head }: { column: Column; value: Cell; head: boolean }) {
@@ -95,12 +167,21 @@ function LedgerRecord({ table, cells, head }: { table: SectionTable; cells: Cell
 }
 
 function Ledger({ table }: { table: SectionTable }) {
+  const record = (r: Cell[], i: number) => <LedgerRecord key={i} table={table} cells={r} head={false} />;
   return (
     <View style={c.ledger}>
       <LedgerRecord table={table} cells={table.columns.map((col) => col.label)} head />
-      {table.rows.map((r, i) => (
-        <LedgerRecord key={i} table={table} cells={r} head={false} />
-      ))}
+      {table.groups ? (
+        // 上段の幅（日付＋区分〜提案額）。小計は投入人工の列（上段）に揃える
+        <DetailGroups
+          groups={table.groups}
+          row={record}
+          width={widthTo(table)}
+          full={[LEAD, ...UPPER].reduce((sum, i) => sum + table.columns[i].w, 0)}
+        />
+      ) : (
+        table.rows.map(record)
+      )}
     </View>
   );
 }
@@ -170,7 +251,7 @@ function ChangeLedgerDocument({ model, meta }: { model: ChangeLedgerModel; meta:
             ) : null}
 
             <View break>
-              <SectionHead title="明細一覧" note={`${detail.rows.length} 件`} marginTop={0} />
+              <SectionHead title="明細一覧" note={`${detail.rows.length} 行`} marginTop={0} />
               <Ledger table={detail} />
             </View>
             <Tail meta={meta} />

@@ -48,10 +48,22 @@ describe('buildChangeXlsx', () => {
     const head = rowOf(ws, '日付（当月N回目）');
     expect(head.getCell(15).value).toBe('客先確認');
     expect(head.getCell(1).font?.bold).toBe(true);
-    const first = ws.getRow(head.number + 1);
+    // 明細は根拠の件ごと：見出し（全列結合・太字）→ 行 → 小計（A〜投入人工の列を結合、右寄せ）。件なしは最後
+    const group = ws.getRow(head.number + 1);
+    expect(group.getCell(1).value).toBe('11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。');
+    expect(group.getCell(1).font?.bold).toBe(true);
+    expect(group.getCell(15).value).toBe(group.getCell(1).value);
+    const first = ws.getRow(head.number + 2);
     expect(first.getCell(1).value).toBe('2026/11/05\n当月1回目');
     expect(first.getCell(8).numFmt).toBe('#,##0');
-    const minus = ws.getRow(head.number + 3);
+    const subtotal = ws.getRow(head.number + 3);
+    expect(subtotal.getCell(1).value).toBe('小計 1 日・1.5 人工');
+    expect(subtotal.getCell(1).alignment?.horizontal).toBe('right');
+    expect(subtotal.getCell(9).isMerged).toBe(true);
+    expect(subtotal.getCell(10).isMerged).toBe(false);
+    expect(ws.getRow(head.number + 4).getCell(1).value).toBe('根拠の件なし');
+    const minus = ws.getRow(head.number + 6);
+    expect(minus.getCell(4).value).toBe('外壁塗装の一部取りやめ');
     expect(minus.getCell(5).value).toBe(-10);
     expect(minus.getCell(10).value).toBe(-25000);
 

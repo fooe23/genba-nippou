@@ -1,6 +1,6 @@
 import { issueNumbers, settleIssue } from '@/lib/reports/change-model';
 import type { Issue } from '@/lib/db/reports';
-import type { ChangeIssueSettlement, ChangeLedgerModel } from '@/lib/reports/types';
+import type { ChangeIssueSettlement, ChangeLedgerModel, ChangeLedgerRow } from '@/lib/reports/types';
 
 // 「追加・変更の一覧」画面（/sites/[siteId]/changes）の行（純関数。DB・Next に依存しない）。
 // 変更増減の台帳（buildChangeLedger）は一式・見積・常用の件と行の紐づく件だけを載せるが、一覧には現場の全部の件を出す
@@ -92,4 +92,42 @@ export function changesTotal(rows: ChangesRow[]): ChangesTotal {
     total.actualCost += r.actualCost;
   }
   return total;
+}
+
+/** 重複の可能性：1 つの件の中で、同じ施工内容（工種＋施工内容）が違う日に入っている。 */
+export interface PossibleDuplicate {
+  /** 施工内容（前後の空白を除き、続く空白を 1 つにしたもの）。 */
+  description: string;
+  /** その施工内容がある日（'YYYY-MM-DD'、昇順、重ならない。2 つ以上）。 */
+  dates: string[];
+}
+
+const normalize = (v: string) => v.trim().replace(/\s+/g, ' ');
+
+/**
+ * 件ごとの重複の可能性（件の id → 重複の候補）。同じ件に紐づく行のうち、工種と施工内容（空白をならしたもの）が同じで
+ * 日付が違うものを拾う（同じ日に 2 行あるだけなら出さない）。続けて何日も同じ作業をしたのか、同じ作業を 2 回入れたのかは
+ * 分からないので、一覧では「可能性」として知らせるだけ。rows は工期全体の台帳の行（buildChangeLedger の period 'all'）。
+ */
+export function possibleDuplicates(rows: ChangeLedgerRow[]): Map<string, PossibleDuplicate[]> {
+  const byIssue = new Map<string, Map<string, { description: string; dates: Set<string> }>>();
+  for (const r of rows) {
+    if (!r.issue) continue;
+    const description = normalize(r.description);
+    if (description === '') continue;
+    const key = `${normalize(r.trade)}\u0000${description}`;
+    const items = byIssue.get(r.issue.id) ?? new Map<string, { description: string; dates: Set<string> }>();
+    byIssue.set(r.issue.id, items);
+    const item = items.get(key) ?? { description, dates: new Set<string>() };
+    items.set(key, item);
+    item.dates.add(r.date);
+  }
+  const result = new Map<string, PossibleDuplicate[]>();
+  for (const [issueId, items] of byIssue) {
+    const found = [...items.values()]
+      .filter((i) => i.dates.size >= 2)
+      .map((i) => ({ description: i.description, dates: [...i.dates].sort() }));
+    if (found.length > 0) result.set(issueId, found);
+  }
+  return result;
 }

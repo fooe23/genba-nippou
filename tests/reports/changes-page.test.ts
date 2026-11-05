@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { changesTotal, joinChangesRows } from '@/lib/reports/changes-page';
+import { changesTotal, joinChangesRows, possibleDuplicates } from '@/lib/reports/changes-page';
 import { buildChangeLedger } from '@/lib/reports/change-model';
-import { changeInput, RATES } from './cost-fixture';
+import { changeInput, RATES, spanningChangeModel } from './cost-fixture';
 import type { Issue } from '@/lib/db/reports';
-import type { ChangeIssueSettlement, ChangeLedgerModel } from '@/lib/reports/types';
+import type { ChangeIssueSettlement, ChangeLedgerModel, ChangeLedgerRow } from '@/lib/reports/types';
 import type { IssueKind } from '@/lib/types';
 
 const issue = (id: string, reportDate: string, kind: IssueKind = 'extra', o: Partial<Issue> = {}): Issue => ({
@@ -114,5 +114,51 @@ describe('台帳との一致', () => {
     const s = ledger.settlement;
     expect(rows.filter((r) => !r.unlinked).map((r) => (r.unlinked ? '' : r.id))).toEqual(['i1', 'i2']);
     expect(changesTotal(rows).settled).toBe(s.extra + s.increase + s.change + s.minus);
+  });
+});
+
+describe('possibleDuplicates（重複の可能性）', () => {
+  const ref = (id: string) => ({ id, reportDate: '2026-11-03', number: 1, kind: 'extra' as const, bodyHead: '本文' });
+  const line = (date: string, description: string, o: Partial<ChangeLedgerRow> = {}): ChangeLedgerRow => ({
+    date, reportId: `r-${date}`, monthIndex: 1, totalIndex: 1, changeKind: 'extra', trade: '内装', description, qty: 1, unit: '式',
+    unitPrice: null, declared: 0, manDays: 1, instructedBy: null, instructionMethod: null, instructedOn: null, issue: ref('a'),
+    clientConfirmed: false, actualCost: { labor: 0, other: 0, total: 0 }, proposal: 0, proposalBasis: 'cost', ...o,
+  });
+
+  it('同じ件に同じ施工内容が違う日にあれば、件ごとに日付（昇順）と施工内容', () => {
+    const d = possibleDuplicates([line('2026-11-06', 'おおおお'), line('2026-11-03', 'おおおお'), line('2026-11-03', '別の作業')]);
+    expect([...d.entries()]).toEqual([['a', [{ description: 'おおおお', dates: ['2026-11-03', '2026-11-06'] }]]]);
+  });
+
+  it('施工内容が違えば出さない', () => {
+    expect(possibleDuplicates([line('2026-11-03', 'おおおお'), line('2026-11-06', 'かかかか')]).size).toBe(0);
+  });
+
+  it('同じ日に 2 行あるだけなら出さない', () => {
+    expect(possibleDuplicates([line('2026-11-03', 'おおおお'), line('2026-11-03', 'おおおお')]).size).toBe(0);
+  });
+
+  it('違う件・件なし・工種が違う行は重複にしない', () => {
+    const d = possibleDuplicates([
+      line('2026-11-03', 'おおおお'),
+      line('2026-11-06', 'おおおお', { issue: ref('b') }),
+      line('2026-11-07', 'おおおお', { issue: null }),
+      line('2026-11-08', 'おおおお', { trade: '大工' }),
+    ]);
+    expect(d.size).toBe(0);
+  });
+
+  it('前後の空白と続く空白（全角も）はならして比べる', () => {
+    const d = possibleDuplicates([
+      line('2026-11-03', ' クロス  張替え '),
+      line('2026-11-06', 'クロス\u3000張替え', { trade: ' 内装 ' }),
+    ]);
+    expect(d.get('a')).toEqual([{ description: 'クロス 張替え', dates: ['2026-11-03', '2026-11-06'] }]);
+  });
+
+  it('台帳の行から：2 日にまたがる件 i1 の同じ施工内容', () => {
+    expect([...possibleDuplicates(spanningChangeModel().rows).entries()]).toEqual([
+      ['i1', [{ description: 'クロス張替え（2 階洋室）', dates: ['2026-11-05', '2026-11-06'] }]],
+    ]);
   });
 });

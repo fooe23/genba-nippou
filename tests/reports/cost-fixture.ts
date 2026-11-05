@@ -140,6 +140,21 @@ export function settledChangeModel(period: CostReportPeriod = { kind: 'all' }): 
   return buildChangeLedger(settledInput(), RATES, period);
 }
 
+/**
+ * 1 つの件が 2 日にまたがる（明細の件ごとのまとめ用）：settledInput に 11/06 の日報を足し、件 i1（11/02-1）に同じ施工内容
+ * 「クロス張替え（2 階洋室）」の行（2.0 人工）をもう 1 行。i1 は 11/05（1.5 人工）と 11/06（2.0 人工）で 2 日・3.5 人工。
+ */
+export const spanningInput = (): CostReportInput => {
+  const base = settledInput();
+  const [extra] = changeLines.slice(lines.length) as WorkLineSaved[];
+  const next: ReportWithLines = { ...report('2026-11-06', 'approved'), lines: [...lines, { ...extra, manDays: 2, stored: stored(36000, 2) }] };
+  return { ...base, reports: [...base.reports, next] };
+};
+
+export function spanningChangeModel(period: CostReportPeriod = { kind: 'all' }): ChangeLedgerModel {
+  return buildChangeLedger(spanningInput(), RATES, period);
+}
+
 export function sampleChangeModel(period: CostReportPeriod = { kind: 'all' }): ChangeLedgerModel {
   return buildChangeLedger(changeInput(), RATES, period);
 }

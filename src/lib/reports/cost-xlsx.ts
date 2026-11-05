@@ -19,6 +19,7 @@ export const NAVY = 'FF1F3A5F';
 const RULE = 'FFC9D1DC';
 export const BAND = 'FFEEF2F7';
 const TOTAL_BAND = 'FFF6F8FB';
+const GROUP_BAND = 'FFF3F6FA';
 
 /** A 列（名前）・B 列（2 列目の文字）・C〜K 列（数値）。③ が 11 列で最も広い。 */
 const COLUMN_WIDTHS = [26, 16, 12.5, 12.5, 12.5, 12.5, 12.5, 12.5, 12.5, 12.5, 12.5];
@@ -65,7 +66,29 @@ export function writeTable(ws: ExcelJS.Worksheet, t: SectionTable): void {
     cells.forEach((c, i) => writeCell(row.getCell(i + 1), c, t.columns[i].num));
     return row;
   };
-  for (const r of t.rows) body(r);
+  if (t.groups) {
+    // 件ごとのまとまり：見出し（全列を結合・太字・薄い帯）→ 行 → 小計（A〜人工の列を結合して右寄せ・太字）
+    const last = t.columns.length;
+    for (const g of t.groups) {
+      const head = ws.addRow([g.title]);
+      ws.mergeCells(head.number, 1, head.number, last);
+      const h = head.getCell(1);
+      h.font = { bold: true };
+      h.fill = fill(GROUP_BAND);
+      h.border = box;
+      h.alignment = { vertical: 'middle', wrapText: true };
+      for (const r of g.rows) body(r);
+      const sub = ws.addRow([g.subtotal.label]);
+      const to = g.subtotal.at + 1;
+      if (to > 1) ws.mergeCells(sub.number, 1, sub.number, to);
+      const c = sub.getCell(1);
+      c.font = { bold: true };
+      c.alignment = { horizontal: 'right' };
+      for (let i = 1; i <= last; i++) sub.getCell(i).border = box;
+    }
+  } else {
+    for (const r of t.rows) body(r);
+  }
   if (t.total) {
     const row = body(t.total);
     row.eachCell((cell) => {

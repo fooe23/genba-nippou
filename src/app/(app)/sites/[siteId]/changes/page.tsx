@@ -19,7 +19,7 @@ export default async function ChangesPage({ params }: PageProps<'/sites/[siteId]
   if (!site || site.deletedAt !== null) notFound();
   const readOnly = site.status === 'done';
 
-  const { rows, total, defaultDailyRate } = await loadChangesPage(site);
+  const { rows, total, defaultDailyRate, duplicates } = await loadChangesPage(site);
 
   return (
     <main className="mx-auto w-full max-w-[96rem] p-4">
@@ -35,7 +35,14 @@ export default async function ChangesPage({ params }: PageProps<'/sites/[siteId]
           {SITE_CLOSED_NOTICE}
         </p>
       )}
-      <ChangesTable siteId={siteId} rows={rows} total={total} defaultDailyRate={defaultDailyRate} readOnly={readOnly} />
+      <ChangesTable
+        siteId={siteId}
+        rows={rows}
+        total={total}
+        defaultDailyRate={defaultDailyRate}
+        duplicates={duplicates}
+        readOnly={readOnly}
+      />
     </main>
   );
 }

@@ -1,7 +1,7 @@
 import { jpDateTime } from '@/lib/calc/format';
 import { CHANGE_KIND_LABELS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS } from '@/lib/report/change-labels';
 import { clientSettlement } from '@/lib/reports/change-model';
-import { changeInfoRows, NO_BASE_NOTE, type ChangeReportMeta } from '@/lib/reports/change-sections';
+import { changeInfoRows, groupDetailByIssue, NO_BASE_NOTE, type ChangeReportMeta } from '@/lib/reports/change-sections';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
 import type { ChangeIssueSettlement, ChangeLedgerKind, ChangeLedgerModel, ClientSettlement } from '@/lib/reports/types';
 
@@ -96,7 +96,8 @@ export function clientChangeIssues(model: ChangeLedgerModel, cs: ClientSettlemen
 
 /**
  * 作業の明細（11 列を 1 段）：日付／区分／工種／施工内容／数量（減は負）／単位／人工／指示者／方法／件（MM/DD-番号）／確認。
- * 集計期間の行のうち、やり直しの件に紐づく行は出さない。列幅の比 w は PDF（8pt）での mm の目安（合計 180）。
+ * 集計期間の行のうち、やり直しの件に紐づく行は出さない。行は件ごとにまとめる（groupDetailByIssue。見出しは件ごとの内容の
+ * 件と同じ「MM/DD-番号 種別 本文の先頭」、件の無い行は最後に「根拠の件なし」。小計は人工の列に揃える）。列幅の比 w は PDF（8pt）での mm の目安（合計 180）。
  */
 export function clientChangeDetail(model: ChangeLedgerModel): SectionTable {
   return {
@@ -113,9 +114,9 @@ export function clientChangeDetail(model: ChangeLedgerModel): SectionTable {
       col.text('件', 14),
       col.text('確認', 9),
     ],
-    rows: model.rows
-      .filter((r) => r.issue?.kind !== 'rework')
-      .map((r): Cell[] => [
+    ...groupDetailByIssue(
+      model.rows.filter((r) => r.issue?.kind !== 'rework'),
+      (r): Cell[] => [
         slashDate(r.date),
         CHANGE_KIND_LABELS[r.changeKind],
         r.trade,
@@ -127,7 +128,9 @@ export function clientChangeDetail(model: ChangeLedgerModel): SectionTable {
         r.instructionMethod ? INSTRUCTION_METHOD_LABELS[r.instructionMethod] : '',
         r.issue ? `${md(r.issue.reportDate)}-${r.issue.number}` : '',
         r.clientConfirmed ? 'あり' : 'なし',
-      ]),
+      ],
+      6,
+    ),
   };
 }
 

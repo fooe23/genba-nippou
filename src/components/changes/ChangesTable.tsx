@@ -1,5 +1,5 @@
 import { money } from '@/components/report/form-state';
-import type { ChangesRow, ChangesTotal, ChangesUnlinkedRow } from '@/lib/reports/changes-page';
+import type { ChangesRow, ChangesTotal, ChangesUnlinkedRow, PossibleDuplicate } from '@/lib/reports/changes-page';
 import { CHANGES_COLUMNS, CHANGES_GRID, CHANGES_MIN_WIDTH, CHANGES_ROW, Cell, ComputedCells, KindTag } from '@/components/changes/cells';
 import { IssueSettlementRow } from '@/components/changes/IssueSettlementRow';
 
@@ -55,12 +55,15 @@ export function ChangesTable({
   rows,
   total,
   defaultDailyRate,
+  duplicates = {},
   readOnly,
 }: {
   siteId: string;
   rows: ChangesRow[];
   total: ChangesTotal;
   defaultDailyRate: number | null;
+  /** 件の id → 重複の可能性（possibleDuplicates）。 */
+  duplicates?: Record<string, PossibleDuplicate[]>;
   readOnly: boolean;
 }) {
   if (rows.length === 0) {
@@ -84,7 +87,14 @@ export function ChangesTable({
             row.unlinked ? (
               <UnlinkedRow key="unlinked" row={row} />
             ) : (
-              <IssueSettlementRow key={row.id} row={row} siteId={siteId} defaultDailyRate={defaultDailyRate} readOnly={readOnly} />
+              <IssueSettlementRow
+                key={row.id}
+                row={row}
+                siteId={siteId}
+                defaultDailyRate={defaultDailyRate}
+                duplicates={duplicates[row.id] ?? []}
+                readOnly={readOnly}
+              />
             ),
           )}
         </ul>

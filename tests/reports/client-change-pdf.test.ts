@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { renderClientChangePdf } from '@/lib/pdf/client-change-ledger';
-import { changeMeta, emptyChangeModel, settledChangeModel } from './cost-fixture';
+import { changeMeta, emptyChangeModel, settledChangeModel, spanningChangeModel } from './cost-fixture';
 
 describe('renderClientChangePdf', () => {
   it('%PDF で始まり、Noto Sans JP とロゴを埋め込む（工期全体・月）', async () => {
@@ -17,6 +17,11 @@ describe('renderClientChangePdf', () => {
     const m = emptyChangeModel();
     const meta = changeMeta({ site: { ...changeMeta().site, clientName: null }, company: { name: null, contact: null } });
     const pdf = await renderClientChangePdf({ ...m, settlement: { ...m.settlement, base: null, proposed: null } }, meta);
+    expect(pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
+  }, 60_000);
+
+  it('件が 2 日にまたがる明細（件ごとの見出しと小計）でも PDF を返す', async () => {
+    const pdf = await renderClientChangePdf(spanningChangeModel(), changeMeta());
     expect(pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
   }, 60_000);
 });

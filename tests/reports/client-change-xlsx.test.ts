@@ -44,7 +44,13 @@ describe('buildClientChangeXlsx', () => {
 
     const head = rowOf(ws, '日付');
     expect(head.getCell(11).value).toBe('確認');
-    expect(ws.getRow(head.number + 3).getCell(5).value).toBe(-10);
+    // 作業の明細は件ごと：見出し（件ごとの内容と同じ名前）→ 行 → 小計（A〜人工の列）
+    expect(ws.getRow(head.number + 1).getCell(1).value).toBe('11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。');
+    expect(ws.getRow(head.number + 3).getCell(1).value).toBe('小計 1 日・1.5 人工');
+    const minus = ws.getRow(head.number + 8);
+    expect(minus.getCell(4).value).toBe('外壁塗装の一部取りやめ');
+    expect(minus.getCell(5).value).toBe(-10);
+    expect(rowOf(ws, '根拠の件なし').number).toBeGreaterThan(minus.number);
 
     expect(rowOf(ws, '会社名').getCell(2).value).toBe('株式会社オオホリ建託');
     const check = rowOf(ws, 'お客様確認欄');

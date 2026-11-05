@@ -2,7 +2,7 @@ import { jpDateTime } from '@/lib/calc/format';
 import type { Site } from '@/lib/db/sites';
 import { clientSettlement } from '@/lib/reports/change-model';
 import { CHANGE_KIND_LABELS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, SETTLEMENT_METHOD_LABELS } from '@/lib/report/change-labels';
-import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
+import { cell, col, formatCell, slashDate, type Cell, type SectionTable, type TableGroup } from '@/lib/reports/cost-sections';
 import type { ChangeIssueSettlement, ChangeLedgerKind, ChangeLedgerModel, ChangeLedgerRow } from '@/lib/reports/types';
 
 // 変更増減 社内確認用の中身（見出し・サマリー表・注記・件ごとの精算・明細・末尾）を PDF・Excel 共通の形にする（純関数）。
@@ -203,8 +203,54 @@ function issueText(row: ChangeLedgerRow): string {
   return `${i.reportDate.slice(5).replace('-', '/')}-${i.number} ${ISSUE_KIND_LABELS[i.kind]} ${i.bodyHead}`.trim();
 }
 
+/** 明細のまとまりの見出し：根拠の件の無い行。 */
+export const NO_ISSUE_GROUP = '根拠の件なし';
+
+/** 小計の文「小計 N 日・M.M 人工」（N は日付の数、M は人工の合計）。 */
+export function subtotalLabel(rows: ChangeLedgerRow[]): string {
+  const days = new Set(rows.map((r) => r.date)).size;
+  const manDays = rows.reduce((sum, r) => sum + r.manDays, 0);
+  return `小計 ${days} 日・${formatCell(cell.dec1(manDays))} 人工`;
+}
+
 /**
- * 明細一覧（15 列）。PDF は 1 件を 2 段（上段：区分〜提案額、下段：指示者〜客先確認。日付は 2 段をまたぐ）、
+ * 明細の行を根拠の件ごとにまとめる（件ごとの精算・件ごとの内容と同じ並び：件の日報日、同じ日は件の番号。根拠の件の無い行は
+ * 最後に「根拠の件なし」）。まとまりの中は日付順、同じ日は元の並び。1 つの件が何日にもまたがるのが見て分かるように、
+ * まとまりごとに見出し（件の名前）と小計（日数・人工）を付ける。at は小計を揃える列（人工の列）の番号。
+ */
+export function groupDetailByIssue(
+  rows: ChangeLedgerRow[],
+  toCells: (r: ChangeLedgerRow) => Cell[],
+  at: number,
+): { rows: Cell[][]; groups: TableGroup[] } {
+  const byKey = new Map<string, ChangeLedgerRow[]>();
+  for (const r of rows) {
+    const key = r.issue?.id ?? '';
+    byKey.set(key, [...(byKey.get(key) ?? []), r]);
+  }
+  const keyOf = (rs: ChangeLedgerRow[]) => rs[0].issue;
+  const ordered = [...byKey.values()].sort((a, b) => {
+    const x = keyOf(a);
+    const y = keyOf(b);
+    if (!x || !y) return x ? -1 : y ? 1 : 0;
+    return x.reportDate.localeCompare(y.reportDate) || x.number - y.number;
+  });
+  const groups = ordered.map((rs): TableGroup => {
+    const sorted = rs.map((r, i) => ({ r, i })).sort((a, b) => a.r.date.localeCompare(b.r.date) || a.i - b.i).map(({ r }) => r);
+    return {
+      title: sorted[0].issue ? issueText(sorted[0]) : NO_ISSUE_GROUP,
+      rows: sorted.map(toCells),
+      subtotal: { label: subtotalLabel(sorted), at },
+    };
+  });
+  return { rows: groups.flatMap((g) => g.rows), groups };
+}
+
+/** 明細一覧の投入人工の列（小計を揃える）。 */
+const DETAIL_MAN_DAYS = 8;
+
+/**
+ * 明細一覧（15 列）。行は根拠の件ごとにまとめる（groupDetailByIssue。見出し・小計付き）。PDF は 1 件を 2 段（上段：区分〜提案額、下段：指示者〜客先確認。日付は 2 段をまたぐ）、
  * Excel は 1 行に並べる。列幅の比 w は PDF の各段の中での比（mm の目安。上段・下段とも合計 162、日付 18 と合わせて 180）。
  * 減の数量は負で表示する（提案額は申告額）。社内確認用の明細なので実績原価の列がある。未入力の文字は空欄。
  */
@@ -227,23 +273,27 @@ export function changeDetail(model: ChangeLedgerModel): SectionTable {
       col.text('根拠の件', 86),
       col.text('客先確認', 14),
     ],
-    rows: model.rows.map((r) => [
-      `${slashDate(r.date)}\n当月${r.monthIndex}回目`,
-      CHANGE_KIND_LABELS[r.changeKind],
-      r.trade,
-      r.description,
-      cell.qty(r.qty === null ? null : r.changeKind === 'minus' ? -r.qty : r.qty),
-      r.unit,
-      cell.yen(r.unitPrice),
-      cell.yen(r.declared),
-      cell.dec1(r.manDays),
-      cell.yen(r.proposal),
-      r.instructedBy ?? '',
-      r.instructionMethod ? INSTRUCTION_METHOD_LABELS[r.instructionMethod] : '',
-      r.instructedOn ? slashDate(r.instructedOn) : '',
-      issueText(r),
-      r.clientConfirmed ? 'あり' : 'なし',
-    ]),
+    ...groupDetailByIssue(
+      model.rows,
+      (r) => [
+        `${slashDate(r.date)}\n当月${r.monthIndex}回目`,
+        CHANGE_KIND_LABELS[r.changeKind],
+        r.trade,
+        r.description,
+        cell.qty(r.qty === null ? null : r.changeKind === 'minus' ? -r.qty : r.qty),
+        r.unit,
+        cell.yen(r.unitPrice),
+        cell.yen(r.declared),
+        cell.dec1(r.manDays),
+        cell.yen(r.proposal),
+        r.instructedBy ?? '',
+        r.instructionMethod ? INSTRUCTION_METHOD_LABELS[r.instructionMethod] : '',
+        r.instructedOn ? slashDate(r.instructedOn) : '',
+        issueText(r),
+        r.clientConfirmed ? 'あり' : 'なし',
+      ],
+      DETAIL_MAN_DAYS,
+    ),
   };
 }
 

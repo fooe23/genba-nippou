@@ -12,7 +12,7 @@ import {
 } from '@/lib/reports/client-change-sections';
 import { formatCell, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
 import type { CostReportInput, CostReportPeriod, SavedReportLine } from '@/lib/reports/types';
-import { changeMeta, emptyChangeModel, RATES, sampleChangeModel, settledChangeModel, settledInput } from './cost-fixture';
+import { changeMeta, emptyChangeModel, RATES, sampleChangeModel, settledChangeModel, settledInput, spanningChangeModel } from './cost-fixture';
 
 const texts = (cells: Cell[]) => cells.map(formatCell);
 const MONTH: CostReportPeriod = { kind: 'month', month: '2026-11' };
@@ -30,7 +30,14 @@ function withReworkLine(period: CostReportPeriod = { kind: 'all' }) {
 const FORBIDDEN = ['実績原価', '見込み額', '提案額', '経費率', '利益率', '単価', '申告額'];
 const allLabels = (tables: (SectionTable | null)[]) => tables.flatMap((t) => (t ? t.columns.map((c) => c.label) : []));
 const allTexts = (tables: (SectionTable | null)[]) =>
-  tables.flatMap((t) => (t ? [...t.rows, ...(t.total ? [t.total] : [])].flatMap((r) => texts(r)) : []));
+  tables.flatMap((t) =>
+    t
+      ? [
+          ...[...t.rows, ...(t.total ? [t.total] : [])].flatMap((r) => texts(r)),
+          ...(t.groups ?? []).flatMap((g) => [g.title, g.subtotal.label]),
+        ]
+      : [],
+  );
 
 describe('客先用の見出し・脚注', () => {
   it('題名は「追加・変更工事 精算のご提案（案）」、脚注は「現場日報アプリ ― 精算のご提案（案） 出力日時」', () => {
@@ -151,9 +158,44 @@ describe('clientChangeDetail（作業の明細）', () => {
   });
 });
 
+describe('clientChangeDetail（件ごとのまとまり）', () => {
+  it('件ごとの内容と同じ並び（件の日報日・番号）、件なしは最後に「根拠の件なし」。見出しは件ごとの内容の件と同じ', () => {
+    const m = spanningChangeModel();
+    const t = clientChangeDetail(m);
+    expect(t.groups!.map((g) => g.title)).toEqual([
+      '11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。',
+      '11/05-2 仕様変更 棚の位置変更（常用）',
+      '11/05-3 減 外壁塗装の一部取りやめ',
+      '根拠の件なし',
+    ]);
+    const issueNames = clientChangeIssues(m)!.rows.map((r) => r[0]);
+    expect(t.groups!.slice(0, 3).map((g) => g.title).every((title) => issueNames.includes(title))).toBe(true);
+  });
+
+  it('2 日にまたがる件は 1 つのまとまりに日付順、小計「小計 2 日・3.5 人工」（人工の列に揃える）', () => {
+    const t = clientChangeDetail(spanningChangeModel());
+    const [first] = t.groups!;
+    expect(first.rows.map((r) => [r[0], r[3], formatCell(r[6])])).toEqual([
+      ['2026/11/05', 'クロス張替え（2 階洋室）', '1.5'],
+      ['2026/11/06', 'クロス張替え（2 階洋室）', '2.0'],
+    ]);
+    expect(first.subtotal).toEqual({ label: '小計 2 日・3.5 人工', at: 6 });
+    expect(t.columns[first.subtotal.at].label).toBe('人工');
+    // rows はまとまりの行を順に並べたもの（「N 行」の数）
+    expect(t.rows).toEqual(t.groups!.flatMap((g) => g.rows));
+    expect(t.rows).toHaveLength(5);
+  });
+
+  it('やり直しの件のまとまりは出さない', () => {
+    const t = clientChangeDetail(withReworkLine());
+    expect(t.groups!.some((g) => g.title.includes('やり直し') || g.title.includes('巾木'))).toBe(false);
+    expect(t.groups!.at(-1)!.title).toBe('根拠の件なし');
+  });
+});
+
 describe('客先用に社内の数字を出さない', () => {
   it('まとめ・件ごとの内容・明細の列見出しと行に、実績原価・見込み額・提案額・経費率・単価・申告額が無い', () => {
-    for (const m of [settledChangeModel(), settledChangeModel(MONTH), withReworkLine(), sampleChangeModel()]) {
+    for (const m of [settledChangeModel(), settledChangeModel(MONTH), withReworkLine(), sampleChangeModel(), spanningChangeModel()]) {
       const tables = [clientChangeSummary(m), clientChangeIssues(m), clientChangeDetail(m)];
       const labels = allLabels(tables);
       for (const word of FORBIDDEN) expect(labels.filter((l) => l.includes(word))).toEqual([]);

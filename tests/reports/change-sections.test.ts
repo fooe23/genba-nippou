@@ -13,7 +13,9 @@ import {
   senderRows,
 } from '@/lib/reports/change-sections';
 import { formatCell, type Cell } from '@/lib/reports/cost-sections';
-import { changeMeta, emptyChangeModel, sampleChangeModel, settledChangeModel } from './cost-fixture';
+import { buildChangeLedger } from '@/lib/reports/change-model';
+import type { SavedReportLine } from '@/lib/reports/types';
+import { changeMeta, emptyChangeModel, RATES, sampleChangeModel, settledChangeModel, spanningChangeModel, spanningInput } from './cost-fixture';
 
 const texts = (cells: Cell[]) => cells.map(formatCell);
 const site = changeMeta().site;
@@ -177,7 +179,55 @@ describe('changeDetail（明細一覧）', () => {
   });
 
   it('変更行 0 件なら行なし', () => {
-    expect(changeDetail(emptyChangeModel()).rows).toEqual([]);
+    const t = changeDetail(emptyChangeModel());
+    expect(t.rows).toEqual([]);
+    expect(t.groups).toEqual([]);
+  });
+});
+
+describe('changeDetail（根拠の件ごとのまとまり）', () => {
+  it('件ごとの精算と同じ並び（件の日報日・番号）、根拠の件なしは最後。見出しは件ごとの精算の件と同じ', () => {
+    const m = spanningChangeModel();
+    const t = changeDetail(m);
+    expect(t.groups!.map((g) => g.title)).toEqual([
+      '11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。',
+      '11/05-2 仕様変更 棚の位置変更（常用）',
+      '11/05-3 減 外壁塗装の一部取りやめ',
+      '根拠の件なし',
+    ]);
+    const issueNames = changeIssues(m)!.rows.map((r) => r[0]);
+    expect(t.groups!.slice(0, 3).every((g) => issueNames.includes(g.title))).toBe(true);
+  });
+
+  it('2 日にまたがる件は 1 つのまとまり（日付順）、小計「小計 2 日・3.5 人工」は投入人工の列に揃える', () => {
+    const t = changeDetail(spanningChangeModel());
+    const [first] = t.groups!;
+    expect(first.rows.map((r) => [formatCell(r[0]), formatCell(r[8])])).toEqual([
+      ['2026/11/05\n当月1回目', '1.5'],
+      ['2026/11/06\n当月2回目', '2.0'],
+    ]);
+    expect(first.subtotal.label).toBe('小計 2 日・3.5 人工');
+    expect(t.columns[first.subtotal.at].label).toBe('投入人工');
+    expect(t.rows).toEqual(t.groups!.flatMap((g) => g.rows));
+  });
+
+  it('行の並びが前後しても、まとまりは件の順・まとまりの中は日付順', () => {
+    const m = spanningChangeModel();
+    const t = changeDetail({ ...m, rows: [...m.rows].reverse() });
+    expect(t.groups!.map((g) => g.title.slice(0, 7))).toEqual(['11/02-1', '11/05-2', '11/05-3', '根拠の件なし']);
+    expect(t.groups![0].rows.map((r) => formatCell(r[0]).slice(0, 10))).toEqual(['2026/11/05', '2026/11/06']);
+  });
+
+  it('社内確認用はやり直しの件のまとまりも出す（件なしは最後のまま）', () => {
+    const input = spanningInput();
+    const r = input.reports[1];
+    const lines = r.lines as SavedReportLine[];
+    const extra = lines.find((l) => l.kind === 'work' && l.description === '手すり追加')!;
+    const rework = { ...extra, description: '巾木の手直し作業', issueId: 'iR' } as SavedReportLine;
+    const m = buildChangeLedger({ ...input, reports: [input.reports[0], { ...r, lines: [...lines, rework] }, input.reports[2]] }, RATES, { kind: 'all' });
+    const titles = changeDetail(m).groups!.map((g) => g.title);
+    expect(titles).toContain('11/05-4 やり直し 巾木の手直し');
+    expect(titles.at(-1)).toBe('根拠の件なし');
   });
 });
 

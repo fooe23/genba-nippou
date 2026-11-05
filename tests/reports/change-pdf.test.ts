@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Font } from '@react-pdf/renderer';
 import { renderChangePdf } from '@/lib/pdf/change-ledger';
-import { changeMeta, emptyChangeModel, sampleChangeModel, settledChangeModel } from './cost-fixture';
+import { changeMeta, emptyChangeModel, sampleChangeModel, settledChangeModel, spanningChangeModel } from './cost-fixture';
 
 describe('renderChangePdf', () => {
   it('%PDF で始まるバッファを返し、Noto Sans JP とロゴを埋め込む（フォントの登録は 1 回だけ）', async () => {
@@ -30,5 +30,10 @@ describe('renderChangePdf', () => {
       const pdf = await renderChangePdf(settledChangeModel(period), changeMeta());
       expect(pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
     }
+  }, 60_000);
+
+  it('件が 2 日にまたがる明細（件ごとの見出しと小計）でも PDF を返す', async () => {
+    const pdf = await renderChangePdf(spanningChangeModel(), changeMeta());
+    expect(pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
   }, 60_000);
 });

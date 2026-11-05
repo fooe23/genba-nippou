@@ -30,6 +30,18 @@ export interface SectionTable {
   after?: Cell[][];
   /** 太字にする行（rows の添字。日報の作業内容の追加・増・変更・減の行）。PDF だけが使う。 */
   boldRows?: number[];
+  /**
+   * 行のまとまり（変更増減の明細の「件ごと」）。あれば rows の代わりにこれを描く（rows はまとまりの行を順に並べたものと同じ）。
+   * まとまりごとに、表の幅いっぱいの見出し行（太字・帯）→ 行 → 小計の行（太字。subtotal.at の列の右端に揃える）。
+   */
+  groups?: TableGroup[];
+}
+
+export interface TableGroup {
+  title: string;
+  rows: Cell[][];
+  /** 小計の文（「小計 2 日・3.5 人工」）と、右端を揃える列の番号。 */
+  subtotal: { label: string; at: number };
 }
 
 export interface CostSection {

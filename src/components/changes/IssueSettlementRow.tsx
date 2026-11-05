@@ -7,12 +7,43 @@ import { jpDate } from '@/lib/calc/format';
 import { updateIssueSettlement } from '@/lib/db/reports-actions';
 import { issueSettlementSchema } from '@/lib/db/issue-schemas';
 import { INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, SETTLEMENT_METHODS, SETTLEMENT_METHOD_LABELS, isSettlementMethod, usesFixedAmount } from '@/lib/report/change-labels';
-import type { ChangesIssueRow } from '@/lib/reports/changes-page';
+import type { ChangesIssueRow, PossibleDuplicate } from '@/lib/reports/changes-page';
 import type { SettlementMethod } from '@/lib/types';
 import { money } from '@/components/report/form-state';
 import { NumInput, fieldClass } from '@/components/report/inputs';
 import { ErrorText, primaryButtonClass, useRunner } from '@/components/masters/common';
 import { CHANGES_GRID, CHANGES_ROW, Cell, ComputedCells, InputCell, KindTag } from '@/components/changes/cells';
+
+/** 'YYYY-MM-DD' → 'MM/DD'。 */
+const md = (date: string) => date.slice(5).replace('-', '/');
+
+/**
+ * 重複の可能性の注意（琥珀色）：「重複の可能性：11/03 と 11/06 に同じ施工内容「…」があります。…」。日付はその日の日報へのリンク。
+ * 2xl 以上は行の幅いっぱい、未満はカードの中。
+ */
+function DuplicateNotes({ siteId, items }: { siteId: string; items: PossibleDuplicate[] }) {
+  return (
+    <div className="col-span-2 space-y-1 2xl:col-span-full">
+      {items.map((d) => (
+        <p
+          key={d.description}
+          className="rounded-md border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-100"
+        >
+          <span className="font-bold">重複の可能性：</span>
+          {d.dates.map((date, i) => (
+            <span key={date}>
+              {i > 0 ? (i === d.dates.length - 1 ? ' と ' : '、') : null}
+              <Link href={`/sites/${siteId}/reports/${date}`} className="font-medium underline">
+                {md(date)}
+              </Link>
+            </span>
+          ))}
+          {` に同じ施工内容「${d.description}」があります。続けて作業した場合はそのままで構いません。`}
+        </p>
+      ))}
+    </div>
+  );
+}
 
 /**
  * 件 1 つの行。精算の方法・確定額（一式）・見積額（見積）または常用単価（常用）・確定日を入れて保存する。
@@ -22,11 +53,14 @@ export function IssueSettlementRow({
   row,
   siteId,
   defaultDailyRate,
+  duplicates = [],
   readOnly,
 }: {
   row: ChangesIssueRow;
   siteId: string;
   defaultDailyRate: number | null;
+  /** この件の重複の可能性（無ければ空）。 */
+  duplicates?: PossibleDuplicate[];
   readOnly: boolean;
 }) {
   const router = useRouter();
@@ -145,6 +179,7 @@ export function IssueSettlementRow({
           {pending ? '保存中…' : '保存'}
         </button>
       </div>
+      {duplicates.length > 0 && <DuplicateNotes siteId={siteId} items={duplicates} />}
       {(saved || error) && (
         <div className="col-span-2 2xl:col-span-full 2xl:text-right">
           {saved && !error && (

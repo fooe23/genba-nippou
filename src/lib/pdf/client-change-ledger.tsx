@@ -1,5 +1,5 @@
 import { Document, Image, Page, renderToBuffer, StyleSheet, Text, View } from '@react-pdf/renderer';
-import { c, LOGO, Tail } from '@/lib/pdf/change-ledger';
+import { c, DetailGroups, LOGO, Tail, widthTo } from '@/lib/pdf/change-ledger';
 import { Footer, InfoGrid, RULE, s, SectionHead, Table } from '@/lib/pdf/common';
 import { registerPdfFonts } from '@/lib/pdf/fonts';
 import { clientSettlement } from '@/lib/reports/change-model';
@@ -22,7 +22,7 @@ import type { ChangeLedgerModel } from '@/lib/reports/types';
 
 // 客先に渡す「追加・変更工事 精算のご提案（案）」の PDF（A4 縦・余白 15mm・本文 9pt・明細 8pt）。見た目と部品は common.tsx と
 // 社内確認用（change-ledger.tsx）と同じ。1 ページ目：ロゴ・宛先・件名・見出し・精算のまとめ・注記・件ごとの内容。
-// 次のページから：作業の明細（11 列を 1 段。行は途中で切らず、列見出しはページごとに繰り返す）・発行者とお客様確認欄。
+// 次のページから：作業の明細（11 列を 1 段。件ごとに見出しと小計。行は途中で切らず、列見出しはページごとに繰り返す）・発行者とお客様確認欄。
 // 原価・見込み額・提案額・率・単価・申告額、やり直しの件と行は出さない（client-change-sections.ts）。
 
 const DETAIL_FONT = 8;
@@ -60,12 +60,15 @@ function DetailRow({ table, cells, head }: { table: SectionTable; cells: Cell[];
 }
 
 function DetailTable({ table }: { table: SectionTable }) {
+  const row = (r: Cell[], i: number) => <DetailRow key={i} table={table} cells={r} head={false} />;
   return (
     <View style={d.detail}>
       <DetailRow table={table} cells={table.columns.map((c) => c.label)} head />
-      {table.rows.map((r, i) => (
-        <DetailRow key={i} table={table} cells={r} head={false} />
-      ))}
+      {table.groups ? (
+        <DetailGroups groups={table.groups} row={row} width={widthTo(table)} full={widthTo(table)(table.columns.length - 1)} />
+      ) : (
+        table.rows.map(row)
+      )}
     </View>
   );
 }
@@ -122,7 +125,7 @@ function ClientChangeDocument({ model, meta }: { model: ChangeLedgerModel; meta:
 
             {detail.rows.length > 0 ? (
               <View break>
-                <SectionHead title={CLIENT_DETAIL_TITLE} note={`${detail.rows.length} 件`} marginTop={0} />
+                <SectionHead title={CLIENT_DETAIL_TITLE} note={`${detail.rows.length} 行`} marginTop={0} />
                 <DetailTable table={detail} />
               </View>
             ) : null}
