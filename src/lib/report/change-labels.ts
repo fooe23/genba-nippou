@@ -35,12 +35,12 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   rework: 'やり直し',
   other: 'その他',
 };
-/** 件の精算の方法。 */
 /** 確定額（fixedAmount）で精算する方法か（一式・見積。計算は同じ）。 */
 export function usesFixedAmount(m: SettlementMethod): boolean {
   return m === 'lump_sum' || m === 'estimate';
 }
 
+/** 件の精算の方法。 */
 export const SETTLEMENT_METHOD_LABELS: Record<SettlementMethod, string> = { undecided: '未定', lump_sum: '一式', estimate: '見積', daily_rate: '常用' };
 
 const SETTLEMENT_CATEGORY: Record<IssueKind, ChangeLedgerKind | null> = {

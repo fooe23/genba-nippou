@@ -71,7 +71,7 @@ export function ChangesTable({
       <div className={CHANGES_MIN_WIDTH}>
         <div
           aria-hidden="true"
-          className={`hidden gap-x-2 border-b border-gray-300 pb-1 text-sm font-bold text-gray-700 2xl:grid dark:border-gray-700 dark:text-gray-300 ${CHANGES_GRID}`}
+          className={`hidden gap-x-2 2xl:gap-x-1.5 border-b border-gray-300 pb-1 text-sm font-bold text-gray-700 2xl:grid dark:border-gray-700 dark:text-gray-300 ${CHANGES_GRID}`}
         >
           {CHANGES_COLUMNS.map((label, i) => (
             <span key={i} className={i === 4 || (i >= 8 && i <= 12) ? 'text-right' : ''}>

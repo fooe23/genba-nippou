@@ -3,14 +3,14 @@ import { decimal, money } from '@/components/report/form-state';
 import type { ChangesRow } from '@/lib/reports/changes-page';
 
 // 「追加・変更の一覧」の行の部品（サーバー・クライアントの両方から使う。'use client' を付けない）。
-// 2xl（1536px）以上は 1 行 14 列の表、22xl 未満は件ごとのカード（2 列。見出しを各欄の上に出す）。
+// 2xl（1536px）以上は 1 行 14 列の表、2xl 未満は件ごとのカード（2 列。見出しを各欄の上に出す）。
 // 表は 2xl のページ幅（max-w-[96rem]＝1536px から左右の余白・縦スクロールバーを引いた約 93rem）に収まる幅にする
 // （列の固定幅の合計 86.5rem ＋ 列の間 13 × 0.375rem ≒ 91.4rem）。1280〜1535px で表にすると左右の列が見切れたため。
 
 /** 列の幅（見出し・件の行・件なしの行・合計の行で共通）。 */
 export const CHANGES_GRID =
   '2xl:grid-cols-[5rem_5.5rem_minmax(10rem,1fr)_6rem_6rem_6rem_7rem_8.5rem_3rem_4rem_6.5rem_6.5rem_7.5rem_5rem]';
-/** 表の最小幅（22xl 以上。列の幅の合計。ページ幅に収まるので普段は横スクロールしない）。 */
+/** 表の最小幅（2xl 以上。列の幅の合計。ページ幅に収まるので普段は横スクロールしない）。 */
 export const CHANGES_MIN_WIDTH = '2xl:min-w-[91.5rem]';
 /** 1 件の行（カード）の外枠。 */
 export const CHANGES_ROW =

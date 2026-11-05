@@ -1,7 +1,6 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import { usesFixedAmount } from '@/lib/report/change-labels';
 import { z } from 'zod';
 import {
   clientConfirmationSchema,
@@ -25,6 +24,7 @@ import {
   toLineRows,
   toReportRow,
 } from '@/lib/report/rows';
+import { usesFixedAmount } from '@/lib/report/change-labels';
 import { applyMasterSnapshots, needsMasterSnapshots } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
