@@ -33,8 +33,9 @@ describe('buildCostXlsx', () => {
     expect(total.getCell(1).font?.bold).toBe(true);
 
     expect(rowOf(ws, '総人工').getCell(2).numFmt).toBe('0.0');
-    expect(rowOf(ws, '飛び込み 鈴木（手入力）').getCell(6).value).toBe(30000);
-    for (const name of ['② 採算', '③ 月別推移', '④ 作業員別累計', '⑤ 取引先別累計', '⑥ 車両・リース', '⑦ 工種別出来高']) rowOf(ws, name);
+    expect(rowOf(ws, '飛び込み 鈴木（手入力）').getCell(3).value).toBe('所属なし');
+    expect(rowOf(ws, '飛び込み 鈴木（手入力）').getCell(7).value).toBe(30000);
+    for (const name of ['② 採算', '③ 月別推移', '④ 作業員別累計', '④-2 所属別の人工・労務費', '⑤ 取引先別累計', '⑥ 車両・リース', '⑦ 工種別出来高']) rowOf(ws, name);
   });
 
   it('列幅は固定、A4 縦で横 1 ページに収める', async () => {

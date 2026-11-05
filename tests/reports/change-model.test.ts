@@ -318,7 +318,7 @@ describe('月の期間の精算提案額（ルール 2）', () => {
 const lrow = (manDays: number, proposal: number, changeKind: ChangeLedgerRow['changeKind'] = 'extra'): ChangeLedgerRow => ({
   date: '2026-11-02', reportId: 'r', monthIndex: 1, totalIndex: 1, changeKind, trade: '', description: '', qty: null, unit: '', unitPrice: null,
   declared: 0, manDays, instructedBy: null, instructionMethod: null, instructedOn: null, issue: null, clientConfirmed: false,
-  actualCost: { labor: 0, other: 0, total: 0 }, proposal, proposalBasis: 'cost',
+  actualCost: { labor: 0, other: 0, total: 0 }, proposal, proposalBasis: 'cost', affiliationManDays: [],
 });
 
 describe('settleIssue（件ごとの精算額の規則）', () => {
@@ -425,7 +425,9 @@ describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary
     expect(m.issues[4]).toMatchObject({ id: 'iR', settled: 8000, category: null, countsToward: false });
   });
   it('unlinked：件に紐づかない行（未選択・読めない件）の合計', () => {
-    expect(m.unlinked).toEqual({ lineCount: 2, manDays: 2, actualCost: 40000, proposal: 50600 });
+    expect(m.unlinked).toMatchObject({ lineCount: 2, manDays: 2, actualCost: 40000, proposal: 50600 });
+    // 労務の行が手入力（所属なし）だけの日なので、所属別の人工は全部が所属なし
+    expect(m.unlinked.affiliationManDays.map((p) => [p.label, p.manDays])).toEqual([['所属なし', 2]]);
   });
   it('区分ごとの精算額 = 件の精算額（区分ごと）＋ 件に紐づかない行の提案額。一式の件に紐づく行の提案額は数えない', () => {
     expect(m.summary.extra.settled).toBe(25300 + 12650 + 100000 + 50600);
@@ -459,7 +461,7 @@ describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary
     );
     expect(lump.isEmpty).toBe(false);
     expect(lump.rows).toEqual([]);
-    expect(lump.unlinked).toEqual({ lineCount: 0, manDays: 0, actualCost: 0, proposal: 0 });
+    expect(lump.unlinked).toEqual({ lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, affiliationManDays: [] });
   });
 });
 
@@ -603,5 +605,43 @@ describe('件ごとの精算（月指定）', () => {
     const nov = buildChangeLedger(input(reports(), { issues: issues() }), RATES, NOV);
     expect(nov.rows).toEqual([]);
     expect(nov.isEmpty).toBe(false);
+  });
+});
+
+// ─── 所属別の人工（社内用）：作業内容の人工を、その日の労務の行の所属別の人工比で按分 ───
+
+describe('所属別の人工（行・件ごと・件なし）', () => {
+  const aLabor = (manDays: number, affiliation: 'own' | 'partner' | null, supplierId: string | null = null): SavedReportLine =>
+    ({ ...labor(manDays, manDays * 20000), affiliation, supplierId, laborContract: affiliation === 'partner' ? 'ukeoi' : null }) as SavedReportLine;
+  const suppliers = [{ id: 'pA', name: '〇〇工業', category: null, contact: null, note: null, active: true, updatedAt: null, updatedBy: null, createdAt: '2026-01-01T00:00:00Z' }];
+  const reports = [
+    // 自社 2・〇〇工業 1 → 追加 1.5 人工は 自社 1.0／〇〇工業 0.5
+    report('2026-11-02', [aLabor(2, 'own'), aLabor(1, 'partner', 'pA'), work('extra', 1.5, 1, 1000, { issueId: 'i1' })]),
+    // 自社 1・〇〇工業 1・所属なし 1 → 1 人工は 0.34／0.33／0.33（端数は並びの先の自社）
+    report('2026-11-03', [aLabor(1, 'own'), aLabor(1, 'partner', 'pA'), aLabor(1, null), work('extra', 1, 1, 1000, { issueId: 'i1' })]),
+    // 労務の行が無い日：全部が所属なし（件なしの行）
+    report('2026-11-04', [work('change', 0.7, 1, 1000)]),
+  ];
+  const m = buildChangeLedger(input(reports, { suppliers, issues: [issue('i1', '2026-11-02', 'クロス')] }), RATES, ALL);
+  const pairs = (parts: { label: string; manDays: number }[]) => parts.map((p) => [p.label, p.manDays]);
+
+  it('行ごと：その日の労務の行の所属（写し）別の人工比。和は行の人工と一致', () => {
+    expect(m.rows.map((r) => pairs(r.affiliationManDays))).toEqual([
+      [['自社', 1], ['〇〇工業', 0.5]],
+      [['自社', 0.34], ['〇〇工業', 0.33], ['所属なし', 0.33]],
+      [['所属なし', 0.7]],
+    ]);
+    for (const r of m.rows) expect(Math.round(r.affiliationManDays.reduce((s, p) => s + p.manDays, 0) * 1e9) / 1e9).toBe(r.manDays);
+  });
+
+  it('件ごと・件なし：紐づく行の和（会社ごと）。和は件の人工と一致', () => {
+    expect(pairs(m.issues[0].affiliationManDays)).toEqual([['自社', 1.34], ['〇〇工業', 0.83], ['所属なし', 0.33]]);
+    expect(m.issues[0].affiliationManDays.reduce((s, p) => s + p.manDays, 0)).toBeCloseTo(m.issues[0].manDays, 9);
+    expect(pairs(m.unlinked.affiliationManDays)).toEqual([['所属なし', 0.7]]);
+  });
+
+  it('取引先が読めない（suppliers を渡さない）ときは「協力会社」', () => {
+    const noNames = buildChangeLedger(input(reports, { issues: [issue('i1', '2026-11-02', 'クロス')] }), RATES, ALL);
+    expect(pairs(noNames.rows[0].affiliationManDays)).toEqual([['自社', 1], ['協力会社', 0.5]]);
   });
 });

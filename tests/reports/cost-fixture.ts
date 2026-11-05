@@ -21,7 +21,7 @@ const site: Site = {
 };
 
 const lines: SavedReportLine[] = [
-  { kind: 'labor', workerId: 'w1', workerName: '田中', time, dailyRate: 18000, note: '', overtimeRate: null, stored: stored(18000, 1, 1.5) },
+  { kind: 'labor', workerId: 'w1', workerName: '田中', time, dailyRate: 18000, note: '', overtimeRate: null, affiliation: 'own', supplierId: null, stored: stored(18000, 1, 1.5) },
   { kind: 'labor', workerId: null, workerName: '飛び込み 鈴木', time, dailyRate: 15000, note: '', overtimeRate: null, stored: stored(15000, 1) },
   { kind: 'fuel', vehicleId: 'v1', vehicleName: '2t ダンプ', kmPerL: 10, distanceKm: 42, pricePerL: 170, note: '', stored: stored(714) },
   { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '', unit: '日', qty: 3, unitPrice: 1000, note: '', stored: stored(3000) },
@@ -50,6 +50,7 @@ export const costInput = (reports: ReportWithLines[] = [report('2026-10-20', 'ap
   vehicles: [{ id: 'v1', name: '2t ダンプ', kind: null, kmPerL: 10, note: null, active: true, ...touched }],
   leaseItems: [{ id: 'l1', name: '足場', spec: null, note: null, active: true, rates: [], ...touched }],
   issues: [],
+  sitePartners: [],
 });
 
 export const NOW = { date: '2026-11-10', by: '大江', at: '2026-11-10T01:23:45.000Z' };

@@ -1,6 +1,7 @@
 import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Issue, ReportHead } from '@/lib/db/reports';
-import type { Carryover, Site } from '@/lib/db/sites';
+import type { Carryover, Site, SitePartner } from '@/lib/db/sites';
+import type { AffiliationKind, AffiliationManDays } from '@/lib/reports/affiliation-breakdown';
 import type { ChangeTotals } from '@/lib/calc/change';
 import type { ChangeKind, InstructionMethod, IssueKind, ReportLine, SettlementMethod, TimeSpec } from '@/lib/types';
 
@@ -38,6 +39,8 @@ export interface CostReportInput {
   leaseItems: LeaseItem[];
   /** 現場の全日報の件（listIssuesForReports。対応中・完了とも。登録順）。変更増減の一覧の「根拠の件」に使う。 */
   issues: Issue[];
+  /** 現場の協力会社（gn_site_partners。amount は請負金額で任意）。④-2 所属別の請負金額の比較に使う。 */
+  sitePartners: Pick<SitePartner, 'supplierId' | 'supplierName' | 'amount'>[];
 }
 
 export type CostReportPeriod = { kind: 'all' } | { kind: 'month'; month: string };
@@ -158,6 +161,12 @@ export interface WorkerRow {
   manual: boolean;
   /** 職種（マスター。手入力・未登録は null）。 */
   trade: string | null;
+  /**
+   * 所属（自社／取引先名／所属なし）。累計に入った労務の行の写し（その日の所属）から決める。作業員マスターのいまの所属は
+   * 使わない。途中で所属が変わった人は出てきた順に「自社・〇〇工業」とつなぐ（人工・労務費の所属ごとの内訳は ④-2）。
+   * 繰越初期値は機能の追加前の分なので自社（過去の行も自社で埋めたのと同じ扱い）。
+   */
+  affiliationLabel: string;
   /** 出勤日数（累計に入った日報の日数。繰越初期値の分は含まない）。 */
   workDays: number;
   /** 前月繰越（繰越初期値 + 期間より前の日報）と期間の分。工期全体なら carry は繰越初期値だけ。 */
@@ -175,6 +184,35 @@ export interface WorkerRow {
 export interface WorkerSection {
   rows: WorkerRow[];
   total: { workDays: number; manDays: number; overtimeHours: number; cost: number };
+}
+
+/**
+ * ④-2 所属別の人工・労務費の 1 行（④ と同じ範囲：繰越初期値 ＋ 繰越の基準日以降〜期間末の日報）。所属は労務の行の写し。
+ * 常用・請負は行の laborContract（null は常用）。労務費は ④ と同じ保存値（人工 × 設定日当、残業を含む）で、請負の日も入る。
+ * 繰越初期値は自社の常用に入れる。
+ */
+export interface AffiliationRow {
+  key: string;
+  kind: AffiliationKind;
+  supplierId: string | null;
+  /** 自社／取引先名（引けなければ「協力会社」）／所属なし。 */
+  label: string;
+  jouyouManDays: number;
+  jouyouCost: number;
+  ukeoiManDays: number;
+  ukeoiCost: number;
+  manDays: number;
+  cost: number;
+  /** 現場の協力会社の請負金額（gn_site_partners.amount。現場全体の額で、月の帳票でもそのまま）。協力会社以外・未入力は null。 */
+  partnerAmount: number | null;
+  /** 請負金額 − 請負労務費（請負の日の人工 × 設定日当）。請負金額が無ければ null。 */
+  difference: number | null;
+}
+
+export interface AffiliationSection {
+  /** 自社 → 協力会社（名前順。現場に登録した会社は行が無くても出す）→ 所属なし。人工も労務費も 0 の自社・所属なしは出さない。 */
+  rows: AffiliationRow[];
+  total: Omit<AffiliationRow, 'key' | 'kind' | 'supplierId' | 'label'>;
 }
 
 /** ⑤ 取引先別累計（集計期間）。名前（参照があればマスター名）でまとめる。 */
@@ -253,6 +291,7 @@ export interface CostReportModel {
   profit: Profitability;
   trend: Trend;
   workers: WorkerSection;
+  affiliations: AffiliationSection;
   vendors: VendorSection;
   equipment: EquipmentSection;
   trades: TradeSection;
@@ -459,7 +498,7 @@ export interface DailyReportModel {
 // ─── 変更増減の一覧（第2計画（改）Task 11。src/lib/reports/change-model.ts） ───
 
 /** buildChangeLedger の入力。CostReportInput がそのまま使える（現場・全日報・全日報の件だけを読む）。 */
-export type ChangeLedgerInput = Pick<CostReportInput, 'site' | 'reports' | 'issues'>;
+export type ChangeLedgerInput = Pick<CostReportInput, 'site' | 'reports' | 'issues'> & Partial<Pick<CostReportInput, 'suppliers'>>;
 
 /** 提案金額に掛ける率（gn_settings の経費率・利益率。0.15 = 15%）。 */
 export interface ChangeRates {
@@ -525,6 +564,11 @@ export interface ChangeLedgerRow {
   /** 提案金額（円）。追加・増・変更は実績原価から（basis 'cost'、円未満切り上げ）、減は申告額そのまま（'declared'、負）。 */
   proposal: number;
   proposalBasis: 'cost' | 'declared';
+  /**
+   * 投入人工の所属別の内訳（社内用）。作業内容の行は所属を持たないので、その日の労務の行の所属別の人工比で按分する
+   * （apportionManDays。和は manDays と一致）。その日に労務の行が無ければ全部を所属なし。
+   */
+  affiliationManDays: AffiliationManDays[];
 }
 
 /** 区分ごとの集計。減の申告額・提案額・精算額は負。 */
@@ -572,6 +616,8 @@ export interface ChangeIssueSettlement {
   manDays: number;
   actualCost: number;
   proposal: number;
+  /** 紐づく行の投入人工の所属別の内訳（行の affiliationManDays の和）。 */
+  affiliationManDays: AffiliationManDays[];
   /**
    * 精算額（円）。一式・見積 = 確定額（'fixed'）、常用 = 紐づく行の人工の合計 × 常用単価を円未満切り上げ（'daily_rate'）、
    * 未定 = 紐づく行の提案額の合計（'proposal'）。区分が減なら一式・見積・常用は負にする（未定は行の提案額がすでに負）。
@@ -614,7 +660,7 @@ export interface ChangeLedgerModel {
   /** 精算資料に載せる件（期間末まで）。件の日報日順、同じ日は件の登録順（input.issues の並び）。 */
   issues: ChangeIssueSettlement[];
   /** 期間末までの、件に紐づかない（未選択・読めない件）追加・増・変更・減の行の件数・人工・実績原価・提案額の合計。 */
-  unlinked: { lineCount: number; manDays: number; actualCost: number; proposal: number };
+  unlinked: { lineCount: number; manDays: number; actualCost: number; proposal: number; affiliationManDays: AffiliationManDays[] };
   /** 期間末までの、件に紐づかない行の提案額の合計（区分ごと。減は負）。客先用の精算額（clientSettlement）で使う。 */
   unlinkedByKind: Record<ChangeLedgerKind, number>;
   /** 集計期間の契約内の作業内容の出来高（保存値 amount の合計）。 */

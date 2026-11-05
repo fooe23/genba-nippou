@@ -12,7 +12,7 @@ import type { SettlementMethod } from '@/lib/types';
 import { money } from '@/components/report/form-state';
 import { NumInput, fieldClass } from '@/components/report/inputs';
 import { ErrorText, primaryButtonClass, useRunner } from '@/components/masters/common';
-import { CHANGES_GRID, CHANGES_ROW, Cell, ComputedCells, InputCell, KindTag } from '@/components/changes/cells';
+import { AffiliationNote, CHANGES_GRID, CHANGES_ROW, Cell, ComputedCells, InputCell, KindTag } from '@/components/changes/cells';
 
 /** 'YYYY-MM-DD' → 'MM/DD'。 */
 const md = (date: string) => date.slice(5).replace('-', '/');
@@ -181,6 +181,7 @@ export function IssueSettlementRow({
           {pending ? '保存中…' : '保存'}
         </button>
       </div>
+      <AffiliationNote row={row} />
       {duplicates.length > 0 && <DuplicateNotes siteId={siteId} items={duplicates} />}
       {(saved || error) && (
         <div className="col-span-2 2xl:col-span-full 2xl:text-right">

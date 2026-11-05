@@ -57,7 +57,7 @@ describe('buildChangeXlsx', () => {
     expect(first.getCell(1).value).toBe('2026/11/05\n当月1回目');
     expect(first.getCell(8).numFmt).toBe('#,##0');
     const subtotal = ws.getRow(head.number + 3);
-    expect(subtotal.getCell(1).value).toBe('小計 1 日・1.5 人工');
+    expect(subtotal.getCell(1).value).toBe('小計 1 日・1.5 人工（自社 0.75／所属なし 0.75）');
     expect(subtotal.getCell(1).alignment?.horizontal).toBe('right');
     expect(subtotal.getCell(9).isMerged).toBe(true);
     expect(subtotal.getCell(10).isMerged).toBe(false);
@@ -101,12 +101,16 @@ describe('buildChangeXlsx', () => {
     expect(head.getCell(1).value).toBe('件');
     expect(head.getCell(9).value).toBe('精算額(円)');
     expect(ws.getRow(title.number + 2).getCell(9).value).toBe(39706);
+    // 件の欄の 2 行目は所属別の人工（行の無い件は 1 行だけ）
+    expect(ws.getRow(title.number + 2).getCell(1).value).toBe(
+      '11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。\n所属別 自社 0.75／所属なし 0.75',
+    );
     const lump = rowOf(ws, '11/05-1 追加指示 玄関収納の追加');
     expect(lump.getCell(4).value).toBe(100000);
     expect(lump.getCell(5).value).toBe('2026/11/08');
     expect(rowOf(ws, '11/05-4 やり直し 巾木の手直し').getCell(9).value).toBe('（参考）¥8,000');
     expect(rowOf(ws, '11/05-3 減 外壁塗装の一部取りやめ').getCell(9).value).toBe(-20000);
-    expect(rowOf(ws, '件なし（根拠の件を選んでいない行）').getCell(9).value).toBe(13236);
+    expect(rowOf(ws, '件なし（根拠の件を選んでいない行）\n所属別 自社 0.25／所属なし 0.25').getCell(9).value).toBe(13236);
     const total = rowOf(ws, '合計');
     expect(total.getCell(9).value).toBe(147942);
 

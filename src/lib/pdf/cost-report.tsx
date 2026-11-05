@@ -36,8 +36,8 @@ function headerLines(model: CostReportModel): [string, string | null][][] {
 }
 
 function Section({ section }: { section: CostSection }) {
-  // 列の多い表（③ 推移の 11 列）は 9 桁の金額が収まるよう文字を少し小さくする。
-  const fontSize = (cols: number) => (cols >= 10 ? 7.5 : 9);
+  // 列の多い表（③ 推移の 11 列・④-2 所属別の 9 列）は 9 桁の金額と列見出しが収まるよう文字を少し小さくする。
+  const fontSize = (cols: number) => (cols >= 9 ? 7.5 : 9);
   return (
     <View>
       <SectionHead title={section.title} note={section.note} />

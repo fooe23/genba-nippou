@@ -2,6 +2,7 @@ import { jpDateTime } from '@/lib/calc/format';
 import type { Site } from '@/lib/db/sites';
 import { clientSettlement } from '@/lib/reports/change-model';
 import { CHANGE_KIND_LABELS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, SETTLEMENT_METHOD_LABELS } from '@/lib/report/change-labels';
+import { affiliationManDaysText, sumAffiliationManDays, type AffiliationManDays } from '@/lib/reports/affiliation-breakdown';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable, type TableGroup } from '@/lib/reports/cost-sections';
 import type { ChangeIssueSettlement, ChangeLedgerKind, ChangeLedgerModel, ChangeLedgerRow } from '@/lib/reports/types';
 
@@ -122,6 +123,15 @@ export function changeSummary(model: ChangeLedgerModel): { table: SectionTable; 
   return { table, notes };
 }
 
+/** 所属別の人工の行（件ごとの精算の件の欄の 2 行目）。所属が無ければ ''。社内用だけ（客先用には出さない）。 */
+export function affiliationLine(parts: AffiliationManDays[]): string {
+  const text = affiliationManDaysText(parts);
+  return text ? `所属別 ${text}` : '';
+}
+
+/** 件の欄：1 行目に件、2 行目に所属別の人工（あれば）。 */
+const withAffiliation = (head: string, parts: AffiliationManDays[]) => [head, affiliationLine(parts)].filter(Boolean).join('\n');
+
 /** 確定額・単価の欄：一式・見積は確定額（見積額。減は負）、常用は「常用 N人工 × ¥単価」、未定は「—」。 */
 function settlementTerms(i: ChangeIssueSettlement): Cell {
   switch (i.settlementMethod) {
@@ -141,6 +151,7 @@ function settlementTerms(i: ChangeIssueSettlement): Cell {
  * 件ごとの精算（件・見込み額・精算方法・確定額・単価・確定日・行数・投入人工・提案額・精算額）。件の日付順に 1 行ずつ、
  * 件に紐づかない行があれば最後に「件なし」の 1 行（精算額は提案額）。やり直しの件は精算額を「（参考）¥額」と出し、合計に入れない。
  * 行数・人工・提案額は期間末までの累計（件の精算額と同じ範囲）。件も件なしの行も無ければ null（表を出さない）。
+ * 件の欄の 2 行目に投入人工の所属別の内訳（「所属別 自社 2.0／〇〇工業 1.5」。その日の労務の行の所属別の人工比で按分）。
  */
 export function changeIssues(model: ChangeLedgerModel): SectionTable | null {
   const { issues, unlinked } = model;
@@ -162,7 +173,7 @@ export function changeIssues(model: ChangeLedgerModel): SectionTable | null {
     ],
     rows: [
       ...issues.map((i): Cell[] => [
-        `${i.reportDate.slice(5).replace('-', '/')}-${i.number} ${ISSUE_KIND_LABELS[i.kind]} ${i.bodyHead}`.trim(),
+        withAffiliation(`${i.reportDate.slice(5).replace('-', '/')}-${i.number} ${ISSUE_KIND_LABELS[i.kind]} ${i.bodyHead}`.trim(), i.affiliationManDays),
         cell.yen(i.amountEstimate),
         SETTLEMENT_METHOD_LABELS[i.settlementMethod],
         settlementTerms(i),
@@ -175,7 +186,7 @@ export function changeIssues(model: ChangeLedgerModel): SectionTable | null {
       ...(unlinked.lineCount > 0
         ? [
             [
-              UNLINKED_LABEL, '', '', '', '',
+              withAffiliation(UNLINKED_LABEL, unlinked.affiliationManDays), '', '', '', '',
               cell.int(unlinked.lineCount), cell.dec1(unlinked.manDays), cell.yen(unlinked.proposal), cell.yen(unlinked.proposal),
             ] satisfies Cell[],
           ]
@@ -222,6 +233,7 @@ export function groupDetailByIssue(
   rows: ChangeLedgerRow[],
   toCells: (r: ChangeLedgerRow) => Cell[],
   at: number,
+  subtotal: (rows: ChangeLedgerRow[]) => string = subtotalLabel,
 ): { rows: Cell[][]; groups: TableGroup[] } {
   const byKey = new Map<string, ChangeLedgerRow[]>();
   for (const r of rows) {
@@ -240,10 +252,16 @@ export function groupDetailByIssue(
     return {
       title: sorted[0].issue ? issueText(sorted[0]) : NO_ISSUE_GROUP,
       rows: sorted.map(toCells),
-      subtotal: { label: subtotalLabel(sorted), at },
+      subtotal: { label: subtotal(sorted), at },
     };
   });
   return { rows: groups.flatMap((g) => g.rows), groups };
+}
+
+/** 社内用の明細の小計「小計 N 日・M.M 人工（自社 2.0／〇〇工業 1.5）」（所属別の人工が無ければ subtotalLabel のまま）。 */
+export function subtotalWithAffiliation(rows: ChangeLedgerRow[]): string {
+  const text = affiliationManDaysText(sumAffiliationManDays(rows.map((r) => r.affiliationManDays)));
+  return text ? `${subtotalLabel(rows)}（${text}）` : subtotalLabel(rows);
 }
 
 /** 明細一覧の投入人工の列（小計を揃える）。 */
@@ -293,6 +311,7 @@ export function changeDetail(model: ChangeLedgerModel): SectionTable {
         r.clientConfirmed ? 'あり' : 'なし',
       ],
       DETAIL_MAN_DAYS,
+      subtotalWithAffiliation,
     ),
   };
 }

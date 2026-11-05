@@ -1,6 +1,6 @@
 import { money } from '@/components/report/form-state';
 import type { ChangesRow, ChangesTotal, ChangesUnlinkedRow, PossibleDuplicate } from '@/lib/reports/changes-page';
-import { CHANGES_COLUMNS, CHANGES_GRID, CHANGES_MIN_WIDTH, CHANGES_ROW, Cell, ComputedCells, KindTag } from '@/components/changes/cells';
+import { AffiliationNote, CHANGES_COLUMNS, CHANGES_GRID, CHANGES_MIN_WIDTH, CHANGES_ROW, Cell, ComputedCells, KindTag } from '@/components/changes/cells';
 import { IssueSettlementRow } from '@/components/changes/IssueSettlementRow';
 
 /** 件に紐づかない追加・増・変更・減の行の合計（入力は無い。精算額は提案額）。 */
@@ -23,6 +23,7 @@ function UnlinkedRow({ row }: { row: ChangesUnlinkedRow }) {
       <Cell label="確定日">—</Cell>
       <ComputedCells row={row} />
       <span className="hidden 2xl:block" />
+      <AffiliationNote row={row} />
     </li>
   );
 }

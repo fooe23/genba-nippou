@@ -64,6 +64,7 @@ const input = (reports: ReportWithLines[], o: Partial<CostReportInput> = {}): Co
   vehicles: [vehicle('v1', '2t ダンプ')],
   leaseItems: [leaseItem('l1', '足場')],
   issues: [],
+  sitePartners: [],
   ...o,
 });
 
@@ -507,5 +508,93 @@ describe('② 採算の基準（契約未確定の現場）と追加・増・変
   it('追加・増・変更・減の行が無ければ null', () => {
     const p = buildCostReport(input([report('2026-11-02', [labor('w1', '田中', 1, 20000), work('内装', '床', 1, 'm2', 1, 100_000)])]), ALL, now, RATES).profit;
     expect(p.changeProposal).toBeNull();
+  });
+});
+
+// ─── 所属（行の写し）・④-2 所属別の人工・労務費 ───
+
+describe('④ 所属の列・④-2 所属別の人工・労務費', () => {
+  const partnerWorker = (id: string, name: string, supplierId: string): Worker => ({ ...worker(id, name, '鳶'), affiliation: 'partner', supplierId });
+  /** 写しつきの労務の行（affiliation・supplierId・laborContract）。 */
+  const aLabor = (
+    workerId: string | null,
+    workerName: string,
+    manDays: number,
+    cost: number,
+    affiliation: 'own' | 'partner' | null,
+    supplierId: string | null = null,
+    laborContract: 'jouyou' | 'ukeoi' | null = null,
+  ): SavedReportLine => ({ ...labor(workerId, workerName, manDays, cost), affiliation, supplierId, laborContract } as SavedReportLine);
+
+  const suppliers = [supplier('sp1', '山田商店'), supplier('pA', '〇〇工業'), supplier('pB', 'あさひ建設')];
+  // マスターのいまの所属：w1 は協力会社 pB に変わった（10 月の行は自社の写し）、w3・w4 は協力会社 pA
+  const workers = [partnerWorker('w1', '田中', 'pB'), worker('w2', '佐藤', '鳶'), partnerWorker('w3', '鈴木', 'pA'), partnerWorker('w4', '高橋', 'pA')];
+  const reports = [
+    report('2026-10-20', [aLabor('w1', '田中', 1, 18000, 'own'), aLabor('w3', '鈴木', 1, 20000, 'partner', 'pA', null)]),
+    report('2026-11-02', [
+      aLabor('w1', '田中', 1, 18000, 'partner', 'pB', 'jouyou'),
+      aLabor('w3', '鈴木', 1, 20000, 'partner', 'pA', 'ukeoi'),
+      aLabor('w4', '高橋', 0.5, 11000, 'partner', 'pA', 'ukeoi'),
+      aLabor(null, '飛び込み', 1, 15000, null),
+    ]),
+  ];
+  const carryovers: Carryover[] = [{ workerId: 'w2', manDays: 3, laborCost: 60_000, beforeDate: '2026-10-01' }];
+  const sitePartners = [
+    { supplierId: 'pA', supplierName: '〇〇工業', amount: 100_000 },
+    { supplierId: 'pB', supplierName: 'あさひ建設', amount: null },
+    { supplierId: 'pC', supplierName: '未使用の協力会社', amount: 50_000 },
+  ];
+  const build = (period: typeof ALL | typeof NOV = ALL) =>
+    buildCostReport(input(reports, { workers, suppliers, carryovers, sitePartners }), period, now, RATES);
+
+  it('④ の所属は行の写し（マスターのいまの所属ではない）。途中で変わった人は出てきた順につなぐ。繰越だけの人は自社、手入力は所属なし', () => {
+    const m = build();
+    const label = (name: string) => m.workers.rows.find((r) => r.workerName === name)!.affiliationLabel;
+    expect(label('田中')).toBe('自社・あさひ建設');
+    expect(label('鈴木')).toBe('〇〇工業');
+    expect(label('佐藤')).toBe('自社');
+    expect(label('飛び込み')).toBe('所属なし');
+    // 10 月だけなら田中はまだ自社（11 月の行は期間末より後）
+    const oct = buildCostReport(input(reports, { workers, suppliers, carryovers, sitePartners }), { kind: 'month', month: '2026-10' }, now, RATES);
+    expect(oct.workers.rows.find((r) => r.workerName === '田中')!.affiliationLabel).toBe('自社');
+  });
+
+  it('④-2 は 自社 → 協力会社（会社ごと・名前順）→ 所属なし。請負の日も労務費に入り、合計は ④ の合計と一致', () => {
+    const m = build();
+    const rows = m.affiliations.rows.map((r) => [r.label, r.jouyouManDays, r.jouyouCost, r.ukeoiManDays, r.ukeoiCost, r.manDays, r.cost, r.partnerAmount, r.difference]);
+    expect(rows).toEqual([
+      // 自社：繰越初期値（佐藤 3 人工・60,000）＋ 田中の 10 月の行
+      ['自社', 4, 78_000, 0, 0, 4, 78_000, null, null],
+      // 〇〇工業：10 月の鈴木（laborContract null は常用）＋ 11 月の請負（鈴木 1・高橋 0.5）。差額 = 請負金額 − 請負労務費
+      ['〇〇工業', 1, 20_000, 1.5, 31_000, 2.5, 51_000, 100_000, 69_000],
+      // あさひ建設：田中の 11 月（請負金額は未入力 → 空欄）
+      ['あさひ建設', 1, 18_000, 0, 0, 1, 18_000, null, null],
+      // 現場に登録したが行の無い会社も出す
+      ['未使用の協力会社', 0, 0, 0, 0, 0, 0, 50_000, 50_000],
+      ['所属なし', 1, 15_000, 0, 0, 1, 15_000, null, null],
+    ]);
+    expect(m.affiliations.total).toEqual({
+      jouyouManDays: 7, jouyouCost: 131_000, ukeoiManDays: 1.5, ukeoiCost: 31_000, manDays: 8.5, cost: 162_000,
+      partnerAmount: 150_000, difference: 119_000,
+    });
+    expect(m.affiliations.total.manDays).toBe(m.workers.total.manDays);
+    expect(m.affiliations.total.cost).toBe(m.workers.total.cost);
+    // 請負の日の労務費も ① 原価合計の労務費に入る（集計は変えない）
+    expect(m.costs.labor).toBe(18000 + 20000 + 18000 + 20000 + 11000 + 15000);
+  });
+
+  it('マスターの所属を後から変えても、④-2 は行の写しのまま', () => {
+    const before = build().affiliations;
+    const allOwn = workers.map((w) => ({ ...w, affiliation: 'own' as const, supplierId: null }));
+    const after = buildCostReport(input(reports, { workers: allOwn, suppliers, carryovers, sitePartners }), ALL, now, RATES).affiliations;
+    expect(after).toEqual(before);
+  });
+
+  it('月の帳票も ④ と同じ範囲（月末までの累計）。請負金額は現場全体の額のまま', () => {
+    const oct = buildCostReport(input(reports, { workers, suppliers, carryovers, sitePartners }), { kind: 'month', month: '2026-10' }, now, RATES);
+    const a = oct.affiliations.rows.find((r) => r.label === '〇〇工業')!;
+    expect(a).toMatchObject({ jouyouManDays: 1, ukeoiManDays: 0, ukeoiCost: 0, partnerAmount: 100_000, difference: 100_000 });
+    expect(oct.affiliations.rows.map((r) => r.label)).not.toContain('所属なし');
+    expect(oct.affiliations.total.manDays).toBe(oct.workers.total.manDays);
   });
 });

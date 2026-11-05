@@ -12,7 +12,10 @@ import { daysBetween, monthEnd } from '@/lib/calc/calendar';
 import { monthKey } from '@/lib/calc/format';
 import type { Site } from '@/lib/db/sites';
 import { buildChangeLedger, siteBaseAmount } from '@/lib/reports/change-model';
+import { affiliationGroup, compareAffiliation, NONE_GROUP, OWN_GROUP, type AffiliationGroup } from '@/lib/reports/affiliation-breakdown';
 import type {
+  AffiliationRow,
+  AffiliationSection,
   ChangeRates,
   CostReportHeader,
   CostReportInput,
@@ -44,6 +47,8 @@ import type {
 // - ② 採算（総原価・粗利・累計出来高・進捗率・総人工・1 人工／1 日あたり原価）、③ の累計原価・進捗率
 //   … 現場の最初の日報からその月の末日までの累計
 // - ④ 作業員別累計 … workerCumulative に { from: 月初, to: 月末 } を渡す（繰越初期値 + 前月までの日報が前月繰越）
+// - ④-2 所属別 … ④ と同じ範囲（繰越初期値 + 繰越の基準日以降〜期間末の日報）。所属は労務の行の写し（マスターのいまの
+//   所属は見ない）。繰越初期値は機能の追加前の分なので自社・常用に入れる。請負金額は現場全体の額（月でもそのまま）
 // - ③ は工期全体なら日報のある月ごと、月なら日報のある週ごと（月曜始まり。月をまたぐ週はその月の中に切り詰める）
 //
 // 粗利・粗利率・進捗率（② と ③）の基準額は、契約が確定なら請負金額、未確定なら概算金額（profitBasis）。
@@ -259,12 +264,60 @@ function buildTrend(allDays: DayTotals[], period: CostReportPeriod, periodMonths
   };
 }
 
-// ─── ④ 作業員別累計 ───
+// ─── ④ 作業員別累計・④-2 所属別 ───
 
-function buildWorkers(input: CostReportInput, allReports: ReportWithLines[], workerPeriod: Period): WorkerSection {
+/** 労務の行 1 つ（写しの所属・常用／請負つき）。 */
+interface AffiliatedLabor {
+  reportDate: string;
+  workerId: string | null;
+  workerName: string;
+  group: AffiliationGroup;
+  ukeoi: boolean;
+  manDays: number;
+  cost: number;
+}
+
+/**
+ * ④ に入る労務の行（workerCumulative と同じ規則：期間末 to まで、繰越のある作業員は繰越の基準日より前を除く）。日付順。
+ */
+function cumulativeLabor(input: CostReportInput, allReports: ReportWithLines[], to: string | null): AffiliatedLabor[] {
+  const supplierNames = Object.fromEntries(input.suppliers.map((sp) => [sp.id, sp.name]));
+  const beforeDates = new Map(input.carryovers.map((c) => [c.workerId, c.beforeDate]));
+  return allReports.flatMap((r) => {
+    if (to !== null && r.reportDate > to) return [];
+    return r.lines.flatMap((l): AffiliatedLabor[] => {
+      if (l.kind !== 'labor') return [];
+      const before = l.workerId !== null ? beforeDates.get(l.workerId) : undefined;
+      if (before !== undefined && r.reportDate < before) return [];
+      return [
+        {
+          reportDate: r.reportDate,
+          workerId: l.workerId,
+          workerName: l.workerName,
+          group: affiliationGroup(l, supplierNames),
+          ukeoi: l.laborContract === 'ukeoi',
+          manDays: l.stored.manDays,
+          cost: l.stored.amount,
+        },
+      ];
+    });
+  });
+}
+
+function buildWorkers(input: CostReportInput, allReports: ReportWithLines[], workerPeriod: Period, labor: AffiliatedLabor[]): WorkerSection {
   const workerNames = Object.fromEntries(input.workers.map((w) => [w.id, w.name]));
   const tradeById = new Map(input.workers.map((w) => [w.id, w.trade]));
   const cumulative = workerCumulative(laborEntries(allReports), input.carryovers, workerNames, workerPeriod);
+
+  // 所属の表示名（workerCumulative と同じキー：workerId、手入力は名前）。繰越初期値（自社）→ 行の写しの出てきた順
+  const labels = new Map<string, string[]>();
+  const addLabel = (key: string, label: string) => {
+    const list = labels.get(key) ?? [];
+    if (!list.includes(label)) list.push(label);
+    labels.set(key, list);
+  };
+  for (const c of input.carryovers) addLabel(`id:${c.workerId}`, OWN_GROUP.label);
+  for (const e of labor) addLabel(e.workerId !== null ? `id:${e.workerId}` : `name:${e.workerName}`, e.group.label);
 
   // 出勤日数・残業 H も workerCumulative の行から（同じ規則：to まで・繰越の基準日より前は除く）。
   const rows: WorkerRow[] = cumulative.map((c) => ({
@@ -272,6 +325,10 @@ function buildWorkers(input: CostReportInput, allReports: ReportWithLines[], wor
     workerName: c.workerName,
     manual: c.workerId === null,
     trade: c.workerId === null ? null : (tradeById.get(c.workerId) ?? null),
+    // 期間末までに行の無い作業員（期間より後にだけ出てくる人など）は、手入力なら所属なし、それ以外は繰越だけなので自社
+    affiliationLabel:
+      labels.get(c.workerId !== null ? `id:${c.workerId}` : `name:${c.workerName}`)?.join('・') ??
+      (c.workerId === null ? NONE_GROUP.label : OWN_GROUP.label),
     workDays: c.workDays,
     carryManDays: c.carryManDays,
     carryCost: c.carryCost,
@@ -288,6 +345,96 @@ function buildWorkers(input: CostReportInput, allReports: ReportWithLines[], wor
     total.manDays = round2(total.manDays + r.manDays);
     total.overtimeHours = round2(total.overtimeHours + r.overtimeHours);
     total.cost += r.cost;
+  }
+  return { rows, total };
+}
+
+const emptyAffiliation = (g: AffiliationGroup): AffiliationRow => ({
+  ...g,
+  jouyouManDays: 0,
+  jouyouCost: 0,
+  ukeoiManDays: 0,
+  ukeoiCost: 0,
+  manDays: 0,
+  cost: 0,
+  partnerAmount: null,
+  difference: null,
+});
+
+/**
+ * ④-2 所属別の人工・労務費。範囲は ④ と同じなので、合計人工・合計労務費は ④ の合計と一致する。
+ * 協力会社は会社ごと（現場に登録した会社は行が無くても出し、請負金額を出す）。請負金額と請負労務費（請負の日の
+ * 人工 × 設定日当）の差を出す。
+ */
+function buildAffiliations(input: CostReportInput, labor: AffiliatedLabor[]): AffiliationSection {
+  const supplierNames = new Map(input.suppliers.map((sp) => [sp.id, sp.name]));
+  const map = new Map<string, AffiliationRow>();
+  const ensure = (g: AffiliationGroup) => {
+    let row = map.get(g.key);
+    if (!row) {
+      row = emptyAffiliation(g);
+      map.set(g.key, row);
+    }
+    return row;
+  };
+
+  for (const c of input.carryovers) {
+    const row = ensure(OWN_GROUP);
+    row.jouyouManDays += c.manDays;
+    row.jouyouCost += c.laborCost;
+  }
+  for (const e of labor) {
+    const row = ensure(e.group);
+    if (e.ukeoi) {
+      row.ukeoiManDays += e.manDays;
+      row.ukeoiCost += e.cost;
+    } else {
+      row.jouyouManDays += e.manDays;
+      row.jouyouCost += e.cost;
+    }
+  }
+  for (const p of input.sitePartners) {
+    // 名前はマスター → 現場の協力会社の読み込み時の名前 → 「協力会社」（affiliationGroup）
+    const name = supplierNames.get(p.supplierId) || p.supplierName;
+    const row = ensure(affiliationGroup({ affiliation: 'partner', supplierId: p.supplierId }, { [p.supplierId]: name }));
+    row.partnerAmount = p.amount;
+  }
+
+  const rows = [...map.values()]
+    .map((r) => {
+      const jouyouManDays = round2(r.jouyouManDays);
+      const ukeoiManDays = round2(r.ukeoiManDays);
+      return {
+        ...r,
+        jouyouManDays,
+        ukeoiManDays,
+        manDays: round2(jouyouManDays + ukeoiManDays),
+        cost: r.jouyouCost + r.ukeoiCost,
+        difference: r.partnerAmount === null ? null : r.partnerAmount - r.ukeoiCost,
+      };
+    })
+    .filter((r) => r.kind === 'partner' || r.manDays !== 0 || r.cost !== 0)
+    .sort(compareAffiliation);
+
+  const total: AffiliationSection['total'] = {
+    jouyouManDays: 0,
+    jouyouCost: 0,
+    ukeoiManDays: 0,
+    ukeoiCost: 0,
+    manDays: 0,
+    cost: 0,
+    partnerAmount: null,
+    difference: null,
+  };
+  for (const r of rows) {
+    total.jouyouManDays = round2(total.jouyouManDays + r.jouyouManDays);
+    total.jouyouCost += r.jouyouCost;
+    total.ukeoiManDays = round2(total.ukeoiManDays + r.ukeoiManDays);
+    total.ukeoiCost += r.ukeoiCost;
+    total.manDays = round2(total.manDays + r.manDays);
+    total.cost += r.cost;
+    if (r.partnerAmount !== null) total.partnerAmount = (total.partnerAmount ?? 0) + r.partnerAmount;
+    if (r.difference !== null) total.difference = (total.difference ?? 0) + r.difference;
   }
   return { rows, total };
 }
@@ -475,6 +622,7 @@ export function buildCostReport(input: CostReportInput, period: CostReportPeriod
   const header = buildHeader(input, allReports, periodReports, period, now);
   const c = costSummary(periodDays, base.amount);
   const workerPeriod: Period = period.kind === 'month' ? { from: `${period.month}-01`, to: periodEnd } : { from: null, to: null };
+  const labor = cumulativeLabor(input, allReports, periodEnd);
 
   return {
     isEmpty: periodReports.length === 0,
@@ -482,7 +630,8 @@ export function buildCostReport(input: CostReportInput, period: CostReportPeriod
     costs: { labor: c.labor, fuel: c.fuel, lease: c.lease, cash: c.cash, credit: c.credit, total: c.cost, shares: c.shares },
     profit: buildProfit(input.site, cumulativeReports, cumulativeDays, changeProposalTotal(input, cumulativeReports, period, rates)),
     trend: buildTrend(allDays, period, periodMonths, base),
-    workers: buildWorkers(input, allReports, workerPeriod),
+    workers: buildWorkers(input, allReports, workerPeriod, labor),
+    affiliations: buildAffiliations(input, labor),
     vendors: buildVendors(input, periodReports),
     equipment: buildEquipment(input, periodReports),
     trades: buildTrades(periodReports),

@@ -7,6 +7,11 @@ import type { CostReportModel, LeaseRow, TrendRow } from '@/lib/reports/types';
 
 export const COST_REPORT_TITLE = '工事原価集計表';
 export const NO_REPORTS = '日報がありません';
+/**
+ * ④-2 の見出しの補足（PDF では見出しの横に 1 行で出すので短く）。請負労務費は請負の日の人工 × 設定日当（残業を含む）、
+ * 請負金額は現場の協力会社の欄の額（現場全体。月の帳票でもそのまま）。
+ */
+export const AFFILIATION_NOTES = ['繰越初期値は自社の常用', '差額＝請負金額−請負労務費'] as const;
 
 /** yen・int = #,##0、dec1 = 0.0（人工・歩掛・距離・残業 H）、qty = 小数 2 桁まで、pct = 0.0%（値は 0..1）。 */
 export type NumFmt = 'yen' | 'int' | 'dec1' | 'qty' | 'pct';
@@ -123,7 +128,7 @@ function leaseQty(r: LeaseRow): Cell[] {
 /** ①〜⑦。日報が無い（isEmpty）ときは空（レンダラーは「日報がありません」の 1 行を出す）。 */
 export function costSections(model: CostReportModel): CostSection[] {
   if (model.isEmpty) return [];
-  const { costs, profit, trend, workers, vendors, equipment, trades } = model;
+  const { costs, profit, trend, workers, affiliations, vendors, equipment, trades } = model;
   const period = model.header.period;
   const upTo = period.kind === 'month' && period.month ? `${monthLabel(period.month)}末までの累計` : null;
   // 契約未確定の現場：粗利・進捗率は概算金額に対する見込み
@@ -214,9 +219,69 @@ export function costSections(model: CostReportModel): CostSection[] {
       note: upTo ? `${upTo}（繰越初期値を含む）` : '繰越初期値を含む',
       tables: [
         {
-          columns: [text('作業員名', 4), text('職種', 2.5), num('出勤日数', 1.5), num('人工', 1.5), num('残業H', 1.5), num('労務費(円)', 2.5)],
-          rows: workers.rows.map((r) => [withManual(r.workerName, r.manual), r.trade, int(r.workDays), dec1(r.manDays), dec1(r.overtimeHours), yen(r.cost)]),
-          total: ['合計', '', int(workers.total.workDays), dec1(workers.total.manDays), dec1(workers.total.overtimeHours), yen(workers.total.cost)],
+          columns: [
+            text('作業員名', 4),
+            text('職種', 2.2),
+            text('所属', 3),
+            num('出勤日数', 1.5),
+            num('人工', 1.5),
+            num('残業H', 1.5),
+            num('労務費(円)', 2.5),
+          ],
+          rows: workers.rows.map((r) => [
+            withManual(r.workerName, r.manual),
+            r.trade,
+            r.affiliationLabel,
+            int(r.workDays),
+            dec1(r.manDays),
+            dec1(r.overtimeHours),
+            yen(r.cost),
+          ]),
+          total: ['合計', '', '', int(workers.total.workDays), dec1(workers.total.manDays), dec1(workers.total.overtimeHours), yen(workers.total.cost)],
+        },
+      ],
+    },
+    {
+      title: '④-2 所属別の人工・労務費',
+      note: [upTo, ...AFFILIATION_NOTES].filter((v) => v !== null).join('・'),
+      tables: [
+        {
+          // 幅は A4 縦（本文幅 180mm・7.5pt。9 列以上の表は文字を小さくする）で 9 桁の金額（太字の合計行）と列見出しが
+          // 1 行に収まる比。請負労務費は請負の日の人工 × 設定日当（請負金額と比べる）。
+          columns: [
+            text('所属', 2.6),
+            num('常用人工', 1.3),
+            num('常用労務費(円)', 2.1),
+            num('請負人工', 1.3),
+            num('請負労務費(円)', 2.1),
+            num('合計人工', 1.3),
+            num('合計労務費(円)', 2.1),
+            num('請負金額(円)', 2.1),
+            num('差額(円)', 2.1),
+          ],
+          rows: affiliations.rows.map((r) => [
+            r.label,
+            dec1(r.jouyouManDays),
+            yen(r.jouyouCost),
+            dec1(r.ukeoiManDays),
+            yen(r.ukeoiCost),
+            dec1(r.manDays),
+            yen(r.cost),
+            // 請負金額が未入力・協力会社以外は空欄
+            r.partnerAmount === null ? '' : yen(r.partnerAmount),
+            r.difference === null ? '' : yen(r.difference),
+          ]),
+          total: [
+            '合計',
+            dec1(affiliations.total.jouyouManDays),
+            yen(affiliations.total.jouyouCost),
+            dec1(affiliations.total.ukeoiManDays),
+            yen(affiliations.total.ukeoiCost),
+            dec1(affiliations.total.manDays),
+            yen(affiliations.total.cost),
+            affiliations.total.partnerAmount === null ? '' : yen(affiliations.total.partnerAmount),
+            affiliations.total.difference === null ? '' : yen(affiliations.total.difference),
+          ],
         },
       ],
     },

@@ -4,6 +4,7 @@ import { visitNumbers } from '@/lib/calc/visit';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import { settlementCategory, usesFixedAmount } from '@/lib/report/change-labels';
+import { apportionManDays, dayAffiliationWeights, sumAffiliationManDays, type AffiliationManDays } from '@/lib/reports/affiliation-breakdown';
 import type {
   AllocatedCost,
   ChangeIssueRef,
@@ -31,6 +32,7 @@ import type {
 //   区分ごとの精算額 = その区分の件の精算額 ＋ 件に紐づかない行の提案額（一式・見積・常用の件に紐づく行の提案額は数えない）
 //   精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 増 ＋ 変更 ＋ 減（各区分の精算額。減は負）
 //   増（同じ流れの中で数量が増えたもの）の計算・集計は追加（新しく別の仕事が増えたもの）と同じ。
+//   所属別の人工（社内用）= 行の投入人工を、その日の労務の行の所属（写し）別の人工比で按分（apportionManDays。和は元の人工）。
 //
 // 期間が月のときは、一覧（rows）・区分ごとの件数・申告額・提案額・契約内の出来高はその月の日報の行だけ（回目は現場の
 // 全日報で数える）。件ごとの精算・区分ごとの精算額・精算提案額（settlement）はその月末までの全部の行と、月末までに
@@ -168,14 +170,21 @@ function issueRefs(issues: Issue[]): Map<string, ChangeIssueRef> {
 
 const emptySummary = (): ChangeKindSummary => ({ count: 0, declared: 0, actualCost: 0, proposal: 0, settled: 0 });
 
-/** 行の件数・人工・実績原価・提案額の合計（人工は浮動小数の誤差を落とす）。 */
-function sumRows(rows: ChangeLedgerRow[]): { lineCount: number; manDays: number; actualCost: number; proposal: number } {
+/** 行の件数・人工・実績原価・提案額・所属別の人工の合計（人工は浮動小数の誤差を落とす）。 */
+function sumRows(rows: ChangeLedgerRow[]): {
+  lineCount: number;
+  manDays: number;
+  actualCost: number;
+  proposal: number;
+  affiliationManDays: AffiliationManDays[];
+} {
   const manDays = rows.reduce((s, r) => s + r.manDays, 0);
   return {
     lineCount: rows.length,
     manDays: Math.round(manDays * 1e6) / 1e6,
     actualCost: rows.reduce((s, r) => s + r.actualCost.total, 0),
     proposal: rows.reduce((s, r) => s + r.proposal, 0),
+    affiliationManDays: sumAffiliationManDays(rows.map((r) => r.affiliationManDays)),
   };
 }
 
@@ -248,6 +257,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
   // 精算提案額に入れる最後の日（月なら月末、工期全体なら null = すべて）
   const through = period.kind === 'month' ? monthEnd(period.month) : null;
   const refs = issueRefs(input.issues);
+  const supplierNames = Object.fromEntries((input.suppliers ?? []).map((sp) => [sp.id, sp.name]));
 
   /** 月末までの全部の行（精算用）。一覧はこのうち期間内の行。 */
   const throughRows: ChangeLedgerRow[] = [];
@@ -255,6 +265,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
   for (const r of reports) {
     if (through !== null && r.reportDate > through) continue;
     const day = dayCostBasis(r); // 分母（作業内容の人工の合計）には減・契約内の行も入る
+    const weights = dayAffiliationWeights(r.lines, supplierNames); // 所属別の人工の按分の重み（その日の労務の行）
     const visit = visitNumbers(reportDates, r.reportDate);
     for (const l of r.lines) {
       if (l.kind !== 'work') continue;
@@ -287,6 +298,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
         // 減は原価を積み上げない：申告額（負の保存値）をそのまま提案額にする
         proposal: byCost ? proposalFromCost(actualCost.total, rates) : l.stored.amount,
         proposalBasis: byCost ? 'cost' : 'declared',
+        affiliationManDays: apportionManDays(l.stored.manDays, weights),
       });
     }
   }

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { buildCostCsv } from '@/lib/reports/cost-csv';
+import { buildCostReport } from '@/lib/reports/cost-model';
 import { costSections } from '@/lib/reports/cost-sections';
-import { emptyModel, sampleModel } from './cost-fixture';
+import { costInput, emptyModel, NOW, RATES, sampleModel } from './cost-fixture';
 
 /** BOM と CRLF を外して行に分ける（最後の空要素は除く）。 */
 function lines(csv: string): string[] {
@@ -29,6 +30,7 @@ describe('buildCostCsv', () => {
       '② 採算',
       '③ 月別推移',
       '④ 作業員別累計',
+      '④-2 所属別の人工・労務費',
       '⑤ 取引先別累計',
       '⑥ 車両・リース',
       '⑦ 工種別出来高',
@@ -60,7 +62,7 @@ describe('buildCostCsv', () => {
 
   it('手入力・取引先なし・工種なし・「—」（空欄）', () => {
     const csv = buildCostCsv(sampleModel());
-    expect(csv).toContain('飛び込み 鈴木（手入力）,,2,2,0,30000\r\n');
+    expect(csv).toContain('飛び込み 鈴木（手入力）,,所属なし,2,2,0,30000\r\n');
     expect(csv).toContain('（取引先なし）,2400,0,2400\r\n');
     expect(csv).toContain('（工種なし）,片付け,,,0,,0,0\r\n');
   });
@@ -103,5 +105,17 @@ describe('② 採算の追加・増・変更・減の提案額と「概算に対
     expect(labels).toContain('進捗率（累計原価÷概算）(%)');
     expect(labels).not.toContain('進捗率（出来高÷請負）(%)');
     expect(s.tables[0].rows).toContainEqual(['追加・増・変更・減の精算額（円）', { value: 12_650, fmt: 'yen' }]);
+  });
+});
+
+describe('buildCostCsv ④-2 所属別', () => {
+  it('所属別の表を出し、取引先名の数式の注入は先頭に \' を付ける。請負金額の無い行は空欄', () => {
+    const input = { ...costInput(), sitePartners: [{ supplierId: 'pX', supplierName: '=HYPERLINK("x")', amount: null }, { supplierId: 'pY', supplierName: '山本工業', amount: 80_000 }] };
+    const csv = buildCostCsv(buildCostReport(input, { kind: 'all' }, NOW, RATES));
+    expect(csv).toContain('所属,常用人工,常用労務費(円),請負人工,請負労務費(円),合計人工,合計労務費(円),請負金額(円),差額(円)\r\n');
+    expect(csv).toContain('自社,2,36000,0,0,2,36000,,\r\n');
+    expect(csv).toContain('"\'=HYPERLINK(""x"")",0,0,0,0,0,0,,\r\n');
+    expect(csv).toContain('山本工業,0,0,0,0,0,0,80000,80000\r\n');
+    expect(csv).toContain('所属なし,2,30000,0,0,2,30000,,\r\n');
   });
 });

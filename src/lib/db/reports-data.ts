@@ -3,7 +3,7 @@ import { monthKey } from '@/lib/calc/format';
 import { fetchReportLineRows, loadProfileNames } from '@/lib/db/export';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
 import { listIssuesForReports, listReportHeads, type Issue, type ReportHead } from '@/lib/db/reports';
-import { getSite, listCarryovers, type Site } from '@/lib/db/sites';
+import { getSite, listCarryovers, listSitePartners, type Site } from '@/lib/db/sites';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
 import { createServerSupabase } from '@/lib/supabase/server';
 import type {
@@ -40,24 +40,26 @@ async function withLines(heads: ReportHead[]): Promise<ReportWithLines[]> {
 
 /**
  * 工事原価集計表・変更増減の一覧の入力：現場、全日報の見出し（集計画面と同じく保存済みの全状態）と保存値つき明細、
- * 全日報の件、繰越初期値、マスター。
+ * 全日報の件、繰越初期値、マスター、現場の協力会社（請負金額）。明細は gn_report_lines の全列を読むので、労務の行の
+ * 所属の写し（affiliation・supplier_id）と常用・請負（labor_contract）も入る（fromLineRow）。
  * 現場が見つからない（RLS で見えない）ときは例外。権限・削除済みの判定は呼び出し側（Route Handler）で行う。
  */
 export async function loadCostReportInput(siteId: string): Promise<CostReportInput> {
   const site = await getSite(siteId);
   if (!site) throw new Error('現場が見つかりません');
-  const [heads, carryovers, workers, suppliers, vehicles, leaseItems] = await Promise.all([
+  const [heads, carryovers, workers, suppliers, vehicles, leaseItems, sitePartners] = await Promise.all([
     listReportHeads(siteId),
     listCarryovers(siteId),
     listWorkers(),
     listSuppliers(),
     listVehicles(),
     listLeaseItems(),
+    listSitePartners(siteId),
   ]);
 
   const [reports, issues] = await Promise.all([withLines(heads), listIssuesForReports(heads.map((h) => h.id))]);
 
-  return { site, reports, carryovers, workers, suppliers, vehicles, leaseItems, issues };
+  return { site, reports, carryovers, workers, suppliers, vehicles, leaseItems, issues, sitePartners };
 }
 
 // ─── 日報（1 日分・月まとめ） ───

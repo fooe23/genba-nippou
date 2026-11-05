@@ -47,6 +47,10 @@ describe('buildClientChangeXlsx', () => {
     // 作業の明細は件ごと：見出し（件ごとの内容と同じ名前）→ 行 → 小計（A〜人工の列）
     expect(ws.getRow(head.number + 1).getCell(1).value).toBe('11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。');
     expect(ws.getRow(head.number + 3).getCell(1).value).toBe('小計 1 日・1.5 人工');
+    // 客先用には所属別の人工（社内用）を出さない
+    const texts: string[] = [];
+    ws.eachRow((row) => row.eachCell((c) => texts.push(String(c.value))));
+    expect(texts.some((t) => t.includes('所属') || t.includes('自社'))).toBe(false);
     const minus = ws.getRow(head.number + 8);
     expect(minus.getCell(4).value).toBe('外壁塗装の一部取りやめ');
     expect(minus.getCell(5).value).toBe(-10);

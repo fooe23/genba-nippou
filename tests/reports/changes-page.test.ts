@@ -16,11 +16,11 @@ const settled = (i: Issue, o: Partial<ChangeIssueSettlement> = {}): ChangeIssueS
   id: i.id, reportDate: i.reportDate, number: 1, kind: i.kind, bodyHead: i.body, instructedBy: i.instructedBy, instructionMethod: i.instructionMethod, amountEstimate: i.amountEstimate,
   settlementMethod: i.settlementMethod, fixedAmount: i.fixedAmount, dailyRate: i.dailyRate, fixedOn: i.fixedOn,
   category: i.kind === 'rework' ? null : 'extra', lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, settled: 0,
-  settledBasis: 'proposal', countsToward: i.kind !== 'rework', reportClientConfirmed: false, ...o,
+  settledBasis: 'proposal', countsToward: i.kind !== 'rework', reportClientConfirmed: false, affiliationManDays: [], ...o,
 });
 
 type Ledger = Pick<ChangeLedgerModel, 'issues' | 'unlinked'>;
-const NO_UNLINKED: Ledger['unlinked'] = { lineCount: 0, manDays: 0, actualCost: 0, proposal: 0 };
+const NO_UNLINKED: Ledger['unlinked'] = { lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, affiliationManDays: [] };
 
 describe('joinChangesRows', () => {
   it('精算資料に載らない未定で行の無い件も、0 の値で一覧に出す', () => {
@@ -79,10 +79,10 @@ describe('joinChangesRows', () => {
     const a = issue('a', '2026-10-05');
     expect(joinChangesRows([a], { issues: [], unlinked: NO_UNLINKED })).toHaveLength(1);
 
-    const rows = joinChangesRows([a], { issues: [], unlinked: { lineCount: 3, manDays: 2, actualCost: 60_000, proposal: 75_900 } });
+    const rows = joinChangesRows([a], { issues: [], unlinked: { lineCount: 3, manDays: 2, actualCost: 60_000, proposal: 75_900, affiliationManDays: [] } });
     expect(rows).toHaveLength(2);
     expect(rows[1]).toEqual({
-      unlinked: true, lineCount: 3, manDays: 2, actualCost: 60_000, proposal: 75_900, settled: 75_900, countsToward: true,
+      unlinked: true, lineCount: 3, manDays: 2, actualCost: 60_000, proposal: 75_900, settled: 75_900, countsToward: true, affiliationManDays: [],
     });
   });
 });
@@ -98,7 +98,7 @@ describe('changesTotal', () => {
         settled(m, { category: 'minus', lineCount: 1, proposal: -30_000, settled: -30_000 }),
         settled(w, { lineCount: 1, manDays: 1, actualCost: 9_000, proposal: 11_385, settled: 11_385 }),
       ],
-      unlinked: { lineCount: 1, manDays: 0.5, actualCost: 10_000, proposal: 12_650 },
+      unlinked: { lineCount: 1, manDays: 0.5, actualCost: 10_000, proposal: 12_650, affiliationManDays: [] },
     });
     expect(changesTotal(rows)).toEqual({ settled: 100_000 - 30_000 + 12_650, proposal: 25_300 - 30_000 + 12_650, actualCost: 30_000 });
   });
@@ -122,7 +122,7 @@ describe('possibleDuplicates（重複の可能性）', () => {
   const line = (date: string, description: string, o: Partial<ChangeLedgerRow> = {}): ChangeLedgerRow => ({
     date, reportId: `r-${date}`, monthIndex: 1, totalIndex: 1, changeKind: 'extra', trade: '内装', description, qty: 1, unit: '式',
     unitPrice: null, declared: 0, manDays: 1, instructedBy: null, instructionMethod: null, instructedOn: null, issue: ref('a'),
-    clientConfirmed: false, actualCost: { labor: 0, other: 0, total: 0 }, proposal: 0, proposalBasis: 'cost', ...o,
+    clientConfirmed: false, actualCost: { labor: 0, other: 0, total: 0 }, proposal: 0, proposalBasis: 'cost', affiliationManDays: [], ...o,
   });
 
   it('同じ件に同じ施工内容が違う日にあれば、件ごとに日付（昇順）と施工内容', () => {

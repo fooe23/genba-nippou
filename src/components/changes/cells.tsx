@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { decimal, money } from '@/components/report/form-state';
+import { affiliationManDaysText } from '@/lib/reports/affiliation-breakdown';
 import type { ChangesRow } from '@/lib/reports/changes-page';
 
 // 「追加・変更の一覧」の行の部品（サーバー・クライアントの両方から使う。'use client' を付けない）。
@@ -94,5 +95,20 @@ export function ComputedCells({ row }: { row: ChangesRow }) {
         <span className="block text-xs text-gray-600 dark:text-gray-400">{basis}</span>
       </Cell>
     </>
+  );
+}
+
+/**
+ * 人工の所属別の内訳「所属別の人工：自社 2.0／〇〇工業 1.5」（その日の労務の行の所属別の人工比で按分）。
+ * 人工の欄は狭いので、2xl 以上は行の幅いっぱいの 2 段目（右寄せ）、未満はカードの中に出す。紐づく行が無ければ出さない。
+ */
+export function AffiliationNote({ row }: { row: ChangesRow }) {
+  const text = affiliationManDaysText(row.affiliationManDays);
+  if (!text) return null;
+  return (
+    <p className="col-span-2 break-words text-sm text-gray-700 2xl:col-span-full 2xl:text-right dark:text-gray-300">
+      <span className="font-bold">所属別の人工：</span>
+      {text}
+    </p>
   );
 }

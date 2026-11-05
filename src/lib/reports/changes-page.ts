@@ -1,14 +1,25 @@
 import { issueNumbers, settleIssue } from '@/lib/reports/change-model';
 import type { Issue } from '@/lib/db/reports';
+import type { AffiliationManDays } from '@/lib/reports/affiliation-breakdown';
 import type { ChangeIssueSettlement, ChangeLedgerModel, ChangeLedgerRow } from '@/lib/reports/types';
 
 // 「追加・変更の一覧」画面（/sites/[siteId]/changes）の行（純関数。DB・Next に依存しない）。
 // 変更増減の台帳（buildChangeLedger）は一式・見積・常用の件と行の紐づく件だけを載せるが、一覧には現場の全部の件を出す
 // （未定で行の無い件も、見積が出たら精算を入れるため）。台帳に無い件は行数・人工・実績原価・提案額・精算額を 0 にする。
+// 人工の所属別の内訳（affiliationManDays。社内用）も台帳から写す（台帳に無い件は空）。
 
 type ComputedFields = Pick<
   ChangeIssueSettlement,
-  'number' | 'category' | 'lineCount' | 'manDays' | 'actualCost' | 'proposal' | 'settled' | 'settledBasis' | 'countsToward'
+  | 'number'
+  | 'category'
+  | 'lineCount'
+  | 'manDays'
+  | 'actualCost'
+  | 'proposal'
+  | 'settled'
+  | 'settledBasis'
+  | 'countsToward'
+  | 'affiliationManDays'
 >;
 
 /** 件 1 つの行：件の保存値と、台帳の計算値（工期全体）。 */
@@ -23,6 +34,8 @@ export interface ChangesUnlinkedRow {
   proposal: number;
   settled: number;
   countsToward: true;
+  /** 投入人工の所属別の内訳（社内用。台帳の unlinked.affiliationManDays）。 */
+  affiliationManDays: AffiliationManDays[];
 }
 
 export type ChangesRow = ChangesIssueRow | ChangesUnlinkedRow;
@@ -55,6 +68,7 @@ export function joinChangesRows(issues: Issue[], ledger: Pick<ChangeLedgerModel,
             settled: s.settled,
             settledBasis: s.settledBasis,
             countsToward: s.countsToward,
+            affiliationManDays: s.affiliationManDays,
           }
         : // 台帳に無い件（未定で行の無い件）も精算の規則は settleIssue（紐づく行なし）のまま
           {
@@ -64,6 +78,7 @@ export function joinChangesRows(issues: Issue[], ledger: Pick<ChangeLedgerModel,
             manDays: 0,
             actualCost: 0,
             proposal: 0,
+            affiliationManDays: [],
           };
       return { ...issue, ...computed, unlinked: false };
     });
@@ -77,6 +92,7 @@ export function joinChangesRows(issues: Issue[], ledger: Pick<ChangeLedgerModel,
       proposal: u.proposal,
       settled: u.proposal,
       countsToward: true,
+      affiliationManDays: u.affiliationManDays,
     });
   }
   return rows;
