@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { firstError } from '@/lib/db/masters-schemas';
 import { fixRequestReasonSchema, issueStatusPatch, newIssueStatusSchema } from '@/lib/db/issue-schemas';
 import { ISSUE_STATUS_LABELS, ISSUE_STATUSES, isIssueStatus, isUnfinishedIssue } from '@/lib/report/change-labels';
-import { fixRequestErrorMessage, reopenErrorMessage, REOPEN_FORBIDDEN_MESSAGE, SITE_CLOSED_MESSAGE } from '@/lib/report/rows';
+import { FIX_REQUEST_DUPLICATE_MESSAGE, fixRequestErrorMessage, reopenErrorMessage, REOPEN_FORBIDDEN_MESSAGE, SITE_CLOSED_MESSAGE } from '@/lib/report/rows';
 
 // 件の状態（見積中・対応中・完了）、確認者・承認者の承認解除、日報の修正申請。
 
@@ -111,6 +111,13 @@ describe('reopenErrorMessage・fixRequestErrorMessage', () => {
     expect(fixRequestErrorMessage('not_report_owner')).toBe('協力会社のアカウントは、自分が作った日報だけ修正を申請できます');
     expect(fixRequestErrorMessage('report_not_submitted')).toBe('修正の申請は、提出済みか承認済みの日報だけ出せます');
     expect(fixRequestErrorMessage('site_closed')).toBe(SITE_CLOSED_MESSAGE);
+    expect(fixRequestErrorMessage('duplicate key value violates unique constraint "gn_report_fix_requests_open_uidx"')).toBe(
+      FIX_REQUEST_DUPLICATE_MESSAGE,
+    );
+    // RLS の一般の拒否は協力会社の文言にしない
+    expect(fixRequestErrorMessage('new row violates row-level security policy for table "gn_report_fix_requests"')).toBe(
+      '修正を申請する権限がありません',
+    );
     expect(fixRequestErrorMessage('boom')).toBeNull();
   });
 });
@@ -187,5 +194,9 @@ describe('requestReportFix', () => {
   it('協力会社が他人の日報に出すと DB が拒否し、その文言を返す', async () => {
     db.write = { data: null, error: { message: 'not_report_owner' } };
     expect(await requestReportFix(REPORT, '写真')).toEqual({ ok: false, error: '協力会社のアカウントは、自分が作った日報だけ修正を申請できます' });
+  });
+  it('未解決の申請がすでにある日報（一意索引 23505）は「すでに修正申請が出ています」', async () => {
+    db.write = { data: null, error: { message: 'duplicate key value', code: '23505' } as { message: string } };
+    expect(await requestReportFix(REPORT, '写真')).toEqual({ ok: false, error: FIX_REQUEST_DUPLICATE_MESSAGE });
   });
 });

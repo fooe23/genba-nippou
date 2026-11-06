@@ -372,12 +372,18 @@ export function reopenErrorMessage(dbMessage: string | null | undefined): string
   return null;
 }
 
-/** 修正申請（gn_report_fix_requests のガード・RLS）のエラーを利用者向けの文言に変える。該当しなければ null。 */
+/** 未解決の修正申請がすでにある日報に、もう一つ出したとき（一意索引 gn_report_fix_requests_open_uidx・23505）。 */
+export const FIX_REQUEST_DUPLICATE_MESSAGE = 'この日報には、すでに修正申請が出ています';
+
+/** 修正申請（gn_report_fix_requests のガード・RLS・一意索引）のエラーを利用者向けの文言に変える。該当しなければ null。 */
 export function fixRequestErrorMessage(dbMessage: string | null | undefined): string | null {
   const m = dbMessage ?? '';
   if (m.includes('site_closed')) return SITE_CLOSED_MESSAGE;
   if (m.includes('report_not_submitted')) return '修正の申請は、提出済みか承認済みの日報だけ出せます';
-  if (m.includes('not_report_owner') || m.includes('row-level security')) return '協力会社のアカウントは、自分が作った日報だけ修正を申請できます';
+  if (m.includes('gn_report_fix_requests_open_uidx') || m.includes('duplicate key')) return FIX_REQUEST_DUPLICATE_MESSAGE;
+  if (m.includes('not_report_owner')) return '協力会社のアカウントは、自分が作った日報だけ修正を申請できます';
   if (m.includes('report_not_found')) return '日報が見つからないか、権限がありません';
+  // RLS の一般の拒否は理由が分からないので、協力会社の文言にはしない
+  if (m.includes('row-level security')) return '修正を申請する権限がありません';
   return null;
 }

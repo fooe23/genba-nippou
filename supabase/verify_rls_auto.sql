@@ -918,6 +918,15 @@ begin
       perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 13-5 エラー: %s\n', sqlerrm);
     end;
     begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_report_fix_requests (report_id, reason) values (r13c, '重ねて申請');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 13-5b 未解決の申請がある日報に、もう一つ修正申請を出せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlstate = '23505' then rep := rep || E'PASS 13-5b 未解決の修正申請は 1 つの日報に 1 つまで（一意索引）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-5b 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
       perform pg_temp.as_user(v_a);
       update public.gn_report_fix_requests set resolved_at = now() where id = fr;
       get diagnostics n = row_count;

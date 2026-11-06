@@ -470,7 +470,7 @@ interface FixRequestRow {
 
 /**
  * 未解決の修正申請。自分が確認者・承認者の現場（管理者は全現場）だけ。申請の古い順。
- * 削除済みの現場は除く（listSubmittedReports と同じ絞り方）。
+ * 進行中の現場だけ（完了・削除済みの現場は除く。listSubmittedReports と同じ内部結合で絞る）。
  */
 export async function listFixRequests(): Promise<FixRequest[]> {
   const ids = await reviewableSiteIds(await requireProfile());
@@ -478,8 +478,10 @@ export async function listFixRequests(): Promise<FixRequest[]> {
   const supabase = await createServerSupabase();
   let q = supabase
     .from('gn_report_fix_requests')
-    .select('id, report_id, site_id, reason, requested_by_name, requested_at, gn_sites!inner(name, deleted_at), gn_daily_reports(report_date)')
+    .select('id, report_id, site_id, reason, requested_by_name, requested_at, gn_sites!inner(name, status, deleted_at), gn_daily_reports(report_date)')
     .is('resolved_at', null)
+    // 完了した現場では下書きに戻せず申請が残り続けるので出さない（進行中に戻せばまた出る）
+    .eq('gn_sites.status', 'active')
     .is('gn_sites.deleted_at', null);
   if (ids !== null) q = q.in('site_id', ids);
   const { data, error } = await q.order('requested_at', { ascending: true });

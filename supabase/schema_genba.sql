@@ -1643,7 +1643,9 @@ create table if not exists public.gn_report_fix_requests (
   requested_at      timestamptz not null default now(),
   resolved_at       timestamptz
 );
-create index if not exists gn_report_fix_requests_open_idx on public.gn_report_fix_requests (report_id) where resolved_at is null;
+-- 未解決の申請は 1 つの日報に 1 つまで（重ねて出すと 23505。アプリは「すでに修正申請が出ています」にする）。
+drop index if exists public.gn_report_fix_requests_open_idx;
+create unique index if not exists gn_report_fix_requests_open_uidx on public.gn_report_fix_requests (report_id) where resolved_at is null;
 create index if not exists gn_report_fix_requests_site_idx on public.gn_report_fix_requests (site_id, requested_at);
 
 create or replace function public.gn_report_fix_requests_guard()

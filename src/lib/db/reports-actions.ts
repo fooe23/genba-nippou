@@ -26,6 +26,7 @@ import { getPreviousReport } from '@/lib/db/reports';
 import { getSettings } from '@/lib/db/settings';
 import {
   copyableLines,
+  FIX_REQUEST_DUPLICATE_MESSAGE,
   fixRequestErrorMessage,
   reopenErrorMessage,
   saveErrorMessage,
@@ -348,6 +349,7 @@ export async function requestReportFix(reportId: string, reason: string): Promis
     const { error } = await supabase.from('gn_report_fix_requests').insert({ report_id: reportId, site_id: h.site_id, reason: r.data });
     if (error) {
       console.error('[requestReportFix]', error.message);
+      if (error.code === '23505') return { ok: false, error: FIX_REQUEST_DUPLICATE_MESSAGE };
       return { ok: false, error: fixRequestErrorMessage(error.message) ?? GENERIC_ERROR };
     }
     revalidatePath('/approvals');
