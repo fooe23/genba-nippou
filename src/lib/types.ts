@@ -35,6 +35,11 @@ export type InstructionMethod = 'oral' | 'phone' | 'email' | 'document' | 'other
 /** 重要事項の件の種別（追加指示・増（数量増）・仕様変更・減・客先都合・やり直し・その他）。 */
 export type IssueKind = 'extra' | 'increase' | 'change' | 'minus' | 'client_delay' | 'rework' | 'other';
 /**
+ * 重要事項の件の状態（見積中・対応中・完了）。見積中と対応中は完了まで日報の上の枠に出続ける。
+ * 精算の資料の「見積中の件」（金額が確定していない件）とは別のもの。
+ */
+export type IssueStatus = 'estimating' | 'open' | 'done';
+/**
  * 件の精算の方法（未定・一式＝おおよその一括額で精算・見積＝材料などがはっきりしてからの見積額で精算・常用＝人工 × 常用単価で精算）。
  * 一式と見積の計算は同じ（確定額 fixedAmount）。
  */

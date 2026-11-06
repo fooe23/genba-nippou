@@ -1,8 +1,7 @@
 import type { ChangeTotals } from '@/lib/calc/change';
 import { weekday } from '@/lib/calc/calendar';
 import { jpDateTime } from '@/lib/calc/format';
-import type { Issue } from '@/lib/db/reports';
-import { withChangeKindPrefix } from '@/lib/report/change-labels';
+import { ISSUE_STATUS_LABELS, withChangeKindPrefix } from '@/lib/report/change-labels';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
 import type { DailyClientConfirmation, DailyHeader, DailyReportModel, DailyWorkRow } from '@/lib/reports/types';
 import type { LineKind, TimeSpec } from '@/lib/types';
@@ -28,7 +27,7 @@ export const DAILY_SECTION_TITLES = {
 } as const;
 
 /** 重要事項の件の状態（日報画面と同じ言い方）。 */
-export const ISSUE_STATUS_LABELS: Record<Issue['status'], string> = { open: '対応中', done: '完了' };
+export { ISSUE_STATUS_LABELS };
 
 /** マスターの参照が無い（手入力の）名前に付ける。 */
 export const MANUAL_SUFFIX = '（手入力）';

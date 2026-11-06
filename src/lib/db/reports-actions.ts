@@ -8,7 +8,16 @@ import {
   type ClientConfirmationColumns,
   type ClientConfirmationInput,
 } from '@/lib/db/client-confirmation-schemas';
-import { issueExtraSchema, issueSettlementSchema, type IssueExtraInput, type IssueSettlementInput } from '@/lib/db/issue-schemas';
+import {
+  fixRequestReasonSchema,
+  issueExtraSchema,
+  issueSettlementSchema,
+  issueStatusPatch,
+  newIssueStatusSchema,
+  type IssueExtraInput,
+  type IssueSettlementInput,
+  type NewIssueStatus,
+} from '@/lib/db/issue-schemas';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
@@ -17,6 +26,8 @@ import { getPreviousReport } from '@/lib/db/reports';
 import { getSettings } from '@/lib/db/settings';
 import {
   copyableLines,
+  fixRequestErrorMessage,
+  reopenErrorMessage,
   saveErrorMessage,
   SITE_CLOSED_MESSAGE,
   STALE_CONFIRMATION_MESSAGE,
@@ -30,7 +41,7 @@ import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { loadSupplierRoles } from '@/lib/db/supplier-roles';
 import { creditSupplierError } from '@/lib/calc/supplier-roles';
-import type { ReportLine } from '@/lib/types';
+import type { IssueStatus, ReportLine } from '@/lib/types';
 
 // 日報の保存（Server Actions）。本番では throw した文言がクライアントに届かないため、
 // 例外は投げずに { ok, error } を返す。
@@ -214,11 +225,10 @@ async function changeState(
   from: string[],
   badState: string,
   patch: (userId: string) => Record<string, string | null>,
-  options?: { adminOnly?: boolean; noopFrom?: string },
+  options?: { noopFrom?: string; errorMessage?: (dbMessage: string) => string | null },
 ): Promise<ReportStateResult> {
   const profile = await requireProfile();
   if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
-  if (options?.adminOnly && !profile.isAdmin) return { ok: false, error: '管理者のみ承認を解除できます' };
 
   try {
     const supabase = await createServerSupabase();
@@ -245,7 +255,7 @@ async function changeState(
       .select('id, updated_at');
     if (error) {
       console.error('[changeState]', error.message);
-      return { ok: false, error: stateErrorMessage(error.message) };
+      return { ok: false, error: options?.errorMessage?.(error.message) ?? stateErrorMessage(error.message) };
     }
     if (!data || data.length === 0) return { ok: false, error: badState };
 
@@ -290,15 +300,64 @@ export async function rejectReport(reportId: string, reason: string): Promise<Re
   }));
 }
 
-/** 管理者のみ approved → draft。承認・確認の記録も消す（再提出・再承認でまた入る）。 */
+/**
+ * approved → draft（承認解除）。承認・確認の記録も消す（再提出・再承認でまた入る）。
+ * できるのはその現場の確認者・承認者と管理者。アプリでは判定せず DB のガード（gn_report_guard）に任せ、
+ * 権限が無いとき（not_reviewer / approved_report_locked）は「確認者・承認者か管理者だけ」の文言にする。
+ * 下書きに戻ると、その日報の未解決の修正申請は DB のトリガーが解決にする。
+ */
 export async function reopenReport(reportId: string): Promise<ReportStateResult> {
   return changeState(
     reportId,
     ['approved'],
     '承認済みの日報ではありません',
     () => ({ status: 'draft', approved_by: null, approved_at: null, reviewed_by: null }),
-    { adminOnly: true },
+    { errorMessage: reopenErrorMessage },
   );
+}
+
+/**
+ * 日報の修正申請（提出済み・承認済みの日報に、添付の付け忘れなどで直したいときに理由を付けて出す）。
+ * 現場メンバーが出せる。協力会社のアカウントは自分が作った日報だけ。現場・申請者・日時は DB のトリガーが入れる。
+ * 確認者・承認者・管理者が差戻しか承認解除で下書きに戻すと解決になる（DB のトリガー）。
+ */
+export async function requestReportFix(reportId: string, reason: string): Promise<ReportStateResult> {
+  await requireProfile();
+  if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
+  const r = fixRequestReasonSchema.safeParse(reason);
+  if (!r.success) return { ok: false, error: r.error.issues[0].message };
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data: head, error: headError } = await supabase
+      .from('gn_daily_reports')
+      .select('site_id, report_date, status')
+      .eq('id', reportId)
+      .maybeSingle();
+    if (headError) {
+      console.error('[requestReportFix:head]', headError.message);
+      return { ok: false, error: GENERIC_ERROR };
+    }
+    if (!head) return { ok: false, error: '日報が見つかりません' };
+    const h = head as StateHead;
+    if (h.status !== 'submitted' && h.status !== 'approved') {
+      return { ok: false, error: '修正の申請は、提出済みか承認済みの日報だけ出せます' };
+    }
+
+    // site_id は not null。DB のトリガーが日報の現場で上書きする。
+    const { error } = await supabase.from('gn_report_fix_requests').insert({ report_id: reportId, site_id: h.site_id, reason: r.data });
+    if (error) {
+      console.error('[requestReportFix]', error.message);
+      return { ok: false, error: fixRequestErrorMessage(error.message) ?? GENERIC_ERROR };
+    }
+    revalidatePath('/approvals');
+    revalidatePath(`/approvals/${reportId}`);
+    revalidatePath(`/sites/${h.site_id}/reports/${h.report_date}`);
+    return { ok: true };
+  } catch (e) {
+    console.error('[requestReportFix]', e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
 }
 
 /**
@@ -466,14 +525,23 @@ function revalidateIssuePages(siteId: string, reportDate: string) {
   revalidatePath(`/sites/${siteId}/reports/${reportDate}`);
 }
 
-/** 件を追加する。extra（種別・指示者・指示方法・金額見込み）は省略でき、省略時は種別「その他」・指示なし。 */
-export async function addIssue(reportId: string, body: string, extra?: IssueExtraInput): Promise<AddIssueResult> {
+/**
+ * 件を追加する。extra（種別・指示者・指示方法・金額見込み・状態）は省略でき、
+ * 省略時は種別「その他」・指示なし・対応中。状態は見積中か対応中だけ選べる。
+ */
+export async function addIssue(
+  reportId: string,
+  body: string,
+  extra?: IssueExtraInput & { status?: NewIssueStatus },
+): Promise<AddIssueResult> {
   await requireProfile();
   if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
   const b = issueBodySchema.safeParse(body);
   if (!b.success) return { ok: false, error: b.error.issues[0].message };
   const x = issueExtraSchema.safeParse(extra ?? {});
   if (!x.success) return { ok: false, error: x.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  const st = newIssueStatusSchema.safeParse(extra?.status);
+  if (!st.success) return { ok: false, error: st.error.issues[0].message };
 
   try {
     const supabase = await createServerSupabase();
@@ -499,6 +567,7 @@ export async function addIssue(reportId: string, body: string, extra?: IssueExtr
         instructed_by: x.data.instructedBy,
         instruction_method: x.data.instructionMethod,
         amount_estimate: x.data.amountEstimate,
+        status: st.data,
       })
       .select('id')
       .single();
@@ -514,21 +583,25 @@ export async function addIssue(reportId: string, body: string, extra?: IssueExtr
   }
 }
 
-/** 件を完了にする／対応中に戻す。完了日は指定がなければ今日（日本時間）、戻すときは消す。 */
-export async function setIssueDone(issueId: string, done: boolean, doneAt?: string): Promise<ReportStateResult> {
+/**
+ * 件の状態を変える（見積中・対応中・完了のどれにも直接）。完了日は完了のときだけ入れ（指定がなければ今日・日本時間）、
+ * 見積中・対応中に変えると消す。
+ */
+export async function setIssueStatus(issueId: string, status: IssueStatus, doneAt?: string): Promise<ReportStateResult> {
   await requireProfile();
   if (!z.guid().safeParse(issueId).success) return { ok: false, error: '件の指定が正しくありません' };
-  if (doneAt !== undefined && !dateSchema.safeParse(doneAt).success) return { ok: false, error: '完了日の指定が正しくありません' };
+  const p = issueStatusPatch(status, doneAt, todayJst());
+  if (!p.ok) return { ok: false, error: p.error };
 
   try {
     const supabase = await createServerSupabase();
     const { data, error } = await supabase
       .from('gn_report_issues')
-      .update({ status: done ? 'done' : 'open', done_at: done ? (doneAt ?? todayJst()) : null })
+      .update(p.patch)
       .eq('id', issueId)
       .select('site_id');
     if (error) {
-      console.error('[setIssueDone]', error.message);
+      console.error('[setIssueStatus]', error.message);
       return { ok: false, error: issueErrorMessage(error.message) };
     }
     const row = (data ?? [])[0] as { site_id: string } | undefined;
@@ -539,7 +612,7 @@ export async function setIssueDone(issueId: string, done: boolean, doneAt?: stri
     revalidatePath('/sites/[siteId]/reports/[date]', 'page');
     return { ok: true };
   } catch (e) {
-    console.error('[setIssueDone]', e);
+    console.error('[setIssueStatus]', e);
     return { ok: false, error: GENERIC_ERROR };
   }
 }

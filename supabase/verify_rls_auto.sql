@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -852,6 +852,160 @@ begin
     else fails := fails + 1; rep := rep || format(E'FAIL 12-9 作業員=%s 現場の登録=%s\n', n, n2); end if;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 12-9 エラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 13. 件の見積中・確認者・承認者の承認解除・修正申請（update_2026-11-08） =====
+  -- X は進行中：A＝協力会社の担当（staff）、B＝協力会社の確認者（6 で reviewer）。C＝社員（X の割り当てなし）。
+  -- A が 11-20 の日報を作って提出し、管理者が承認する。C が 11-21 の日報を作って提出する。
+  declare
+    r13 uuid; r13c uuid; fr uuid;
+  begin
+    perform pg_temp.as_user(v_a);
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-11-20', 'weather', '晴れ'), '[]'::jsonb) into r13;
+    update public.gn_daily_reports set status = 'submitted' where id = r13;
+    perform pg_temp.as_user(v_c);
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-11-21', 'weather', '晴れ'), '[]'::jsonb) into r13c;
+    update public.gn_daily_reports set status = 'submitted' where id = r13c;
+    perform pg_temp.as_user(v_admin);
+    update public.gn_daily_reports set status = 'approved', approved_by = v_admin, approved_at = now(), reviewed_by = v_admin where id = r13;
+    perform pg_temp.as_editor();
+
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_issues (site_id, report_id, body, status) values (x, r13c, '見積を出す件', 'estimating') returning status into t;
+      perform pg_temp.as_editor();
+      if t = 'estimating' then rep := rep || E'PASS 13-1 見積中の件を作れる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-1 status=%s\n', t); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 13-1 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_issues (site_id, report_id, body, status) values (x, r13c, '状態が変', 'pending');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 13-2 見積中・対応中・完了以外の状態で件を作れた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlstate = '23514' then rep := rep || E'PASS 13-2 件の状態は見積中・対応中・完了だけ（check）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-2 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_fix_requests (report_id, reason) values (r13, '写真を付け忘れた') returning id into fr;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_fix_requests
+       where id = fr and site_id = x and requested_by = v_a and resolved_at is null and reason = '写真を付け忘れた';
+      if n = 1 then rep := rep || E'PASS 13-3 協力会社Aは自分の承認済みの日報に修正申請を出せる（現場・申請者は DB が入れる）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-3 申請の行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 13-3 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_fix_requests (report_id, reason) values (r13c, '他人の日報');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 13-4 協力会社Aが他人の日報に修正申請を出せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%not_report_owner%' or sqlstate = '42501' then rep := rep || E'PASS 13-4 協力会社は他人の日報には修正申請を出せない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-4 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_report_fix_requests (report_id, reason) values (r13c, 'ファイルを足したい');
+      perform pg_temp.as_editor();
+      rep := rep || E'PASS 13-5 社員Cは提出済みの日報に修正申請を出せる\n';
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 13-5 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_fix_requests set resolved_at = now() where id = fr;
+      get diagnostics n = row_count;
+      delete from public.gn_report_fix_requests where id = fr;
+      get diagnostics n2 = row_count;
+      perform pg_temp.as_editor();
+      if n = 0 and n2 = 0 then rep := rep || E'PASS 13-6 修正申請は変えられない・消せない（ポリシーなし）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-6 更新=%s 削除=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 13-6 エラー: %s\n', sqlerrm);
+    end;
+
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_daily_reports set status = 'draft', approved_by = null, approved_at = null, reviewed_by = null where id = r13;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 13-7 担当（staff）Aが承認を解除できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%approved_report_locked%' then rep := rep || E'PASS 13-7 担当（staff）は承認を解除できない（approved_report_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-7 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_daily_reports set status = 'draft', approved_by = null, approved_at = null, reviewed_by = null where id = r13;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 13-8 割り当てのない社員Cが承認を解除できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%approved_report_locked%' then rep := rep || E'PASS 13-8 確認者・承認者でない社員は承認を解除できない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-8 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_b);
+      update public.gn_daily_reports set status = 'draft', approved_by = null, approved_at = null, reviewed_by = null, weather = '雨' where id = r13;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 13-9 確認者Bが承認解除と一緒に本文も変えられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%approved_report_locked%' then rep := rep || E'PASS 13-9 承認解除と一緒にほかの列は変えられない（approved_report_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-9 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_b);
+      update public.gn_daily_reports set weather = '雨' where id = r13;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 13-10 確認者Bが承認済みの本文を変えられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%approved_report_locked%' then rep := rep || E'PASS 13-10 確認者も承認済みの本文は変えられない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-10 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_b);
+      update public.gn_daily_reports set status = 'draft', approved_by = null, approved_at = null, reviewed_by = null where id = r13;
+      get diagnostics n = row_count;
+      perform pg_temp.as_editor();
+      select status into t from public.gn_daily_reports where id = r13;
+      select count(*) into n2 from public.gn_report_fix_requests where id = fr and resolved_at is not null;
+      if n = 1 and t = 'draft' then rep := rep || E'PASS 13-11 確認者Bは承認を解除できる（下書きに戻る）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-11 更新=%s status=%s\n', n, t); end if;
+      if n2 = 1 then rep := rep || E'PASS 13-12 下書きに戻すと修正申請が解決になる\n';
+      else fails := fails + 1; rep := rep || E'FAIL 13-12 下書きに戻しても修正申請が未解決のまま\n'; end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 13-11 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_fix_requests (report_id, reason) values (r13, '下書きに申請');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 13-13 下書きの日報に修正申請を出せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%report_not_submitted%' or sqlstate = '42501' then rep := rep || E'PASS 13-13 下書きの日報には修正申請を出せない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-13 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_b);
+      update public.gn_daily_reports set status = 'rejected', reviewed_by = v_b, rejected_reason = '検証の差戻し' where id = r13c;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_fix_requests where report_id = r13c and resolved_at is null;
+      if n = 0 then rep := rep || E'PASS 13-14 差戻しでも修正申請が解決になる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 13-14 未解決の申請=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 13-14 エラー: %s\n', sqlerrm);
+    end;
+    perform pg_temp.as_user(v_b);
+    select count(*) into n from public.gn_report_fix_requests where site_id = x;
+    perform pg_temp.as_editor();
+    if n = 2 then rep := rep || E'PASS 13-15 現場のメンバーは修正申請を読める\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 13-15 Bに見える申請=%s\n', n); end if;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 13 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

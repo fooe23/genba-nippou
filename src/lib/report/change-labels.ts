@@ -1,5 +1,5 @@
 import type { ChangeLedgerKind } from '@/lib/reports/types';
-import type { ChangeKind, InstructionMethod, IssueKind, SettlementMethod, WorkLine } from '@/lib/types';
+import type { ChangeKind, InstructionMethod, IssueKind, IssueStatus, SettlementMethod, WorkLine } from '@/lib/types';
 
 // 追加・増・変更・減の記録の選択肢と表示名（画面・帳票・検証で共通）。
 
@@ -7,6 +7,12 @@ export const CHANGE_KINDS = ['contract', 'extra', 'increase', 'change', 'minus']
 export const INSTRUCTION_METHODS = ['oral', 'phone', 'email', 'document', 'other'] as const satisfies readonly InstructionMethod[];
 export const ISSUE_KINDS = ['extra', 'increase', 'change', 'minus', 'client_delay', 'rework', 'other'] as const satisfies readonly IssueKind[];
 export const SETTLEMENT_METHODS = ['undecided', 'lump_sum', 'estimate', 'daily_rate'] as const satisfies readonly SettlementMethod[];
+/** 件の状態（見積中・対応中・完了）。札で直接どれにでも変えられる。 */
+export const ISSUE_STATUSES = ['estimating', 'open', 'done'] as const satisfies readonly IssueStatus[];
+/** 件を追加するときに選べる状態（既定は対応中）。 */
+export const NEW_ISSUE_STATUSES = ['estimating', 'open'] as const satisfies readonly IssueStatus[];
+/** 完了していない件の状態（日報の上の枠・現場の一覧・繰り越しに出す）。 */
+export const UNFINISHED_ISSUE_STATUSES = ['estimating', 'open'] as const satisfies readonly IssueStatus[];
 
 /** 作業内容の区分。追加＝新しく別の仕事が増えた、増＝同じ流れの中で数量が増えた（計算・集計は追加と同じ）。 */
 export const CHANGE_KIND_LABELS: Record<ChangeKind, string> = { contract: '契約内', extra: '追加', increase: '増', change: '変更', minus: '減' };
@@ -40,6 +46,8 @@ export function usesFixedAmount(m: SettlementMethod): boolean {
   return m === 'lump_sum' || m === 'estimate';
 }
 
+/** 件の状態（見積中・対応中・完了）。画面の札と日報の帳票で共通。 */
+export const ISSUE_STATUS_LABELS: Record<IssueStatus, string> = { estimating: '見積中', open: '対応中', done: '完了' };
 /** 件の精算の方法。 */
 export const SETTLEMENT_METHOD_LABELS: Record<SettlementMethod, string> = { undecided: '未定', lump_sum: '一式', estimate: '見積', daily_rate: '常用' };
 
@@ -79,6 +87,13 @@ export function isInstructionMethod(v: unknown): v is InstructionMethod {
 }
 export function isIssueKind(v: unknown): v is IssueKind {
   return typeof v === 'string' && (ISSUE_KINDS as readonly string[]).includes(v);
+}
+export function isIssueStatus(v: unknown): v is IssueStatus {
+  return typeof v === 'string' && (ISSUE_STATUSES as readonly string[]).includes(v);
+}
+/** 完了していない（見積中・対応中の）件か。 */
+export function isUnfinishedIssue(issue: { status: IssueStatus }): boolean {
+  return issue.status !== 'done';
 }
 export function isSettlementMethod(v: unknown): v is SettlementMethod {
   return typeof v === 'string' && (SETTLEMENT_METHODS as readonly string[]).includes(v);

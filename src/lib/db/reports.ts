@@ -2,9 +2,9 @@ import 'server-only';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
-import { isInstructionMethod, isIssueKind, isSettlementMethod } from '@/lib/report/change-labels';
+import { isInstructionMethod, isIssueKind, isIssueStatus, isSettlementMethod, UNFINISHED_ISSUE_STATUSES } from '@/lib/report/change-labels';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
-import type { InstructionMethod, IssueKind, ReportLine, ReportStatus, SettlementMethod, SiteRole, TimeSpec } from '@/lib/types';
+import type { InstructionMethod, IssueKind, IssueStatus, ReportLine, ReportStatus, SettlementMethod, SiteRole, TimeSpec } from '@/lib/types';
 
 // 日報まわりの読み取り（RLS 前提）。
 
@@ -319,7 +319,8 @@ export interface Issue {
   reportId: string;
   reportDate: string;
   body: string;
-  status: 'open' | 'done';
+  /** 見積中・対応中・完了。見積中と対応中は完了まで日報の上の枠に出続ける。 */
+  status: IssueStatus;
   doneAt: string | null;
   /** 種別（追加指示・増（数量増）・仕様変更・減・客先都合・やり直し・その他）。表示名は ISSUE_KIND_LABELS。 */
   kind: IssueKind;
@@ -372,7 +373,8 @@ function toIssue(r: IssueRow): Issue {
     reportId: r.report_id,
     reportDate: one(r.gn_daily_reports)?.report_date ?? '',
     body: r.body,
-    status: r.status === 'done' ? 'done' : 'open',
+    // 知らない値は対応中として扱う（完了扱いにして枠から消さない）
+    status: isIssueStatus(r.status) ? r.status : 'open',
     doneAt: r.done_at ?? null,
     kind: isIssueKind(r.kind) ? r.kind : 'other',
     instructedBy: r.instructed_by || null,
@@ -385,14 +387,14 @@ function toIssue(r: IssueRow): Issue {
   };
 }
 
-/** 現場の対応中（open）の件。日報の日付の昇順（同日は登録順）。 */
+/** 現場の完了していない件（見積中・対応中）。日報の日付の昇順（同日は登録順）。 */
 export async function listOpenIssues(siteId: string): Promise<Issue[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from('gn_report_issues')
     .select(ISSUE_COLUMNS)
     .eq('site_id', siteId)
-    .eq('status', 'open')
+    .in('status', [...UNFINISHED_ISSUE_STATUSES])
     .order('created_at', { ascending: true });
   if (error) throw new Error(error.message);
   const list = ((data ?? []) as unknown as IssueRow[]).map(toIssue);
@@ -438,4 +440,58 @@ export async function listIssuesForReports(reportIds: string[]): Promise<Issue[]
     ),
   );
   return pages.flat().map(toIssue);
+}
+
+// ─── 日報の修正申請（承認待ち一覧用）。出すのは reports-actions.ts の requestReportFix ───
+
+export interface FixRequest {
+  id: string;
+  reportId: string;
+  siteId: string;
+  siteName: string;
+  reportDate: string;
+  reason: string;
+  /** 申請した人の名前（申請した時点の名前を DB が写したもの。空なら ''）。 */
+  requestedByName: string;
+  /** 申請日時（ISO 8601）。 */
+  requestedAt: string;
+}
+
+interface FixRequestRow {
+  id: string;
+  report_id: string;
+  site_id: string;
+  reason: string;
+  requested_by_name: string | null;
+  requested_at: string;
+  gn_sites: { name: string | null } | { name: string | null }[] | null;
+  gn_daily_reports: { report_date: string } | { report_date: string }[] | null;
+}
+
+/**
+ * 未解決の修正申請。自分が確認者・承認者の現場（管理者は全現場）だけ。申請の古い順。
+ * 削除済みの現場は除く（listSubmittedReports と同じ絞り方）。
+ */
+export async function listFixRequests(): Promise<FixRequest[]> {
+  const ids = await reviewableSiteIds(await requireProfile());
+  if (ids !== null && ids.length === 0) return [];
+  const supabase = await createServerSupabase();
+  let q = supabase
+    .from('gn_report_fix_requests')
+    .select('id, report_id, site_id, reason, requested_by_name, requested_at, gn_sites!inner(name, deleted_at), gn_daily_reports(report_date)')
+    .is('resolved_at', null)
+    .is('gn_sites.deleted_at', null);
+  if (ids !== null) q = q.in('site_id', ids);
+  const { data, error } = await q.order('requested_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as unknown as FixRequestRow[]).map((r) => ({
+    id: r.id,
+    reportId: r.report_id,
+    siteId: r.site_id,
+    siteName: one(r.gn_sites)?.name ?? '',
+    reportDate: one(r.gn_daily_reports)?.report_date ?? '',
+    reason: r.reason,
+    requestedByName: r.requested_by_name ?? '',
+    requestedAt: r.requested_at,
+  }));
 }

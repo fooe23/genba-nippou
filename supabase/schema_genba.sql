@@ -257,7 +257,8 @@ create table if not exists public.gn_report_issues (
   site_id          uuid not null references public.gn_sites(id),
   report_id        uuid not null references public.gn_daily_reports(id) on delete cascade,
   body             text not null,
-  status           text not null default 'open' check (status in ('open','done')),
+  -- 'estimating'＝見積中・'open'＝対応中・'done'＝完了（見積中は 2026-11-08。既存環境は check 制約を付け直す）
+  status           text not null default 'open' check (status in ('estimating','open','done')),
   done_at          date,
   estimate_item_id uuid,
   created_at       timestamptz not null default now(),
@@ -460,7 +461,7 @@ $$;
 
 -- ---------- 8. ガードトリガー ----------
 -- 日報のガード（insert / update 両方）：
---   * 承認済み日報の変更禁止（管理者は除く）
+--   * 承認済み日報の変更禁止（管理者は除く）。確認者・承認者は承認解除（approved → draft、承認の列だけの変更）だけできる（2026-11-08）
 --   * status を approved / rejected にできるのは reviewer 以上（管理者含む）のみ。
 --     insert で最初から approved/rejected を作ることも同様に禁止
 --   * reviewed_by / approved_by / approved_at / rejected_reason は reviewer 以上だけが変更可
@@ -532,8 +533,19 @@ begin
      and current_setting('gn.in_save', true) is distinct from '1' then
     raise exception using message = 'totals_locked';
   end if;
+  -- 承認済みは管理者だけが変えられる。例外：その現場の確認者・承認者（gn_site_role が reviewer / approver）の
+  -- 承認解除（approved → draft）。そのとき変えてよいのは status・approved_by・approved_at・reviewed_by・updated_at だけ
+  -- （ほかの列が変わっていれば approved_report_locked）。2026-11-08（update_2026-11-08_issue_estimating_fix_request.sql）。
   if old.status = 'approved' and not public.is_admin() then
-    raise exception using message = 'approved_report_locked';
+    if not (
+         v_reviewer
+         and new.status = 'draft'
+         and (to_jsonb(new) - 'status' - 'approved_by' - 'approved_at' - 'reviewed_by' - 'updated_at')
+             is not distinct from
+             (to_jsonb(old) - 'status' - 'approved_by' - 'approved_at' - 'reviewed_by' - 'updated_at')
+       ) then
+      raise exception using message = 'approved_report_locked';
+    end if;
   end if;
   if new.status is distinct from old.status and new.status in ('approved','rejected')
      and not v_reviewer then
@@ -1608,3 +1620,102 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke all on function public.gn_profile_names(uuid[]) from public, anon;
 grant execute on function public.gn_profile_names(uuid[]) to authenticated;
+
+-- =====================================================================
+-- 日報の修正申請（2026-11-08。update_2026-11-08_issue_estimating_fix_request.sql）
+-- =====================================================================
+-- 日報の添付は提出までに付ける決まり。提出後（承認待ち・承認済み）に足したくなったら、担当者が理由を付けて
+-- 「修正を申請」する。確認者・承認者・管理者が差戻しか承認解除で下書きに戻すと、その日報の未解決の申請は解決になる。
+--   * 出せる人：現場メンバー。協力会社のアカウントは自分が作った日報（created_by = auth.uid()）だけ。
+--     日報が提出済み（submitted）か承認済み（approved）のときだけ。完了・削除済みの現場には出せない。
+--   * site_id・申請者（requested_by と、その時点の名前 requested_by_name）・申請日時は DB が決める（クライアントの値は使わない）。
+--     名前を写すのは、管理者以外は他人の profiles を読めないため（承認待ち一覧で申請者の名前を出す）。
+--   * 変更・削除のポリシーは作らない（解決はトリガー gn_report_fix_requests_resolve だけが入れる）。日報を消せば一緒に消える。
+-- 拒否の理由（アプリが文言に変える）：report_not_found（日報が無い・見られない）・site_closed・
+--   report_not_submitted（提出済み・承認済みでない）・not_report_owner（協力会社が他人の日報に出した）。
+create table if not exists public.gn_report_fix_requests (
+  id                uuid primary key default gen_random_uuid(),
+  report_id         uuid not null references public.gn_daily_reports(id) on delete cascade,
+  site_id           uuid not null references public.gn_sites(id),
+  reason            text not null check (char_length(btrim(reason)) between 1 and 500),
+  requested_by      uuid references public.profiles(id),
+  requested_by_name text not null default '',
+  requested_at      timestamptz not null default now(),
+  resolved_at       timestamptz
+);
+create index if not exists gn_report_fix_requests_open_idx on public.gn_report_fix_requests (report_id) where resolved_at is null;
+create index if not exists gn_report_fix_requests_site_idx on public.gn_report_fix_requests (site_id, requested_at);
+
+create or replace function public.gn_report_fix_requests_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_site    uuid;
+  v_status  text;
+  v_creator uuid;
+begin
+  select r.site_id, r.status, r.created_by into v_site, v_status, v_creator
+    from public.gn_daily_reports r where r.id = new.report_id;
+  if v_site is null or (auth.uid() is not null and not public.gn_is_site_member(v_site)) then
+    raise exception using message = 'report_not_found';
+  end if;
+  if public.gn_site_closed(v_site) then
+    raise exception using message = 'site_closed';
+  end if;
+  if v_status not in ('submitted','approved') then
+    raise exception using message = 'report_not_submitted';
+  end if;
+  -- auth.uid() が無い呼び出し（SQL Editor・service role。RLS の外）は申請者をそのまま使う
+  if auth.uid() is not null then
+    if not public.gn_is_employee_or_admin() and v_creator is distinct from auth.uid() then
+      raise exception using message = 'not_report_owner';
+    end if;
+    new.requested_by := auth.uid();
+  end if;
+  new.site_id      := v_site;
+  new.reason       := btrim(new.reason);
+  new.requested_at := now();
+  new.resolved_at  := null;
+  new.requested_by_name := coalesce(
+    (select nullif(btrim(p.name), '') from public.profiles p where p.id = new.requested_by), '');
+  return new;
+end;
+$$;
+drop trigger if exists gn_report_fix_requests_guard on public.gn_report_fix_requests;
+create trigger gn_report_fix_requests_guard before insert on public.gn_report_fix_requests
+  for each row execute function public.gn_report_fix_requests_guard();
+
+-- 日報が下書き（承認解除）か差戻しに変わったら、その日報の未解決の申請を解決にする。
+-- 利用者には申請の更新のポリシーが無いので security definer で書く。
+create or replace function public.gn_report_fix_requests_resolve()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.status in ('draft','rejected') and new.status is distinct from old.status then
+    update public.gn_report_fix_requests
+       set resolved_at = now()
+     where report_id = new.id and resolved_at is null;
+  end if;
+  return null;
+end;
+$$;
+drop trigger if exists gn_report_fix_requests_resolve on public.gn_daily_reports;
+create trigger gn_report_fix_requests_resolve after update of status on public.gn_daily_reports
+  for each row execute function public.gn_report_fix_requests_resolve();
+
+alter table public.gn_report_fix_requests enable row level security;
+drop policy if exists gn_report_fix_requests_select on public.gn_report_fix_requests;
+create policy gn_report_fix_requests_select on public.gn_report_fix_requests for select to authenticated
+  using (public.gn_is_site_member(site_id));
+drop policy if exists gn_report_fix_requests_insert on public.gn_report_fix_requests;
+create policy gn_report_fix_requests_insert on public.gn_report_fix_requests for insert to authenticated
+  with check (
+    public.gn_is_site_member(site_id)
+    and requested_by = auth.uid()
+    and exists (
+      select 1 from public.gn_daily_reports r
+       where r.id = gn_report_fix_requests.report_id
+         and r.site_id = gn_report_fix_requests.site_id
+         and r.status in ('submitted','approved')
+         and (public.gn_is_employee_or_admin() or r.created_by = auth.uid())
+    )
+  );
+-- update / delete のポリシーは作らない（解決はトリガーだけ）

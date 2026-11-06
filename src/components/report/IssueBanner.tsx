@@ -4,8 +4,8 @@ import { useRouter } from 'next/navigation';
 import { useState, useTransition } from 'react';
 import { jpDate, yen } from '@/lib/calc/format';
 import type { Issue } from '@/lib/db/reports';
-import { setIssueDone } from '@/lib/db/reports-actions';
-import { ISSUE_KIND_LABELS } from '@/lib/report/change-labels';
+import { setIssueStatus } from '@/lib/db/reports-actions';
+import { ISSUE_KIND_LABELS, isUnfinishedIssue } from '@/lib/report/change-labels';
 
 /** 件の種別の小さな札（と金額見込み）。件の一覧と対応中のバナーで使う。 */
 export function IssueKindTag({ issue }: { issue: Issue }) {
@@ -17,7 +17,7 @@ export function IssueKindTag({ issue }: { issue: Issue }) {
   );
 }
 
-/** 現場の対応中の重要事項（この日報の件は除く）。日報入力画面の最上部に出す。なければ何も出さない。 */
+/** 現場の完了していない（見積中・対応中の）重要事項（この日報の件は除く）。日報入力画面の最上部に出す。なければ何も出さない。 */
 export function IssueBanner({
   issues,
   currentReportId,
@@ -31,15 +31,15 @@ export function IssueBanner({
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-  const shown = issues.filter((i) => i.status === 'open' && i.reportId !== currentReportId);
+  const shown = issues.filter((i) => isUnfinishedIssue(i) && i.reportId !== currentReportId);
   if (shown.length === 0) return null;
 
   function done(id: string) {
     setError(null);
     startTransition(async () => {
-      let res: Awaited<ReturnType<typeof setIssueDone>>;
+      let res: Awaited<ReturnType<typeof setIssueStatus>>;
       try {
-        res = await setIssueDone(id, true);
+        res = await setIssueStatus(id, 'done');
       } catch {
         res = { ok: false, error: '処理に失敗しました。通信状況を確認してもう一度お試しください。' };
       }

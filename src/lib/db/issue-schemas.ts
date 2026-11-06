@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { dateSchema } from '@/lib/db/masters-schemas';
-import { ISSUE_KINDS, SETTLEMENT_METHODS } from '@/lib/report/change-labels';
+import { ISSUE_KINDS, ISSUE_STATUSES, NEW_ISSUE_STATUSES, SETTLEMENT_METHODS } from '@/lib/report/change-labels';
+import type { IssueStatus } from '@/lib/types';
 import { instructionMethodSchema } from '@/lib/report/schema';
 
 // 重要事項の件の種別・指示者・指示方法・金額見込み（addIssue の追加の項目）の入力検証。
@@ -54,3 +55,39 @@ export const issueSettlementSchema = z
   });
 export type IssueSettlementInput = z.input<typeof issueSettlementSchema>;
 export type IssueSettlementParsed = z.output<typeof issueSettlementSchema>;
+
+// 件の状態（見積中・対応中・完了）。setIssueStatus と addIssue（追加のときの状態）で使う。
+
+export const issueStatusSchema = z.enum(ISSUE_STATUSES, { error: '件の状態が正しくありません' });
+/** 件を追加するときの状態（見積中か対応中。省略は対応中）。 */
+export const newIssueStatusSchema = z
+  .enum(NEW_ISSUE_STATUSES, { error: '件の状態は見積中か対応中から選んでください' })
+  .default('open');
+export type NewIssueStatus = z.output<typeof newIssueStatusSchema>;
+
+export type IssueStatusPatch = { status: IssueStatus; done_at: string | null };
+
+/**
+ * 件の状態を変えるときに書く列。完了は完了日（doneAt。省略は today）を入れ、見積中・対応中は完了日を消す（doneAt は使わない）。
+ * 状態・完了日の形が正しくなければ日本語の文言を返す。
+ */
+export function issueStatusPatch(
+  status: unknown,
+  doneAt: unknown,
+  today: string,
+): { ok: true; patch: IssueStatusPatch } | { ok: false; error: string } {
+  const s = issueStatusSchema.safeParse(status);
+  if (!s.success) return { ok: false, error: s.error.issues[0].message };
+  if (s.data !== 'done') return { ok: true, patch: { status: s.data, done_at: null } };
+  if (doneAt === undefined || doneAt === null) return { ok: true, patch: { status: 'done', done_at: today } };
+  const d = dateSchema.safeParse(doneAt);
+  if (!d.success) return { ok: false, error: '完了日の指定が正しくありません' };
+  return { ok: true, patch: { status: 'done', done_at: d.data } };
+}
+
+// 日報の修正申請の理由（requestReportFix）。DB の check（前後の空白を除いて 1〜500 文字）と同じ。
+export const fixRequestReasonSchema = z
+  .string({ error: '修正の理由を入力してください' })
+  .trim()
+  .min(1, '修正の理由を入力してください')
+  .max(500, '理由は500文字以内で入力してください');

@@ -12,7 +12,7 @@ import {
   copyPreviousReport,
   deleteReport,
   saveReport,
-  setIssueDone,
+  setIssueStatus,
   submitReport,
   type ReportStateResult,
   type SaveReportResult,
@@ -20,7 +20,15 @@ import {
 import type { Issue } from '@/lib/db/reports';
 import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
-import { INSTRUCTION_METHODS, INSTRUCTION_METHOD_LABELS, ISSUE_KINDS, ISSUE_KIND_LABELS, isInstructionMethod, isIssueKind } from '@/lib/report/change-labels';
+import {
+  INSTRUCTION_METHODS,
+  INSTRUCTION_METHOD_LABELS,
+  ISSUE_KINDS,
+  ISSUE_KIND_LABELS,
+  ISSUE_STATUS_LABELS,
+  isInstructionMethod,
+  isIssueKind,
+} from '@/lib/report/change-labels';
 import type { DailyClientConfirmation } from '@/lib/reports/types';
 import type { InstructionMethod, IssueKind, LaborRule, TimeSpec } from '@/lib/types';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
@@ -178,7 +186,8 @@ function IssueList({
     startTransition(async () => {
       let res: ReportStateResult;
       try {
-        res = await setIssueDone(issue.id, issue.status === 'open');
+        // 札を押すと、完了していない件は完了に、完了の件は対応中に戻す（3 つから選ぶ画面は Task 2）
+        res = await setIssueStatus(issue.id, issue.status === 'done' ? 'open' : 'done');
       } catch {
         res = { ok: false, error: ISSUE_FAILED };
       }
@@ -210,14 +219,14 @@ function IssueList({
                 type="button"
                 onClick={() => toggle(i)}
                 disabled={pending || locked}
-                aria-label={`${i.body}：${i.status === 'open' ? '完了にする' : '対応中に戻す'}`}
+                aria-label={`${i.body}：${i.status !== 'done' ? '完了にする' : '対応中に戻す'}`}
                 className={`${buttonBase} shrink-0 border ${
-                  i.status === 'open'
+                  i.status !== 'done'
                     ? 'border-yellow-500 bg-yellow-50 text-yellow-950 dark:bg-yellow-950 dark:text-yellow-50'
                     : 'border-green-600 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-50'
                 }`}
               >
-                {i.status === 'open' ? '対応中' : '完了'}
+                {ISSUE_STATUS_LABELS[i.status]}
               </button>
             </li>
           ))}

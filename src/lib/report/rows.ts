@@ -356,3 +356,28 @@ export function saveErrorMessage(dbMessage: string | null | undefined): string {
   if (m.includes('not_reviewer')) return 'この現場の確認者・承認者ではありません';
   return '保存に失敗しました。通信状況を確認してもう一度お試しください。';
 }
+
+/** 承認解除の権限が無いとき（DB の gn_report_guard が not_reviewer / approved_report_locked を返す）。 */
+export const REOPEN_FORBIDDEN_MESSAGE = 'この現場の確認者・承認者か管理者だけが承認を解除できます';
+
+/**
+ * 承認解除（approved → draft）のエラーを利用者向けの文言に変える。権限はアプリでは判定せず DB のガードに任せ、
+ * 権限が無いときの not_reviewer / approved_report_locked を「確認者・承認者か管理者だけ」の文言にする。
+ * 該当しなければ null（呼び出し側の共通の文言を使う）。
+ */
+export function reopenErrorMessage(dbMessage: string | null | undefined): string | null {
+  const m = dbMessage ?? '';
+  if (m.includes('site_closed')) return SITE_CLOSED_MESSAGE;
+  if (m.includes('not_reviewer') || m.includes('approved_report_locked')) return REOPEN_FORBIDDEN_MESSAGE;
+  return null;
+}
+
+/** 修正申請（gn_report_fix_requests のガード・RLS）のエラーを利用者向けの文言に変える。該当しなければ null。 */
+export function fixRequestErrorMessage(dbMessage: string | null | undefined): string | null {
+  const m = dbMessage ?? '';
+  if (m.includes('site_closed')) return SITE_CLOSED_MESSAGE;
+  if (m.includes('report_not_submitted')) return '修正の申請は、提出済みか承認済みの日報だけ出せます';
+  if (m.includes('not_report_owner') || m.includes('row-level security')) return '協力会社のアカウントは、自分が作った日報だけ修正を申請できます';
+  if (m.includes('report_not_found')) return '日報が見つからないか、権限がありません';
+  return null;
+}
