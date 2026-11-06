@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useState, useTransition } from 'react';
+import { useRef, useState, useTransition } from 'react';
 import { jpDateTime } from '@/lib/calc/format';
 import type { ReportFixRequest } from '@/lib/db/reports';
 import { requestReportFix, type ReportStateResult } from '@/lib/db/reports-actions';
@@ -24,6 +24,7 @@ export function FixRequestPanel({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const inFlight = useRef(false); // 同じ描画のうちの二度押しも止める（pending は次の描画まで変わらない）
   const [editing, setEditing] = useState(false);
   const [reason, setReason] = useState('');
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
@@ -33,17 +34,21 @@ export function FixRequestPanel({
   if (requests.length === 0 && !canRequest && !result) return null;
 
   function submit() {
+    if (pending || inFlight.current) return; // 二度押しで重複の申請（エラー表示）にならないように
     if (reason.trim() === '') {
       setResult({ ok: false, text: '修正の理由を入力してください' });
       return;
     }
     setResult(null);
+    inFlight.current = true;
     startTransition(async () => {
       let res: ReportStateResult;
       try {
         res = await requestReportFix(reportId, reason);
       } catch {
         res = { ok: false, error: FAILED };
+      } finally {
+        inFlight.current = false;
       }
       if (res.ok) {
         setResult({ ok: true, text: '修正を申請しました。確認者・承認者が下書きに戻したら、直してもう一度提出してください。' });

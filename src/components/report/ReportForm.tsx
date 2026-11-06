@@ -645,7 +645,7 @@ function ReportFormBody({
         </div>
       )}
       {reportId !== null && (
-        <FixRequestPanel reportId={reportId} requests={p.fixRequests} canRequest={p.canRequestFix && !p.review} />
+        <FixRequestPanel reportId={reportId} requests={p.fixRequests} canRequest={p.canRequestFix && !p.review && !p.canReopen} />
       )}
       {reopened && p.status === 'draft' && (
         <p role="status" className="mb-4 rounded-lg border border-green-500 bg-green-50 p-3 font-bold text-green-900 dark:bg-green-950 dark:text-green-50">
