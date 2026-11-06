@@ -12,12 +12,11 @@ import {
   copyPreviousReport,
   deleteReport,
   saveReport,
-  setIssueStatus,
   submitReport,
   type ReportStateResult,
   type SaveReportResult,
 } from '@/lib/db/reports-actions';
-import type { Issue } from '@/lib/db/reports';
+import type { Issue, ReportFixRequest } from '@/lib/db/reports';
 import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import {
@@ -25,18 +24,21 @@ import {
   INSTRUCTION_METHOD_LABELS,
   ISSUE_KINDS,
   ISSUE_KIND_LABELS,
-  ISSUE_STATUS_LABELS,
+  NEW_ISSUE_STATUSES,
   isInstructionMethod,
   isIssueKind,
 } from '@/lib/report/change-labels';
 import type { DailyClientConfirmation } from '@/lib/reports/types';
-import type { InstructionMethod, IssueKind, LaborRule, TimeSpec } from '@/lib/types';
+import type { InstructionMethod, IssueKind, IssueStatus, LaborRule, TimeSpec } from '@/lib/types';
+import { issueStatusLabel } from '@/lib/report/issue-status';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
 import { ClientConfirmationButton, ClientConfirmationStatus } from './ClientConfirmation';
 import { ImportDaySheet } from './ImportDaySheet';
 import { fieldClass, NumInput, Select, TextInput, TimeInput } from './inputs';
+import { FixRequestPanel } from './FixRequestPanel';
 import { IssueBanner, IssueKindTag } from './IssueBanner';
+import { IssueStatusChip } from './IssueStatusChip';
 import { ReopenApprovalButton, REOPENED_MESSAGE } from './ReopenApprovalButton';
 import { ReportSummary } from './ReportSummary';
 import { FuelTable } from './tables/FuelTable';
@@ -90,6 +92,12 @@ export interface ReportFormProps {
   createdBy: string | null;
   currentUserId: string;
   isAdmin: boolean;
+  /** 承認解除（下書きに戻す）を出すか：その現場の確認者・承認者か管理者（最終判定は DB）。 */
+  canReopen: boolean;
+  /** 「修正を申請」を出すか（提出済み・承認済み、完了していない現場、協力会社は自分の日報だけ）。 */
+  canRequestFix: boolean;
+  /** この日報の未解決の修正申請。 */
+  fixRequests: ReportFixRequest[];
   /**
    * 帳票の出力先。pdfPreview は PDF をブラウザで開く（新しいタブ）、pdf・csv はダウンロード。clientPdfPreview・clientPdf は
    * 現場日報（お客様用）の PDF（プレビュー・保存）。
@@ -154,6 +162,8 @@ function IssueList({
   const [instructedBy, setInstructedBy] = useState('');
   const [method, setMethod] = useState<InstructionMethod | null>(null);
   const [amountEstimate, setAmountEstimate] = useState<number | null>(null);
+  // 追加するときの状態（見積中か対応中。既定は対応中）
+  const [newStatus, setNewStatus] = useState<Exclude<IssueStatus, 'done'>>('open');
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -164,7 +174,7 @@ function IssueList({
     startTransition(async () => {
       let res: Awaited<ReturnType<typeof addIssue>>;
       try {
-        res = await addIssue(reportId, text, { kind, instructedBy, instructionMethod: method, amountEstimate });
+        res = await addIssue(reportId, text, { kind, instructedBy, instructionMethod: method, amountEstimate, status: newStatus });
       } catch {
         res = { ok: false, error: ISSUE_FAILED };
       }
@@ -177,24 +187,7 @@ function IssueList({
       setInstructedBy('');
       setMethod(null);
       setAmountEstimate(null);
-      onChanged();
-    });
-  }
-
-  function toggle(issue: Issue) {
-    setError(null);
-    startTransition(async () => {
-      let res: ReportStateResult;
-      try {
-        // 札を押すと、完了していない件は完了に、完了の件は対応中に戻す（3 つから選ぶ画面は Task 2）
-        res = await setIssueStatus(issue.id, issue.status === 'done' ? 'open' : 'done');
-      } catch {
-        res = { ok: false, error: ISSUE_FAILED };
-      }
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
+      setNewStatus('open');
       onChanged();
     });
   }
@@ -215,19 +208,7 @@ function IssueList({
                 </p>
                 {i.status === 'done' && i.doneAt && <p className="text-sm text-gray-600 dark:text-gray-400">完了 {jpDate(i.doneAt)}</p>}
               </div>
-              <button
-                type="button"
-                onClick={() => toggle(i)}
-                disabled={pending || locked}
-                aria-label={`${i.body}：${i.status !== 'done' ? '完了にする' : '対応中に戻す'}`}
-                className={`${buttonBase} shrink-0 border ${
-                  i.status !== 'done'
-                    ? 'border-yellow-500 bg-yellow-50 text-yellow-950 dark:bg-yellow-950 dark:text-yellow-50'
-                    : 'border-green-600 bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-50'
-                }`}
-              >
-                {ISSUE_STATUS_LABELS[i.status]}
-              </button>
+              <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={locked} onChanged={onChanged} />
             </li>
           ))}
         </ul>
@@ -245,7 +226,21 @@ function IssueList({
                 className={`${fieldClass} py-2`}
               />
             </Labeled>
-            <fieldset disabled={!reportId || pending} className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-4">
+            <fieldset disabled={!reportId || pending} className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-5">
+              <Labeled label="状態">
+                <select
+                  value={newStatus}
+                  onChange={(e) => setNewStatus(e.target.value === 'estimating' ? 'estimating' : 'open')}
+                  className={fieldClass}
+                >
+                  {/* 既定の対応中を先に出す */}
+                  {[...NEW_ISSUE_STATUSES].reverse().map((s) => (
+                    <option key={s} value={s}>
+                      {issueStatusLabel(s)}
+                    </option>
+                  ))}
+                </select>
+              </Labeled>
               <Labeled label="種別">
                 <select value={kind} onChange={(e) => setKind(isIssueKind(e.target.value) ? e.target.value : 'other')} className={fieldClass}>
                   {ISSUE_KINDS.map((k) => (
@@ -646,8 +641,11 @@ function ReportFormBody({
         <div role="status" className="mb-4 rounded-lg border border-green-500 bg-green-50 p-3 text-green-900 dark:bg-green-950 dark:text-green-50">
           <p className="font-bold">{APPROVED_LOCKED_MESSAGE}</p>
           {/* 承認画面（review）には ApprovalActions の同じボタンがある。完了現場は DB が拒否するので出さない（先に「進行中に戻す」）。 */}
-          {p.isAdmin && !p.review && !p.siteClosed && reportId !== null && <ReopenApprovalButton reportId={reportId} onDone={onReopened} />}
+          {p.canReopen && !p.review && !p.siteClosed && reportId !== null && <ReopenApprovalButton reportId={reportId} onDone={onReopened} />}
         </div>
+      )}
+      {reportId !== null && (
+        <FixRequestPanel reportId={reportId} requests={p.fixRequests} canRequest={p.canRequestFix && !p.review} />
       )}
       {reopened && p.status === 'draft' && (
         <p role="status" className="mb-4 rounded-lg border border-green-500 bg-green-50 p-3 font-bold text-green-900 dark:bg-green-950 dark:text-green-50">

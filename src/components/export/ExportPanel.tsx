@@ -170,7 +170,7 @@ function ChangeReportSection({ siteId, months }: { siteId: string; months: Expor
     <PeriodReportSection
       id="export-changes"
       title="変更増減 精算資料"
-      description="客先用は原価を出さず、件ごとの金額と作業の明細を載せます（見積中の件は金額に入れません）。社内確認用は見込み額・提案額・精算額も載せます。"
+      description="客先用は原価を出さず、件ごとの金額と作業の明細を載せます（金額未確定の件は金額に入れず、資料では「見積中の件」と注記します）。社内確認用は見込み額・提案額・精算額も載せます。"
       groups={CHANGE_GROUPS}
       note={
         <Link

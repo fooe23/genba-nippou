@@ -8,18 +8,16 @@ import type { ReportStatus } from '@/lib/types';
 const FAILED = '処理に失敗しました。通信状況を確認してもう一度お試しください。';
 const btn = 'min-h-11 rounded-lg px-4 text-base font-bold disabled:opacity-50';
 
-/** 承認画面の操作（承認・差戻し・承認解除）。canReview は reviewer/approver/管理者のとき true。 */
+/** 承認画面の操作（承認・差戻し・承認解除）。canReview は reviewer/approver/管理者のとき true（承認解除も同じ人ができる）。 */
 export function ApprovalActions({
   reportId,
   status,
   canReview,
-  isAdmin,
   siteClosed = false,
 }: {
   reportId: string;
   status: ReportStatus;
   canReview: boolean;
-  isAdmin: boolean;
   /** 完了・削除済みの現場では承認解除（下書きに戻す）は DB が拒否するのでボタンを出さない。 */
   siteClosed?: boolean;
 }) {
@@ -68,7 +66,7 @@ export function ApprovalActions({
   };
 
   const showReview = canReview && status === 'submitted';
-  const showReopen = isAdmin && status === 'approved' && !siteClosed;
+  const showReopen = canReview && status === 'approved' && !siteClosed;
 
   return (
     <section aria-label="承認の操作" className="mt-6">

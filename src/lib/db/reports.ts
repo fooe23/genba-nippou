@@ -497,3 +497,24 @@ export async function listFixRequests(): Promise<FixRequest[]> {
     requestedAt: r.requested_at,
   }));
 }
+
+/** 日報画面に出す修正申請（申請した人・日時・理由）。 */
+export type ReportFixRequest = Pick<FixRequest, 'id' | 'reason' | 'requestedByName' | 'requestedAt'>;
+
+/** その日報の未解決の修正申請（現場メンバーが読める）。申請の古い順。 */
+export async function listOpenFixRequestsForReport(reportId: string): Promise<ReportFixRequest[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_report_fix_requests')
+    .select('id, reason, requested_by_name, requested_at')
+    .eq('report_id', reportId)
+    .is('resolved_at', null)
+    .order('requested_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as { id: string; reason: string; requested_by_name: string | null; requested_at: string }[]).map((r) => ({
+    id: r.id,
+    reason: r.reason,
+    requestedByName: r.requested_by_name ?? '',
+    requestedAt: r.requested_at,
+  }));
+}

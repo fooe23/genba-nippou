@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
 import { requireProfile } from '@/lib/db/profile';
-import { getMySiteRole, getReportById } from '@/lib/db/reports';
+import { getReportById } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
 import { loadReportFormProps } from '@/lib/report/form-props';
 import { ApprovalActions } from '@/components/approval/ApprovalActions';
@@ -19,16 +19,14 @@ export default async function ApprovalDetailPage({ params }: PageProps<'/approva
   // 削除済みの現場の日報は承認画面にも出さない。
   if (!site || site.deletedAt !== null) notFound();
 
-  const [props, role] = await Promise.all([
-    loadReportFormProps(profile, site, found.date, found.detail),
-    getMySiteRole(found.siteId),
-  ]);
-  const canReview = profile.isAdmin || role === 'reviewer' || role === 'approver';
+  const props = await loadReportFormProps(profile, site, found.date, found.detail);
+  // 承認・差戻し・承認解除ができるのは、その現場の確認者・承認者と管理者（props.canReopen と同じ判定）。
+  const canReview = props.canReopen;
 
   return (
     <main className="mx-auto w-full max-w-6xl p-4">
       <ReportForm key={reportId} {...props} readOnly review siteClosed={site.status === 'done'} />
-      <ApprovalActions reportId={reportId} status={found.detail.head.status} canReview={canReview} isAdmin={profile.isAdmin} siteClosed={site.status === 'done'} />
+      <ApprovalActions reportId={reportId} status={found.detail.head.status} canReview={canReview} siteClosed={site.status === 'done'} />
     </main>
   );
 }

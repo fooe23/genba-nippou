@@ -4,7 +4,8 @@ import { jpDate, todayJst } from '@/lib/calc/format';
 import { visitLabel, visitNumbers } from '@/lib/calc/visit';
 import { listLeaseItems, listSuppliers, listUnits, listVehicles, listWeather, listWorkers } from '@/lib/db/masters';
 import type { Profile } from '@/lib/db/profile';
-import { listIssuesForReport, listOpenIssues, listReportHeads, type ReportDetail } from '@/lib/db/reports';
+import { getMySiteRole, listIssuesForReport, listOpenFixRequestsForReport, listOpenIssues, listReportHeads, type ReportDetail } from '@/lib/db/reports';
+import { canRequestReportFix, canReviewSite } from '@/lib/report/issue-status';
 import { getSettings } from '@/lib/db/settings';
 import { getSiteMasters, type Site } from '@/lib/db/sites';
 import { vendorSuppliers } from '@/lib/calc/supplier-roles';
@@ -99,7 +100,7 @@ export async function loadReportFormProps(
   report: ReportDetail,
 ): Promise<Omit<ReportFormProps, 'readOnly' | 'review'>> {
   const siteId = site.id;
-  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings] = await Promise.all([
+  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings, role, fixRequests] = await Promise.all([
     listReportHeads(siteId),
     getSiteMasters(siteId),
     listWorkers(),
@@ -111,6 +112,8 @@ export async function loadReportFormProps(
     listOpenIssues(siteId),
     report.head ? listIssuesForReport(report.head.id) : Promise.resolve([]),
     getSettings(),
+    getMySiteRole(siteId),
+    report.head ? listOpenFixRequestsForReport(report.head.id) : Promise.resolve([]),
   ]);
   const used = { workers: new Set<string>(), suppliers: new Set<string>(), vehicles: new Set<string>(), leaseItems: new Set<string>() };
   for (const l of report.lines) {
@@ -195,6 +198,17 @@ export async function loadReportFormProps(
     createdBy: head ? head.createdBy : null,
     currentUserId: profile.id,
     isAdmin: profile.isAdmin,
+    // 承認解除はその現場の確認者・承認者と管理者（最終判定は DB のガード）。完了現場は画面側で出さない。
+    canReopen: canReviewSite(profile.isAdmin, role),
+    canRequestFix: canRequestReportFix({
+      status: head ? head.status : 'none',
+      siteClosed: site.status === 'done',
+      isAdmin: profile.isAdmin,
+      accountType: profile.accountType,
+      createdBy: head ? head.createdBy : null,
+      currentUserId: profile.id,
+    }),
+    fixRequests,
     // 客先確認の記録の有無は確認日時で決める（日報の帳票 buildDailyReport と同じ）。
     clientConfirmation:
       head && head.clientConfirmedAt !== null
