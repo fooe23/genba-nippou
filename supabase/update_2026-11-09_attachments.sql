@@ -93,7 +93,7 @@ create table if not exists public.gn_attachments (
   created_at      timestamptz not null default now(),
   sort_order      int not null default 0,
   constraint gn_attachments_target_check check ((report_id is null) <> (issue_id is null)),
-  constraint gn_attachments_kind_check check (
+  constraint gn_attachments_storage_check check (
     (kind = 'photo' and storage_bucket = 'gn-photos'    and storage_path is not null and url is null)
     or (kind = 'file' and storage_bucket = 'gn-estimates' and storage_path is not null and url is null)
     or (kind = 'link' and storage_bucket is null and storage_path is null
