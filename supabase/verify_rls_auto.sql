@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -1015,6 +1015,300 @@ begin
     else fails := fails + 1; rep := rep || format(E'FAIL 13-15 Bに見える申請=%s\n', n); end if;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 13 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 14. 日報・件の添付（update_2026-11-09） =====
+  -- X は進行中：A＝協力会社の担当、B＝協力会社の確認者、C＝社員（割り当てなし）。
+  -- A が 11-24 の日報（下書き）と、その日報の件（対応中・完了）を作る。Storage の実体は SQL Editor で置く（ガードが有無を見る）。
+  declare
+    r14 uuid; i14 uuid; i14d uuid; s14 uuid := '00000000-0000-0000-0000-0000000000d1'; r14s uuid;
+    p1 uuid := '00000000-0000-0000-0000-0000000000e1';  -- A の日報の写真
+    p2 uuid := '00000000-0000-0000-0000-0000000000e2';  -- A の件の写真（提出後）
+    p3 uuid := '00000000-0000-0000-0000-0000000000e3';  -- 完了した件の写真（拒否）
+    p4 uuid := '00000000-0000-0000-0000-0000000000e4';  -- 提出後の日報の写真（拒否）
+    f1 uuid := '00000000-0000-0000-0000-0000000000f1';  -- C の件のファイル
+    f2 uuid := '00000000-0000-0000-0000-0000000000f2';  -- A のファイル（拒否）
+  begin
+    perform pg_temp.as_user(v_a);
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-11-24', 'weather', '晴れ'), '[]'::jsonb) into r14;
+    insert into public.gn_report_issues (site_id, report_id, body) values (x, r14, '追加の棚') returning id into i14;
+    insert into public.gn_report_issues (site_id, report_id, body) values (x, r14, '終わった件') returning id into i14d;
+    update public.gn_report_issues set status = 'done', done_at = '2026-11-24' where id = i14d;
+    perform pg_temp.as_editor();
+    insert into storage.objects (bucket_id, name, owner, metadata) values
+      ('gn-photos',    x::text || '/att/' || p1::text || '.jpg', v_a, '{"size": 300000}'::jsonb),
+      ('gn-photos',    x::text || '/att/' || p2::text || '.jpg', v_a, '{"size": 300000}'::jsonb),
+      ('gn-photos',    x::text || '/att/' || p3::text || '.jpg', v_a, '{"size": 300000}'::jsonb),
+      ('gn-photos',    x::text || '/att/' || p4::text || '.jpg', v_a, '{"size": 300000}'::jsonb),
+      ('gn-estimates', x::text || '/att/' || f1::text || '.pdf', v_c, '{"size": 900000}'::jsonb),
+      ('gn-estimates', x::text || '/att/' || f2::text || '.pdf', v_c, '{"size": 900000}'::jsonb);
+
+    -- 14-1 協力会社は下書きの日報に写真を付けられる（付けた日＝日報の日付、付けた人・現場は DB が入れる）
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (id, site_id, report_id, kind, storage_bucket, storage_path, name, attached_on, created_by)
+      values (p1, y, r14, 'photo', 'gn-photos', x::text || '/att/' || p1::text || '.jpg', 'IMG_0001.jpg', '2000-01-01', v_c);
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_attachments
+       where id = p1 and site_id = x and attached_on = '2026-11-24' and created_by = v_a and client_visible = false and size_bytes = 300000;
+      if n = 1 then rep := rep || E'PASS 14-1 協力会社Aは下書きの日報に写真を付けられる（現場・付けた日・付けた人・大きさは DB が入れる）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-1 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 14-1 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 14-2 協力会社はファイルを付けられない
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (id, site_id, issue_id, kind, storage_bucket, storage_path, name, attached_on)
+      values (f2, x, i14, 'file', 'gn-estimates', x::text || '/att/' || f2::text || '.pdf', '見積書.pdf', '2026-11-24');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-2 協力会社Aがファイルを付けられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%file_not_allowed%' or sqlstate = '42501' then rep := rep || E'PASS 14-2 協力会社はファイルを付けられない（file_not_allowed）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-2 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 14-3 社員は件にファイルを付けられる（付けた日はアプリが送った日報の日付のまま）
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_attachments (id, site_id, issue_id, kind, storage_bucket, storage_path, name, mime, attached_on, client_visible)
+      values (f1, x, i14, 'file', 'gn-estimates', x::text || '/att/' || f1::text || '.pdf', '見積書.pdf', 'application/pdf', '2026-11-25', true);
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_attachments where id = f1 and attached_on = '2026-11-25' and client_visible = false and created_by = v_c;
+      if n = 1 then rep := rep || E'PASS 14-3 社員Cは件にファイルを付けられる（ファイルはお客様用に載らない）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-3 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 14-3 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 14-4・14-5 協力会社はファイルの行も、gn-estimates の実体も読めない。社員は読める
+    perform pg_temp.as_user(v_a);
+    select count(*) into n from public.gn_attachments where site_id = x and kind = 'file';
+    select count(*) into n2 from storage.objects where bucket_id = 'gn-estimates' and name like x::text || '/att/%';
+    perform pg_temp.as_editor();
+    if n = 0 then rep := rep || E'PASS 14-4 協力会社Aにはファイルの行が見えない\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 14-4 Aに見えるファイルの行=%s\n', n); end if;
+    if n2 = 0 then rep := rep || E'PASS 14-5 協力会社Aは gn-estimates の実体を読めない\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 14-5 Aに見える gn-estimates の実体=%s\n', n2); end if;
+    perform pg_temp.as_user(v_c);
+    select count(*) into n from public.gn_attachments where site_id = x and kind = 'file';
+    select count(*) into n2 from storage.objects where bucket_id = 'gn-estimates' and name like x::text || '/att/%';
+    perform pg_temp.as_editor();
+    if n = 1 and n2 = 2 then rep := rep || E'PASS 14-6 社員Cはファイルの行と gn-estimates の実体を読める\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 14-6 Cに見える ファイルの行=%s 実体=%s\n', n, n2); end if;
+
+    -- 14-7 協力会社は gn-estimates に置けない
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into storage.objects (bucket_id, name, owner) values ('gn-estimates', x::text || '/att/partner.pdf', v_a);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-7 協力会社Aが gn-estimates に置けた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlstate = '42501' then rep := rep || E'PASS 14-7 協力会社は gn-estimates に置けない（RLS）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-7 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 14-8 提出した日報には足せないが、同じ日報の件には足せる
+    perform pg_temp.as_user(v_a);
+    update public.gn_daily_reports set status = 'submitted' where id = r14;
+    perform pg_temp.as_editor();
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (id, site_id, report_id, kind, storage_bucket, storage_path, name, attached_on)
+      values (p4, x, r14, 'photo', 'gn-photos', x::text || '/att/' || p4::text || '.jpg', '後から.jpg', '2026-11-24');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-8 提出した日報に写真を足せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%report_locked%' then rep := rep || E'PASS 14-8 提出した日報には添付を足せない（report_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-8 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (id, site_id, issue_id, kind, storage_bucket, storage_path, name, attached_on, client_visible)
+      values (p2, x, i14, 'photo', 'gn-photos', x::text || '/att/' || p2::text || '.jpg', '棚.jpg', '2026-11-26', true);
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_attachments where id = p2 and client_visible = true and attached_on = '2026-11-26';
+      if n = 1 then rep := rep || E'PASS 14-9 提出した日報の件には写真を足せる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-9 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 14-9 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 14-10 完了した件には足せない
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (id, site_id, issue_id, kind, storage_bucket, storage_path, name, attached_on)
+      values (p3, x, i14d, 'photo', 'gn-photos', x::text || '/att/' || p3::text || '.jpg', '完了後.jpg', '2026-11-24');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-10 完了した件に写真を足せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_done%' then rep := rep || E'PASS 14-10 完了した件には添付を足せない（issue_done）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-10 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 14-11 他人の添付は消せない（協力会社B が A の写真を消す → 0 行）
+    begin
+      perform pg_temp.as_user(v_b);
+      delete from public.gn_attachments where id = p2;
+      get diagnostics n = row_count;
+      perform pg_temp.as_editor();
+      select count(*) into n2 from public.gn_attachments where id = p2;
+      if n = 0 and n2 = 1 then rep := rep || E'PASS 14-11 他人の添付は消せない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-11 削除=%s 残り=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%not_attachment_owner%' then rep := rep || E'PASS 14-11 他人の添付は消せない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-11 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 14-12 提出した日報の添付は本人でも消せない
+    begin
+      perform pg_temp.as_user(v_a);
+      delete from public.gn_attachments where id = p1;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-12 提出した日報の添付を消せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%report_locked%' then rep := rep || E'PASS 14-12 提出した日報の添付は消せない（report_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-12 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 14-13 お客様用に載せるかの切り替え：付けた本人でない協力会社 B は 0 行、付けた本人 A と社員 C はできる（提出後も）
+    begin
+      perform pg_temp.as_user(v_b);
+      update public.gn_attachments set client_visible = true where id = p1;
+      get diagnostics n = row_count;
+      perform pg_temp.as_user(v_a);
+      update public.gn_attachments set client_visible = true where id = p1;
+      get diagnostics n2 = row_count;
+      perform pg_temp.as_editor();
+      if n = 0 and n2 = 1 then rep := rep || E'PASS 14-13 お客様用の切り替えは付けた本人はできる・ほかの協力会社はできない（提出後も）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-13 B=%s A=%s\n', n, n2); end if;
+      perform pg_temp.as_user(v_c);
+      update public.gn_attachments set client_visible = false where id = p1;
+      get diagnostics n = row_count;
+      perform pg_temp.as_editor();
+      if n = 1 then rep := rep || E'PASS 14-14 社員は他人の写真のお客様用を切り替えられる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-14 C=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 14-13 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 14-15 お客様用以外の列は変えられない
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_attachments set name = '名前を変えた' where id = p1;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-15 添付の名前を変えられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%attachment_readonly%' then rep := rep || E'PASS 14-15 添付はお客様用に載せるかだけ変えられる（attachment_readonly）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-15 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 14-16 ファイルはお客様用に載せられない
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_attachments set client_visible = true where id = f1;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-16 ファイルをお客様用に載せられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlstate = '23514' then rep := rep || E'PASS 14-16 ファイルはお客様用に載せられない（check）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-16 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 14-17 リンクは http/https だけ
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (site_id, issue_id, kind, url, name, attached_on) values (x, i14, 'link', 'javascript:alert(1)', '悪いリンク', '2026-11-24');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-17 http/https 以外のリンクを付けられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlstate = '23514' then rep := rep || E'PASS 14-17 リンクは http/https だけ（check）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-17 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (site_id, issue_id, kind, url, name, attached_on) values (x, i14, 'link', 'https://drive.google.com/x', 'G ドライブ', '2026-11-24');
+      perform pg_temp.as_editor(); rep := rep || E'PASS 14-18 協力会社は件にリンクを付けられる\n';
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 14-18 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 14-19 パスが規約と違う・実体が無いものは行を作れない
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (id, site_id, issue_id, kind, storage_bucket, storage_path, name, attached_on)
+      values (p3, x, i14, 'photo', 'gn-photos', x::text || '/att/' || p1::text || '.jpg', '他の写真.jpg', '2026-11-24');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-19 規約と違うパスで行を作れた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%invalid_storage_path%' then rep := rep || E'PASS 14-19 パスが規約と違えば拒否（invalid_storage_path）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-19 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (site_id, issue_id, kind, storage_bucket, storage_path, name, attached_on)
+      select x, i14, 'photo', 'gn-photos', x::text || '/att/' || g::text || '.jpg', '無い写真.jpg', '2026-11-24'
+        from (select gen_random_uuid() as g) s;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-20 実体の無い写真の行を作れた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      -- id は既定値（別の uuid）になるのでパスと合わず invalid_storage_path、合っても実体が無ければ storage_object_missing
+      if sqlerrm like '%invalid_storage_path%' or sqlerrm like '%storage_object_missing%' then
+        rep := rep || E'PASS 14-20 実体の無い写真の行は作れない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-20 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (id, site_id, issue_id, kind, storage_bucket, storage_path, name, attached_on)
+      values ('00000000-0000-0000-0000-0000000000e9', x, i14, 'photo', 'gn-photos', x::text || '/att/00000000-0000-0000-0000-0000000000e9.jpg', '無い写真.jpg', '2026-11-24');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-21 実体の無い写真の行を作れた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%storage_object_missing%' then rep := rep || E'PASS 14-21 実体が無ければ拒否（storage_object_missing）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-21 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 14-22 本人は件（完了前）の添付を消せる。件が完了すると消せない
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set status = 'done', done_at = '2026-11-26' where id = i14;
+      perform pg_temp.as_user(v_c);
+      delete from public.gn_attachments where id = f1;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-22 完了した件の添付を消せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_done%' then rep := rep || E'PASS 14-22 完了した件の添付は消せない（issue_done）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-22 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set status = 'open', done_at = null where id = i14;
+      perform pg_temp.as_user(v_a);
+      delete from public.gn_attachments where id = p2;
+      get diagnostics n = row_count;
+      perform pg_temp.as_editor();
+      if n = 1 then rep := rep || E'PASS 14-23 付けた本人は完了前の件の添付を消せる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-23 削除=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 14-23 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 14-24 完了した現場には付けられない（管理者も）
+    begin
+      insert into public.gn_sites (id, name) values (s14, '検証現場S14');
+      insert into public.gn_daily_reports (site_id, report_date) values (s14, '2026-11-24') returning id into r14s;
+      update public.gn_sites set status = 'done' where id = s14;
+      perform pg_temp.as_user(v_admin);
+      insert into public.gn_attachments (site_id, report_id, kind, url, name, attached_on) values (s14, r14s, 'link', 'https://example.com', 'リンク', '2026-11-24');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 14-24 完了した現場に添付を付けられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%site_closed%' then rep := rep || E'PASS 14-24 完了した現場には付けられない（site_closed）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 14-24 想定外: %s\n', sqlerrm); end if;
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 14 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====
