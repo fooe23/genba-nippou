@@ -828,7 +828,9 @@ function ReportFormBody({
       <section aria-label="写真・資料" className="mb-6">
         <h2 className="mb-2 border-b border-gray-300 pb-1 text-lg font-bold dark:border-gray-700">写真・資料（この日報）</h2>
         {reportId === null ? (
-          <p className="text-sm text-gray-600 dark:text-gray-400">先に下書き保存してください（保存すると写真・資料を付けられます）。</p>
+          <p role="note" className="rounded-lg border-2 border-amber-500 bg-amber-50 p-3 text-base font-bold text-amber-900 dark:bg-amber-950 dark:text-amber-100">
+            📌 先に下書き保存してください（保存すると写真・資料を付けられます）。
+          </p>
         ) : (
           <AttachmentPanel
             target={{ siteId: p.siteId, reportId }}
@@ -839,9 +841,10 @@ function ReportFormBody({
             viewer={attachmentViewer}
           />
         )}
-        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
-          日報の写真・資料は提出までに付けてください。件に付けるもの（見積書・その後の写真など）は、件が完了するまでいつでも足せます。
-        </p>
+        <div role="note" className="mt-3 rounded-lg border-l-4 border-blue-600 bg-blue-50 p-3 text-sm text-blue-950 dark:bg-blue-950 dark:text-blue-50">
+          <p className="font-bold">⚠ 日報の写真・資料は、提出までに付けてください。</p>
+          <p className="mt-1">件に付けるもの（見積書・その後の写真など）は、件が完了するまでいつでも足せます。</p>
+        </div>
       </section>
 
       <IssueList
