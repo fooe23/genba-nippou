@@ -41,6 +41,7 @@ import {
 import { usesFixedAmount } from '@/lib/report/change-labels';
 import { issueEditErrorMessage } from '@/lib/report/issue-status';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeMessage } from '@/lib/report/unlinked-change-lines';
+import { applyIssueInstructions } from '@/lib/report/issue-instructions';
 import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots, type StoredAffiliations } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -112,16 +113,22 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
       if (creditError) return { ok: false, error: creditError };
     }
 
+    // 根拠の件のある作業内容の行：指示者・指示方法・指示日は保存済みの件から入れる（画面から届いた値は使わない）。
+    // 見つからない件の行はそのまま（DB の参照の制約が決める）。
+    const issueIds = v.lines.flatMap((l) => (l.kind === 'work' && l.issueId ? [l.issueId] : []));
+    const linked =
+      issueIds.length > 0 ? applyIssueInstructions(v.lines, new Map((await listIssuesByIds(issueIds)).map((i) => [i.id, i]))) : v.lines;
+
     // マスターを参照している行の単価（日当・残業単価・リース単価・燃費）はサーバーで決め直す。保存した値が
     // その日の単価の複写（スナップショット）になり、集計はこの値を使う。画面のプレビューは従来どおり。
     const [lines, settings] = await Promise.all([
       // 参照の無い行だけでも、手入力の作業員の行の所属・常用請負をそろえる（マスターは読まない）。
       // この日報に保存済みの作業員の所属の写しは保存し直しでも変えない（prev）。
-      needsMasterSnapshots(v.lines)
+      needsMasterSnapshots(linked)
         ? Promise.all([loadSnapshotMasters(), loadStoredAffiliations(v.siteId, v.date)]).then(([m, prev]) =>
-            applyMasterSnapshots(v.lines, v.date, m, prev),
+            applyMasterSnapshots(linked, v.date, m, prev),
           )
-        : applyMasterSnapshots(v.lines, v.date, EMPTY_SNAPSHOT_MASTERS),
+        : applyMasterSnapshots(linked, v.date, EMPTY_SNAPSHOT_MASTERS),
       getSettings(),
     ]);
 

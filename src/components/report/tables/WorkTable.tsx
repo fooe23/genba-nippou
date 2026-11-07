@@ -3,6 +3,7 @@
 import { productivity, workAmount } from '@/lib/calc/report';
 import type { Issue } from '@/lib/db/reports';
 import { CHANGE_KINDS, CHANGE_KIND_LABELS, INSTRUCTION_METHODS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
+import { issueInstruction, issueInstructionText } from '@/lib/report/issue-instructions';
 import type { WorkLine } from '@/lib/types';
 import { decimal, money, newLine, patchRow, removeRow, row, type Row } from '../form-state';
 import { Computed, fieldClass, NumInput, Select, TextInput, type SelectOption } from '../inputs';
@@ -42,6 +43,7 @@ function SubField({ label, children }: { label: string; children: React.ReactNod
 /**
  * 作業内容（出来高）の表。歩掛 = 施工数量 ÷ 投入人工、合計金額 = 施工数量 × 施工単価。
  * 区分が追加・増・変更・減の行は、行の下に指示者・指示方法・指示日・根拠の件の欄を出す（契約内に戻しても値は消さず、欄を隠すだけ）。
+ * 根拠の件を選んだ行は、指示者・指示方法・指示日を件から入れ、欄の代わりに「指示：…（件から）」を出す（2026-11-08）。
  */
 export function WorkTable({
   rows,
@@ -70,6 +72,12 @@ export function WorkTable({
   const set = (i: number, patch: Partial<WorkLine>) => onChange((rs) => patchRow(rs, i, patch));
   const unitOptions = units.map((u) => ({ value: u, label: u }));
   const issueChoices = issueOptions(issues);
+  const issuesById = new Map(issues.map((x) => [x.id, x]));
+  // 根拠の件を選んだら、指示者・指示方法・指示日を件から入れる（保存時もサーバーが同じ値で上書きする）。
+  const pickIssue = (i: number, id: string) => {
+    const issue = id === '' ? undefined : issuesById.get(id);
+    set(i, id === '' ? { issueId: null } : issue ? { issueId: id, ...issueInstruction(issue) } : { issueId: id });
+  };
 
   const columns: Column<WorkLine>[] = [
     { label: '工種', wide: true, cell: (l, i) => <TextInput value={l.trade} maxLength={200} onChange={(v) => set(i, { trade: v })} /> },
@@ -108,39 +116,49 @@ export function WorkTable({
       minWidthClass="md:min-w-[65rem]"
       rowId={workRowId}
       rowClass={(_, i) => (flagged?.has(i) ? 'outline-2 -outline-offset-2 outline-red-600 md:rounded-lg md:px-2 dark:outline-red-500' : '')}
-      rowExtra={(l, i) =>
-        l.changeKind === 'contract' ? null : (
+      rowExtra={(l, i) => {
+        if (l.changeKind === 'contract') return null;
+        // 根拠の件が候補にある行は、指示者・指示方法・指示日の欄を出さず件の値を見せる（候補に無い件なら欄を出す）。
+        const linkedIssue = l.issueId ? issuesById.get(l.issueId) : undefined;
+        return (
           <div role="group" aria-label={`${i + 1}行目の${CHANGE_KIND_LABELS[l.changeKind]}の指示`}>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-              <SubField label="指示者">
-                <TextInput value={l.instructedBy} maxLength={100} placeholder="例：施主 山田様" onChange={(v) => set(i, { instructedBy: v })} />
-              </SubField>
-              <SubField label="指示方法">
-                <Select
-                  value={l.instructionMethod ?? ''}
-                  options={methodOptions}
-                  placeholder="—"
-                  onChange={(v) => set(i, { instructionMethod: isInstructionMethod(v) ? v : null })}
-                />
-              </SubField>
-              <SubField label="指示日">
-                <input
-                  type="date"
-                  value={l.instructedOn ?? ''}
-                  onChange={(e) => set(i, { instructedOn: e.target.value === '' ? null : e.target.value })}
-                  className={fieldClass}
-                />
-              </SubField>
+              {linkedIssue ? null : (
+                <>
+                  <SubField label="指示者">
+                    <TextInput value={l.instructedBy} maxLength={100} placeholder="例：施主 山田様" onChange={(v) => set(i, { instructedBy: v })} />
+                  </SubField>
+                  <SubField label="指示方法">
+                    <Select
+                      value={l.instructionMethod ?? ''}
+                      options={methodOptions}
+                      placeholder="—"
+                      onChange={(v) => set(i, { instructionMethod: isInstructionMethod(v) ? v : null })}
+                    />
+                  </SubField>
+                  <SubField label="指示日">
+                    <input
+                      type="date"
+                      value={l.instructedOn ?? ''}
+                      onChange={(e) => set(i, { instructedOn: e.target.value === '' ? null : e.target.value })}
+                      className={fieldClass}
+                    />
+                  </SubField>
+                </>
+              )}
               <SubField label="根拠の件">
                 <Select
                   value={l.issueId ?? ''}
                   options={issueChoices}
                   placeholder="なし"
                   missingLabel="（一覧に無い件）"
-                  onChange={(v) => set(i, { issueId: v === '' ? null : v })}
+                  onChange={(v) => pickIssue(i, v)}
                 />
                 {flagged?.has(i) && <span className="mt-0.5 block text-sm font-bold text-red-700 dark:text-red-400">件を選んでください</span>}
               </SubField>
+              {linkedIssue && (
+                <p className="col-span-2 self-end pb-2 text-sm text-gray-700 md:col-span-3 dark:text-gray-300">{issueInstructionText(linkedIssue)}</p>
+              )}
             </div>
             {!l.issueId && !readOnly && (
               <LineIssueCreator
@@ -154,8 +172,8 @@ export function WorkTable({
               />
             )}
           </div>
-        )
-      }
+        );
+      }}
       onAdd={() => onChange((rs) => [...rs, row(newLine.work())])}
       onRemove={(i) => onChange((rs) => removeRow(rs, i))}
       subtotalLabel="出来高 小計"
