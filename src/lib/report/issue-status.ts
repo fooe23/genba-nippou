@@ -1,4 +1,6 @@
-import type { IssueStatus, ReportStatus, SiteRole } from '@/lib/types';
+import type { InstructionMethod, IssueStatus, ReportStatus, SiteRole } from '@/lib/types';
+import { jpDate } from '@/lib/calc/format';
+import { INSTRUCTION_METHOD_LABELS } from '@/lib/report/change-labels';
 
 // 件の状態の札（表示名・色・並び）と、日報画面の操作を出すかの判定（画面で共通の純関数）。
 
@@ -60,4 +62,22 @@ export function canRequestReportFix(p: {
   if (p.siteClosed) return false;
   if (p.isAdmin || p.accountType !== 'partner') return true;
   return p.createdBy !== null && p.createdBy === p.currentUserId;
+}
+
+/**
+ * 件の日付の行（純関数）：「依頼 2026/11/3（施主様／口頭）」、完了していれば「・完了 2026/11/6」を続ける。
+ * 依頼の日＝件を登録した日報の日付。完了しても依頼の日を残す（利用者 2026-11-07）。
+ */
+export function issueDatesLine(issue: {
+  reportDate: string;
+  status: IssueStatus;
+  doneAt: string | null;
+  instructedBy: string | null;
+  instructionMethod: InstructionMethod | null;
+}): string {
+  const who = [issue.instructedBy?.trim() || '', issue.instructionMethod ? INSTRUCTION_METHOD_LABELS[issue.instructionMethod] : '']
+    .filter((x) => x !== '')
+    .join('／');
+  const requested = `依頼 ${jpDate(issue.reportDate)}${who ? `（${who}）` : ''}`;
+  return issue.status === 'done' && issue.doneAt ? `${requested}・完了 ${jpDate(issue.doneAt)}` : requested;
 }

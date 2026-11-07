@@ -30,7 +30,7 @@ import {
 } from '@/lib/report/change-labels';
 import type { DailyClientConfirmation } from '@/lib/reports/types';
 import type { InstructionMethod, IssueKind, IssueStatus, LaborRule, TimeSpec } from '@/lib/types';
-import { issueStatusLabel } from '@/lib/report/issue-status';
+import { issueDatesLine, issueStatusLabel } from '@/lib/report/issue-status';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
 import { ClientConfirmationButton, ClientConfirmationStatus } from './ClientConfirmation';
@@ -225,7 +225,7 @@ function IssueList({
                   <IssueKindTag issue={i} />
                   {i.body}
                 </p>
-                {i.status === 'done' && i.doneAt && <p className="text-sm text-gray-600 dark:text-gray-400">完了 {jpDate(i.doneAt)}</p>}
+                <p className="text-sm text-gray-600 dark:text-gray-400">{issueDatesLine(i)}</p>
                 <IssueAttachmentBadges attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS} status={i.status} isStaff={viewer.isStaff} />
               </div>
               <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={locked} onChanged={onChanged} />

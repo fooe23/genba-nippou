@@ -92,3 +92,18 @@ describe('修正を申請のボタン', () => {
     expect(canRequestReportFix({ ...base, accountType: 'partner', createdBy: null })).toBe(false);
   });
 });
+
+import { issueDatesLine } from '@/lib/report/issue-status';
+
+describe('issueDatesLine（依頼の日を完了後も残す）', () => {
+  const base = { reportDate: '2026-11-03', instructedBy: null, instructionMethod: null, doneAt: null } as const;
+  it('対応中は依頼の日だけ', () => {
+    expect(issueDatesLine({ ...base, status: 'open' })).toBe('依頼 2026/11/3');
+  });
+  it('完了は依頼の日と完了の日', () => {
+    expect(issueDatesLine({ ...base, status: 'done', doneAt: '2026-11-06' })).toBe('依頼 2026/11/3・完了 2026/11/6');
+  });
+  it('指示者と方法があれば括弧で', () => {
+    expect(issueDatesLine({ ...base, status: 'estimating', instructedBy: '施主様', instructionMethod: 'oral' })).toMatch(/^依頼 2026\/11\/3（施主様／.+）$/);
+  });
+});
