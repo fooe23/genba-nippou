@@ -1330,8 +1330,10 @@ create policy gn_estimates_insert on storage.objects for insert to authenticated
 -- 置いた本人か（2026-11-09。update_2026-11-09_attachments.sql）：いまの Storage は置いた人を owner_id（text）に入れ、
 -- owner（uuid）は古い版の列。どちらの版でも動くよう、owner_id の列があれば owner_id（空なら owner）で比べる。
 -- gn-photos・gn-estimates の上書き（update）・削除（delete）は、置いた本人か管理者だけ。
+-- gn-exports の上書き・削除も同じ式で、置いた本人か管理者だけ（2026-11-10）。
 -- ただし gn-photos の <site_id>/sign/（サイン）と gn-exports の <site_id>/signed/（サインした時点の PDF）は、置いた本人・管理者でも
--- 上書き・削除できない（2026-11-10。update_2026-11-10_client_signature.sql）。
+-- 上書き・削除できず、ほかの名前から動かして来ることもできない（2026-11-10。update_2026-11-10_client_signature.sql）。
+-- 既知の残り：サインの保存が途中で失敗したときの sign/・signed/ の実体は残り、利用者には消せない（掃除は管理者が service role で）。
 do $do$
 declare
   v_owner text;
@@ -1346,23 +1348,24 @@ begin
   end if;
 
   execute 'drop policy if exists gn_photos_update on storage.objects';
-  execute format($p$create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/sign/') with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and (public.is_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(att|sign)/'))$p$, v_owner);
+  execute format($p$create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/sign/') with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and (public.is_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/att/'))$p$, v_owner);
   execute 'drop policy if exists gn_photos_delete on storage.objects';
   execute format($p$create policy gn_photos_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/sign/')$p$, v_owner);
   execute 'drop policy if exists gn_estimates_update on storage.objects';
   execute format($p$create policy gn_estimates_update on storage.objects for update to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and %1$s) with check (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and %1$s)$p$, v_owner);
   execute 'drop policy if exists gn_estimates_delete on storage.objects';
   execute format($p$create policy gn_estimates_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and %1$s)$p$, v_owner);
+  execute 'drop policy if exists gn_exports_update on storage.objects';
+  execute format($p$create policy gn_exports_update on storage.objects for update to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/') with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/')$p$, v_owner);
+  execute 'drop policy if exists gn_exports_delete on storage.objects';
+  execute format($p$create policy gn_exports_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/')$p$, v_owner);
 end
 $do$;
+-- gn-exports を読めるのは社員・管理者と、協力会社は自分の現場の <site_id>/signed/（サインした時点の PDF）だけ（2026-11-10）。
 drop policy if exists gn_exports_read on storage.objects;
-create policy gn_exports_read on storage.objects for select to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)));
+create policy gn_exports_read on storage.objects for select to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (public.gn_is_employee_or_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/'));
 drop policy if exists gn_exports_insert on storage.objects;
 create policy gn_exports_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)));
-drop policy if exists gn_exports_update on storage.objects;
-create policy gn_exports_update on storage.objects for update to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()) and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/') with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
-drop policy if exists gn_exports_delete on storage.objects;
-create policy gn_exports_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()) and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/');
 
 -- =====================================================================
 -- 現場の削除（戻せる非表示）と削除ログ（2026-11-02）

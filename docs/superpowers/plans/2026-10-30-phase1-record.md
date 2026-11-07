@@ -395,11 +395,13 @@
 - サインの流れ：ブラウザが PNG を本人のログインで `gn-photos/<現場>/sign/<ランダムな uuid>.png` に置く → Server Action `saveClientSignature` がその画像を読み、これから保存する確認者・日時・メモとサインを載せたお客様用日報 PDF を作って本人のログインで `gn-exports/<現場>/signed/<日報>-<ミリ秒>.pdf` に置く → DB の `gn_save_client_signature`（security definer）がパスの規約・実体の有無・置いた人・2MB を確かめて列を入れる。途中で失敗したら列は入らない（置いた実体は残るが害は無い）。
 - 列は `gn_save_client_signature` / `gn_revoke_client_signature` だけが書ける（ガードがトランザクション内の印 `gn.in_signature` を見る。`gn.in_save` と同じ考え方）。サインがある間は客先確認の 3 列も誰も変えられない。取り消した記録は `client_signature_history`（jsonb の配列。画像・PDF のパス、確認者・日時・メモ、取り消した日時・人・理由）に足す。
 - サインのある日報は削除できない（`report_signed`）。`gn-photos` の `sign/` と `gn-exports` の `signed/` は置いた本人・管理者でも上書き・削除できない。
+- `gn-exports` を読めるのは社員・管理者と、協力会社は自分の現場の `signed/` だけ（台帳の xlsm などは協力会社に見せない）。`gn-exports` の上書き・削除の本人確認は `owner_id` に合わせた。
+- お客様確認の塊は `wrap={false}` だけで改ページする（`minPresenceAhead` は塊の後ろを測るので余分なページができた）。
 - サインした日時は PDF に出した時刻と同じ値をアプリが送り、DB は今から 10 分前〜1 分後の範囲だけ受け付ける。
 - 新しく出すお客様用 PDF（日報画面の「お客様用 PDF」）は、取り消していないサインの画像を Storage から読んでサイン欄に入れる。
 
 ### 据え置き（minor / deferred）
-- 失敗・中断したときのサインの画像・PDF の実体（孤児）の掃除。
+- 失敗・中断したときのサインの画像・PDF の実体（孤児）の掃除。ポリシーで利用者には消せないので、管理者が service role で消す。
 - 空の絵の判定は画面（描いた点の数）とサーバー（PNG の形と大きさ）だけ。サーバーで絵の中身までは見ない。
 
 ### 利用者の操作待ち

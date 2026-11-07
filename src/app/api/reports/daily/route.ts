@@ -19,6 +19,8 @@ import type { DailyReportModel } from '@/lib/reports/types';
 // 足した帳票を作る（client-daily-render.ts → client-daily-report.tsx）。
 
 export const runtime = 'nodejs';
+// 写真入りの PDF を作る・読むための上限時間（秒）。
+export const maxDuration = 60;
 
 const CONTENT_TYPES: Record<DailyFormat, string> = {
   pdf: 'application/pdf',

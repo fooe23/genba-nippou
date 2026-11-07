@@ -18,7 +18,13 @@
 -- 3. サインがある間は客先確認の 3 列（client_confirmed_*）を誰も変えられない（取り消しの後なら変えられる）。
 --    承認解除・差戻し・日報の保存ではサインの列は変わらない。サインがある日報は消せない（report_signed）。
 -- 4. Storage：gn-photos の <site_id>/sign/ と gn-exports の <site_id>/signed/ の実体は、置いた本人・管理者でも
---    上書き・削除できない（サインした時点の PDF を消さない）。
+--    上書き・削除できない（サインした時点の PDF を消さない）。gn-exports を読めるのは社員・管理者と、協力会社は
+--    自分の現場の <site_id>/signed/ だけ（台帳の xlsm などの出力は協力会社には見せない）。gn-exports の上書き・削除の
+--    「置いた本人か」を owner_id の列に合わせる（gn-photos・gn-estimates と同じ式）。
+--
+-- 既知の残り：サインの保存が途中で失敗・中断したとき（画像を置いた後、PDF を置いた後）の <site_id>/sign/・<site_id>/signed/ の
+--   実体は残る（孤児）。上のポリシーで利用者は消せないので、掃除するときは管理者が Storage の管理画面（service role）で消す。
+--   列にもサインの記録（client_signature_history）にも無いパスだけが孤児（画面には出ない・容量だけの問題）。
 --
 -- 拒否の理由（アプリが文言に変える。文字列を変えないこと）：
 --   not_authenticated・report_not_found・stale_report・signature_exists（もうサインがある）・signature_missing（取り消すサインが無い）・
@@ -355,8 +361,14 @@ $$;
 revoke all on function public.gn_revoke_client_signature(uuid, text, timestamptz) from public, anon;
 grant execute on function public.gn_revoke_client_signature(uuid, text, timestamptz) to authenticated;
 
--- ---------- 4. サインの画像・サインした時点の PDF を上書き・削除させない ----------
--- gn-photos の <site_id>/sign/ と gn-exports の <site_id>/signed/ は、置いた本人・管理者でも上書き・削除できない（2026-11-10）。
+-- ---------- 4. Storage：サインの画像・サインした時点の PDF を消させない、協力会社は台帳の出力を読めない ----------
+-- gn-exports を読めるのは、社員・管理者（台帳の xlsm など、その現場の出力すべて）と、協力会社は自分の現場の
+-- <site_id>/signed/（サインした時点の PDF）だけ（2026-11-10）。台帳の出力（金額）は協力会社には見せない。
+drop policy if exists gn_exports_read on storage.objects;
+create policy gn_exports_read on storage.objects for select to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (public.gn_is_employee_or_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/'));
+-- gn-photos の <site_id>/sign/ と gn-exports の <site_id>/signed/ は、置いた本人・管理者でも上書き・削除できず、
+-- ほかの名前から動かして来ることもできない（2026-11-10）。gn-exports の上書き・削除の「置いた本人か」は、gn-photos・
+-- gn-estimates と同じく owner_id の列があれば owner_id（空なら owner）で比べる。
 do $do$
 declare
   v_owner text;
@@ -371,14 +383,14 @@ begin
   end if;
 
   execute 'drop policy if exists gn_photos_update on storage.objects';
-  execute format($p$create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/sign/') with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and (public.is_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(att|sign)/'))$p$, v_owner);
+  execute format($p$create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/sign/') with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and (public.is_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/att/'))$p$, v_owner);
   execute 'drop policy if exists gn_photos_delete on storage.objects';
   execute format($p$create policy gn_photos_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/sign/')$p$, v_owner);
+  execute 'drop policy if exists gn_exports_update on storage.objects';
+  execute format($p$create policy gn_exports_update on storage.objects for update to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/') with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/')$p$, v_owner);
+  execute 'drop policy if exists gn_exports_delete on storage.objects';
+  execute format($p$create policy gn_exports_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/')$p$, v_owner);
 end
 $do$;
-drop policy if exists gn_exports_update on storage.objects;
-create policy gn_exports_update on storage.objects for update to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()) and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/') with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
-drop policy if exists gn_exports_delete on storage.objects;
-create policy gn_exports_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()) and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/');
 
 commit;

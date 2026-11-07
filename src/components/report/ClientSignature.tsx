@@ -65,8 +65,20 @@ function SignForm({
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const pad = useRef<SignaturePadHandle | null>(null);
+  // 二度押しの防止（state の更新を待たずに、同期で止める）
+  const inFlight = useRef(false);
 
   async function save() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    try {
+      await saveOnce();
+    } finally {
+      inFlight.current = false;
+    }
+  }
+
+  async function saveOnce() {
     const checked = signatureFormSchema.safeParse({ confirmedBy: by, note });
     if (!checked.success) {
       setError(checked.error.issues[0]?.message ?? '入力内容が正しくありません');

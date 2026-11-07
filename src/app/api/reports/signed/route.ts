@@ -12,6 +12,8 @@ import { dailyReportFileName } from '@/lib/reports/query';
 // 実体はサーバーが本人のログインで読んでそのまま返す（URL を外に出さない）。ブラウザで開く（inline）、キャッシュしない。
 
 export const runtime = 'nodejs';
+// 写真入りの PDF を作る・読むための上限時間（秒）。
+export const maxDuration = 60;
 
 function fail(status: number, error: string): Response {
   return Response.json({ ok: false, error }, { status, headers: { 'Cache-Control': 'no-store' } });

@@ -99,7 +99,8 @@ export function SignaturePad({ onChange, handleRef, disabled }: Props) {
   }
 
   function onDown(e: React.PointerEvent<HTMLCanvasElement>) {
-    if (disabled || drawing.current) return;
+    // 2 本目の指（ピンチなど）・マウスの右ボタンなどは描かない
+    if (disabled || drawing.current || !e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return;
     e.preventDefault();
     e.currentTarget.setPointerCapture(e.pointerId);
     const stroke = [point(e)];

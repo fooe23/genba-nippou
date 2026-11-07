@@ -1661,6 +1661,33 @@ begin
       if sqlerrm like '%report_not_found%' then rep := rep || E'PASS 15-18 割り当ての無い現場の日報にはサインできない（report_not_found）\n';
       else fails := fails + 1; rep := rep || format(E'FAIL 15-18 想定外: %s\n', sqlerrm); end if;
     end;
+
+    -- 15-19 協力会社は gn-exports の台帳の出力（xlsm など）を読めない。サインした時点の PDF（signed/）は自分の現場なら読める。社員は台帳を読める
+    begin
+      insert into storage.objects (bucket_id, name, owner, metadata) values
+        ('gn-exports', x::text || '/2026-11/daicho_v34_2026-11.xlsm', v_c, '{"size": 500000}'::jsonb);
+      perform pg_temp.as_user(v_a);
+      select count(*) into n from storage.objects where bucket_id = 'gn-exports' and name = x::text || '/2026-11/daicho_v34_2026-11.xlsm';
+      select count(*) into n2 from storage.objects where bucket_id = 'gn-exports' and name = pdf1;
+      perform pg_temp.as_user(v_c);
+      select count(*) into num from storage.objects where bucket_id = 'gn-exports' and name = x::text || '/2026-11/daicho_v34_2026-11.xlsm';
+      perform pg_temp.as_editor();
+      if n = 0 and n2 = 1 and num = 1 then rep := rep || E'PASS 15-19 協力会社は台帳の出力を読めず、サインした時点の PDF は読める（社員は台帳を読める）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-19 A の台帳=%s A の PDF=%s C の台帳=%s\n', n, n2, num); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15-19 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 15-20 協力会社 A は割り当ての無い現場（S15）のサインした時点の PDF を読めない
+    begin
+      perform pg_temp.as_user(v_a);
+      select count(*) into n from storage.objects where bucket_id = 'gn-exports' and name like s15::text || '/signed/%';
+      perform pg_temp.as_editor();
+      if n = 0 then rep := rep || E'PASS 15-20 協力会社は割り当ての無い現場のサインした時点の PDF を読めない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-20 読めた=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15-20 エラー: %s\n', sqlerrm);
+    end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15 準備でエラー: %s\n', sqlerrm);
   end;

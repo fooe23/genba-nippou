@@ -9,6 +9,8 @@ import { loadReportFormProps } from '@/lib/report/form-props';
 import { ReportForm } from '@/components/report/ReportForm';
 
 export const metadata = { title: '日報' };
+// この画面から呼ぶ Server Action（お客様のサインの保存は写真入りの PDF を作る）の上限時間（秒）。
+export const maxDuration = 60;
 
 export default async function ReportPage({ params }: PageProps<'/sites/[siteId]/reports/[date]'>) {
   const profile = await requireProfile();

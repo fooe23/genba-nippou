@@ -8,6 +8,8 @@ import { ApprovalActions } from '@/components/approval/ApprovalActions';
 import { ReportForm } from '@/components/report/ReportForm';
 
 export const metadata = { title: '日報の確認' };
+// この画面から呼ぶ Server Action（お客様のサインの保存は写真入りの PDF を作る）の上限時間（秒）。
+export const maxDuration = 60;
 
 export default async function ApprovalDetailPage({ params }: PageProps<'/approvals/[reportId]'>) {
   const profile = await requireProfile();

@@ -37,8 +37,6 @@ const PHOTOS_PER_ROW = 2;
 /** サイン欄の高さ（約 3cm）。 */
 const SIGN_HEIGHT = 30 * MM;
 const SIGN_RULE = '#6b7280';
-/** お客様確認の塊（枠・メモ・サイン欄）をページの途中で切らないための、ページ末尾に要る高さの目安。 */
-const CONFIRM_BLOCK_MIN = 70 * MM;
 
 /** 写真 1 枚分の画像（Storage から読んだ JPEG・PNG）。読めなかった写真は image が null（枠に「写真を読み込めませんでした」）。 */
 export interface ClientPhotoImage {
@@ -183,7 +181,9 @@ function ClientDailyDocument({
             </View>
             <TableSection title={CLIENT_DAILY_ISSUES_TITLE} table={t.issues} emptyText={NO_ISSUES_TODAY} />
             {photos.length > 0 ? <PhotoSection photos={photos} /> : null}
-            <View wrap={false} minPresenceAhead={CONFIRM_BLOCK_MIN}>
+            {/* お客様確認の塊（枠・メモ・サイン欄）はページの途中で切らない（入らなければ塊ごと次のページ）。
+                minPresenceAhead は塊の「後ろ」の高さを測るので使わない（余分なページができる）。 */}
+            <View wrap={false}>
               <View style={d.signRow}>
                 <ClientConfirmationBoxes title={CLIENT_DAILY_CHECK_TITLE} boxes={confirmation.boxes} />
                 <Signature compact marginTop={0} boxes={[['作成者', model.signature.createdBy ?? '']]} />
