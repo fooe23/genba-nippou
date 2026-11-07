@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { firstError } from '@/lib/db/masters-schemas';
 import {
+  canonicalFileMime,
   attachmentErrorMessage,
   attachmentNameSchema,
   attachmentStorage,
@@ -175,5 +176,18 @@ describe('fromAttachmentRow', () => {
   it('写真以外はお客様用に載せない扱い、知らない種類は読み飛ばす', () => {
     expect(fromAttachmentRow({ ...row, kind: 'link', url: 'https://a.example', storage_bucket: null, storage_path: null })?.clientVisible).toBe(false);
     expect(fromAttachmentRow({ ...row, kind: 'video' })).toBeNull();
+  });
+});
+
+describe('canonicalFileMime', () => {
+  it('拡張子が許可されていれば、許可の組に無い mime は標準の mime にする', () => {
+    expect(canonicalFileMime('見積.xlsx', 'application/zip')).toBe('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    expect(canonicalFileMime('見積.docx', '')).toBe('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    expect(canonicalFileMime('見積.pdf', 'application/pdf')).toBe('application/pdf');
+    expect(canonicalFileMime('scan.JPG', 'IMAGE/JPEG')).toBe('image/jpeg');
+  });
+  it('許可していない拡張子はそのまま（検証で弾く）', () => {
+    expect(canonicalFileMime('a.zip', 'application/zip')).toBe('application/zip');
+    expect(canonicalFileMime('拡張子なし', 'application/pdf')).toBe('application/pdf');
   });
 });

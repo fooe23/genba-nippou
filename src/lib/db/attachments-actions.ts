@@ -7,6 +7,7 @@ import {
   ATTACHMENT_EXISTS_MESSAGE,
   attachmentErrorMessage,
   attachmentStorage,
+  canonicalFileMime,
   commitInputSchema,
   defaultClientVisible,
   FILE_NOT_ALLOWED_MESSAGE,
@@ -112,7 +113,12 @@ function attachedOn(v: { reportDate?: string }): string {
 
 async function checkUpload(input: UploadInput): Promise<{ ok: true; v: UploadParsed } | { ok: false; error: string }> {
   const profile = await requireProfile();
-  const parsed = uploadInputSchema.safeParse(input);
+  // ファイルは拡張子を信じ、ブラウザの申告した mime が許可の組に無ければ拡張子の標準の mime にする
+  const normalized: UploadInput =
+    input && input.kind === 'file' && typeof input.name === 'string' && typeof input.mime === 'string'
+      ? { ...input, mime: canonicalFileMime(input.name, input.mime) }
+      : input;
+  const parsed = uploadInputSchema.safeParse(normalized);
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? '入力内容が正しくありません' };
   if (parsed.data.kind === 'file' && !isEmployeeOrAdmin(profile)) return { ok: false, error: FILE_NOT_ALLOWED_MESSAGE };
   return { ok: true, v: parsed.data };

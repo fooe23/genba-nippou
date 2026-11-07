@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useRef, useState, useTransition, type ChangeEvent, type DragEvent } from 'react';
+import { useEffect, useRef, useState, useTransition, type ChangeEvent, type DragEvent } from 'react';
 import {
   addLink,
   commitAttachment,
@@ -13,10 +13,12 @@ import {
   FILE_ACCEPT,
   FILE_NOT_ALLOWED_MESSAGE,
   FILE_TYPES,
+  canonicalFileMime,
   fileExtension,
   MAX_ATTACHMENT_BYTES,
   MSG_FILE_TYPE,
   type UploadInput,
+  type UploadKind,
 } from '@/lib/db/attachments-schemas';
 import { createBrowserSupabase } from '@/lib/supabase/client';
 import { AttachmentThumbs } from './AttachmentThumbs';
@@ -108,6 +110,31 @@ export function AttachmentPanel({
   const cameraRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const [dropHint, setDropHint] = useState(false);
+
+  // 枠の外に落としたファイルでブラウザがページを離れない（ファイルを開いてしまう）ように、画面全体のドロップを止める。
+  // 枠（data-attachment-drop）の外では「落とせない」表示にし、日報の欄（collapsible でない欄）が「点線の枠の中に」と案内する。
+  // 件ごとの欄もそれぞれ同じ止め方をする（何度止めても害はない）。
+  useEffect(() => {
+    const outside = (e: Event) => !(e.target instanceof Element && e.target.closest('[data-attachment-drop]'));
+    const hasFiles = (e: globalThis.DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files');
+    function onWindowDragOver(e: globalThis.DragEvent) {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (outside(e) && e.dataTransfer) e.dataTransfer.dropEffect = 'none';
+    }
+    function onWindowDrop(e: globalThis.DragEvent) {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      if (outside(e) && !collapsible) setDropHint(true);
+    }
+    window.addEventListener('dragover', onWindowDragOver);
+    window.addEventListener('drop', onWindowDrop);
+    return () => {
+      window.removeEventListener('dragover', onWindowDragOver);
+      window.removeEventListener('drop', onWindowDrop);
+    };
+  }, [collapsible]);
 
   // サーバーから新しい一覧が届いたら、手元の切替・削除の上書きと「付けました」の行を片づける
   const [seen, setSeen] = useState(attachments);
@@ -144,13 +171,16 @@ export function AttachmentPanel({
       : { siteId: target.siteId, reportId: target.reportId };
   }
 
-  /** 1 つ付ける。付けられたら true。 */
-  async function uploadOne(file: File, key: string): Promise<boolean> {
+  /**
+   * 1 つ付ける。付けられたら true。kind は使った入口で決める（写真のボタン・画像のドロップ＝写真、
+   * 「ファイルを選ぶ」・画像以外のドロップ＝ファイル。スキャンした見積書の JPEG もファイルとして縮めずに置く）。
+   */
+  async function uploadOne(file: File, key: string, kind: UploadKind): Promise<boolean> {
     const fail = (msg: string) => {
       updateUpload(key, { status: 'error', error: msg });
       return false;
     };
-    const photo = isPhotoFile(file);
+    const photo = kind === 'photo';
     let blob: Blob = file;
     let name: string;
     let mime: string;
@@ -169,19 +199,23 @@ export function AttachmentPanel({
       const ext = fileExtension(name);
       const allowed = ext ? FILE_TYPES[ext] : undefined;
       if (!allowed) return fail(MSG_FILE_TYPE);
-      mime = file.type || allowed[0];
+      // ブラウザの申告が許可の組に無い（空・application/zip など）なら拡張子の標準の mime（サーバーも同じ判定）
+      mime = canonicalFileMime(name, file.type);
     }
     if (blob.size === 0) return fail('空のファイルは付けられません');
     if (blob.size > MAX_ATTACHMENT_BYTES) return fail(TOO_LARGE);
 
     updateUpload(key, { status: 'sending' });
-    const input: UploadInput = { ...targetFields(), kind: photo ? 'photo' : 'file', name, mime: file.type === '' && !photo ? '' : mime, sizeBytes: blob.size };
+    const input: UploadInput = { ...targetFields(), kind, name, mime, sizeBytes: blob.size };
+    // supabase-js は Blob・File の本文では contentType ではなく Blob の type を送るので、決めた mime の File に包み直す
+    // （mime が空の .xlsx などでも gn-estimates の allowed_mime_types を通るように）
+    const body = new File([blob], name, { type: mime });
     try {
       const prep = await prepareUpload(input);
       if (!prep.ok) return fail(prep.error);
       const { error: upError } = await createBrowserSupabase()
         .storage.from(prep.bucket)
-        .upload(prep.path, blob, { contentType: mime, upsert: false });
+        .upload(prep.path, body, { contentType: mime, upsert: false });
       if (upError) {
         console.error('[upload]', upError.message);
         return fail(SEND_FAILED);
@@ -196,33 +230,39 @@ export function AttachmentPanel({
     }
   }
 
-  async function addFiles(list: File[]) {
+  /** mode：photo＝写真のボタン（すべて写真）、file＝「ファイルを選ぶ」（すべてファイル）、drop＝画像は写真・それ以外はファイル。 */
+  async function addFiles(list: File[], mode: 'photo' | 'file' | 'drop') {
     if (list.length === 0 || !canAdd) return;
     setError(null);
-    const queued = list.map((f) => ({ file: f, key: newKey() }));
+    const queued = list.map((f) => ({
+      file: f,
+      key: newKey(),
+      kind: (mode === 'drop' ? (isPhotoFile(f) ? 'photo' : 'file') : mode) satisfies UploadKind,
+    }));
     setUploads((u) => [...u.filter((x) => x.status !== 'error'), ...queued.map((q) => ({ key: q.key, name: q.file.name, status: 'waiting' as const }))]);
     let next = 0;
     let added = 0;
     async function worker() {
       while (next < queued.length) {
         const q = queued[next++];
-        if (await uploadOne(q.file, q.key)) added += 1;
+        if (await uploadOne(q.file, q.key, q.kind)) added += 1;
       }
     }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queued.length) }, worker));
     if (added > 0) startTransition(() => router.refresh());
   }
 
-  function onPicked(e: ChangeEvent<HTMLInputElement>) {
+  function onPicked(e: ChangeEvent<HTMLInputElement>, mode: 'photo' | 'file') {
     const files = Array.from(e.target.files ?? []);
     e.target.value = ''; // 同じファイルをもう一度選べるように
-    void addFiles(files);
+    void addFiles(files, mode);
   }
 
   function onDrop(e: DragEvent<HTMLDivElement>) {
     e.preventDefault();
     setDragOver(false);
-    void addFiles(Array.from(e.dataTransfer.files ?? []));
+    setDropHint(false);
+    void addFiles(Array.from(e.dataTransfer.files ?? []), 'drop');
   }
 
   async function toggle(a: AttachmentView, visible: boolean) {
@@ -323,6 +363,7 @@ export function AttachmentPanel({
               setDragOver(false);
             }}
             onDrop={onDrop}
+            data-attachment-drop=""
             className={`hidden rounded-lg border-2 border-dashed p-4 text-center md:block ${
               dragOver ? 'border-blue-600 bg-blue-50 text-blue-900 dark:bg-blue-950 dark:text-blue-100' : 'border-gray-400 text-gray-700 dark:border-gray-600 dark:text-gray-300'
             }`}
@@ -330,11 +371,16 @@ export function AttachmentPanel({
             <p className="font-bold">ここに{canAddFiles ? '写真・ファイル' : '写真'}をドラッグ＆ドロップ</p>
             <p className="text-sm">まとめて何枚でも。またはボタンから選ぶ（写真は自動で軽くします）</p>
           </div>
+          {dropHint && (
+            <p role="status" className="hidden text-sm font-bold text-blue-800 md:block dark:text-blue-300">
+              ファイルは点線の枠の中に落としてください（枠の外に落としたものは付けていません）。
+            </p>
+          )}
           <p className="text-sm text-gray-600 md:hidden dark:text-gray-400">写真は自動で軽くします。まとめて何枚でも選べます。</p>
 
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={onPicked} />
-          <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={onPicked} />
-          {canAddFiles && <input ref={fileRef} type="file" accept={FILE_ACCEPT} multiple className="hidden" onChange={onPicked} />}
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onPicked(e, 'photo')} />
+          <input ref={photoRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => onPicked(e, 'photo')} />
+          {canAddFiles && <input ref={fileRef} type="file" accept={FILE_ACCEPT} multiple className="hidden" onChange={(e) => onPicked(e, 'file')} />}
 
           <div className="grid grid-cols-2 gap-2 md:grid-cols-1">
             <button type="button" onClick={() => cameraRef.current?.click()} className={`${btnPrimary} md:hidden`}>

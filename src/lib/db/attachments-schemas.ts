@@ -123,6 +123,19 @@ export function fileExtension(name: string): string | null {
   return name.slice(i + 1).toLowerCase();
 }
 
+/**
+ * ファイルの mime を、拡張子の標準の mime にそろえる（ブラウザ・OS が .xlsx を application/zip にするなど、
+ * 拡張子は許可しているのに mime が許可の組に無いとき）。拡張子が許可されていなければそのまま（検証で弾く）。
+ * 写真や、すでに許可の組にある mime はそのまま。
+ */
+export function canonicalFileMime(name: string, mime: string): string {
+  const ext = fileExtension(name);
+  const allowed = ext ? FILE_TYPES[ext] : undefined;
+  if (!allowed) return mime;
+  const m = mime.trim().toLowerCase();
+  return allowed.includes(m) ? m : allowed[0];
+}
+
 export const uploadInputSchema = z
   .object({
     ...targetShape,

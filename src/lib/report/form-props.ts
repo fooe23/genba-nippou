@@ -96,17 +96,14 @@ export function creditSuppliersForSite<T extends { id: string; active: boolean; 
 }
 
 /**
- * 日報の添付と件の添付（上の枠の件とこの日報の件）を読み、署名付き URL をまとめて作る（バケットごとに 1 回）。
- * 協力会社には RLS でファイルの行が来ない。
+ * 件の添付（上の枠の件とこの日報の件）を読み、日報の添付（先に読んだもの）と合わせて署名付き URL をまとめて作る
+ * （バケットごとに 1 回）。協力会社には RLS でファイルの行が来ない。
  */
 async function loadAttachmentViews(
-  reportId: string | null,
+  report: Attachment[],
   issueIds: string[],
 ): Promise<{ report: AttachmentView[]; byIssue: Record<string, AttachmentView[]> }> {
-  const [report, byIssue] = await Promise.all([
-    reportId ? listAttachmentsForReport(reportId) : Promise.resolve<Attachment[]>([]),
-    listAttachmentsForIssues(issueIds),
-  ]);
+  const byIssue = await listAttachmentsForIssues(issueIds);
   const all = [...report, ...[...byIssue.values()].flat()];
   const urls = all.length > 0 ? await signedUrls(all) : new Map<string, string>();
   const view = (a: Attachment): AttachmentView => ({ ...a, href: urls.get(a.id) ?? '' });
@@ -124,7 +121,7 @@ export async function loadReportFormProps(
   report: ReportDetail,
 ): Promise<Omit<ReportFormProps, 'readOnly' | 'review'>> {
   const siteId = site.id;
-  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings, role, fixRequests] = await Promise.all([
+  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings, role, fixRequests, reportAttachments] = await Promise.all([
     listReportHeads(siteId),
     getSiteMasters(siteId),
     listWorkers(),
@@ -138,8 +135,9 @@ export async function loadReportFormProps(
     getSettings(),
     getMySiteRole(siteId),
     report.head ? listOpenFixRequestsForReport(report.head.id) : Promise.resolve([]),
+    report.head ? listAttachmentsForReport(report.head.id) : Promise.resolve<Attachment[]>([]),
   ]);
-  const attachmentViews = await loadAttachmentViews(report.head ? report.head.id : null, [
+  const attachmentViews = await loadAttachmentViews(reportAttachments, [
     ...openIssues.map((i) => i.id),
     ...issues.map((i) => i.id),
   ]);

@@ -1268,19 +1268,37 @@ create policy gn_photos_read on storage.objects for select to authenticated usin
 -- それ以外の場所（<site_id>/other/... など）には置けない・名前を変えて動かせない。
 drop policy if exists gn_photos_insert on storage.objects;
 create policy gn_photos_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and (public.is_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(att|sign)/'));
-drop policy if exists gn_photos_update on storage.objects;
-create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin())) with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()) and (public.is_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(att|sign)/'));
-drop policy if exists gn_photos_delete on storage.objects;
-create policy gn_photos_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
 -- gn-estimates（見積書などのファイル）は社員・管理者だけ（2026-11-09。update_2026-11-09_attachments.sql）。協力会社は読めない・置けない。
 drop policy if exists gn_estimates_read on storage.objects;
 create policy gn_estimates_read on storage.objects for select to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin());
 drop policy if exists gn_estimates_insert on storage.objects;
 create policy gn_estimates_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin());
-drop policy if exists gn_estimates_update on storage.objects;
-create policy gn_estimates_update on storage.objects for update to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and (owner = auth.uid() or public.is_admin())) with check (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and (owner = auth.uid() or public.is_admin()));
-drop policy if exists gn_estimates_delete on storage.objects;
-create policy gn_estimates_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and (owner = auth.uid() or public.is_admin()));
+-- 置いた本人か（2026-11-09。update_2026-11-09_attachments.sql）：いまの Storage は置いた人を owner_id（text）に入れ、
+-- owner（uuid）は古い版の列。どちらの版でも動くよう、owner_id の列があれば owner_id（空なら owner）で比べる。
+-- gn-photos・gn-estimates の上書き（update）・削除（delete）は、置いた本人か管理者だけ。
+do $do$
+declare
+  v_owner text;
+begin
+  if exists (
+    select 1 from information_schema.columns
+     where table_schema = 'storage' and table_name = 'objects' and column_name = 'owner_id'
+  ) then
+    v_owner := '(coalesce(nullif(owner_id::text, ''''), owner::text) = auth.uid()::text or public.is_admin())';
+  else
+    v_owner := '(owner = auth.uid() or public.is_admin())';
+  end if;
+
+  execute 'drop policy if exists gn_photos_update on storage.objects';
+  execute format($p$create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s) with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and (public.is_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(att|sign)/'))$p$, v_owner);
+  execute 'drop policy if exists gn_photos_delete on storage.objects';
+  execute format($p$create policy gn_photos_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s)$p$, v_owner);
+  execute 'drop policy if exists gn_estimates_update on storage.objects';
+  execute format($p$create policy gn_estimates_update on storage.objects for update to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and %1$s) with check (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and %1$s)$p$, v_owner);
+  execute 'drop policy if exists gn_estimates_delete on storage.objects';
+  execute format($p$create policy gn_estimates_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and %1$s)$p$, v_owner);
+end
+$do$;
 drop policy if exists gn_exports_read on storage.objects;
 create policy gn_exports_read on storage.objects for select to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)));
 drop policy if exists gn_exports_insert on storage.objects;
