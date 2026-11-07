@@ -3,7 +3,10 @@ import { weekday } from '@/lib/calc/calendar';
 import { jpDate, todayJst } from '@/lib/calc/format';
 import { visitLabel, visitNumbers } from '@/lib/calc/visit';
 import { listLeaseItems, listSuppliers, listUnits, listVehicles, listWeather, listWorkers } from '@/lib/db/masters';
-import type { Profile } from '@/lib/db/profile';
+import { isEmployeeOrAdmin, type Profile } from '@/lib/db/profile';
+import { listAttachmentsForIssues, listAttachmentsForReport, signedUrls } from '@/lib/db/attachments';
+import type { Attachment } from '@/lib/db/attachments-schemas';
+import type { AttachmentView } from '@/components/attachments/types';
 import { getMySiteRole, listIssuesForReport, listOpenFixRequestsForReport, listOpenIssues, listReportHeads, type ReportDetail } from '@/lib/db/reports';
 import { canRequestReportFix, canReviewSite } from '@/lib/report/issue-status';
 import { getSettings } from '@/lib/db/settings';
@@ -92,6 +95,27 @@ export function creditSuppliersForSite<T extends { id: string; active: boolean; 
   return forSite(vendorSuppliers(suppliers, usedIds), selectedIds.filter((id) => vendorIds.has(id)), usedIds);
 }
 
+/**
+ * 日報の添付と件の添付（上の枠の件とこの日報の件）を読み、署名付き URL をまとめて作る（バケットごとに 1 回）。
+ * 協力会社には RLS でファイルの行が来ない。
+ */
+async function loadAttachmentViews(
+  reportId: string | null,
+  issueIds: string[],
+): Promise<{ report: AttachmentView[]; byIssue: Record<string, AttachmentView[]> }> {
+  const [report, byIssue] = await Promise.all([
+    reportId ? listAttachmentsForReport(reportId) : Promise.resolve<Attachment[]>([]),
+    listAttachmentsForIssues(issueIds),
+  ]);
+  const all = [...report, ...[...byIssue.values()].flat()];
+  const urls = all.length > 0 ? await signedUrls(all) : new Map<string, string>();
+  const view = (a: Attachment): AttachmentView => ({ ...a, href: urls.get(a.id) ?? '' });
+  return {
+    report: report.map(view),
+    byIssue: Object.fromEntries([...byIssue].map(([id, list]) => [id, list.map(view)])),
+  };
+}
+
 /** ReportForm の props のうち、画面ごとに決める readOnly / review は除いたものを返す。 */
 export async function loadReportFormProps(
   profile: Profile,
@@ -114,6 +138,10 @@ export async function loadReportFormProps(
     getSettings(),
     getMySiteRole(siteId),
     report.head ? listOpenFixRequestsForReport(report.head.id) : Promise.resolve([]),
+  ]);
+  const attachmentViews = await loadAttachmentViews(report.head ? report.head.id : null, [
+    ...openIssues.map((i) => i.id),
+    ...issues.map((i) => i.id),
   ]);
   const used = { workers: new Set<string>(), suppliers: new Set<string>(), vehicles: new Set<string>(), leaseItems: new Set<string>() };
   for (const l of report.lines) {
@@ -209,6 +237,9 @@ export async function loadReportFormProps(
       currentUserId: profile.id,
     }),
     fixRequests,
+    attachments: attachmentViews.report,
+    issueAttachments: attachmentViews.byIssue,
+    isStaff: isEmployeeOrAdmin(profile),
     // 客先確認の記録の有無は確認日時で決める（日報の帳票 buildDailyReport と同じ）。
     clientConfirmation:
       head && head.clientConfirmedAt !== null

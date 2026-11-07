@@ -125,6 +125,20 @@ describe('ガイド', () => {
     expect(html).toContain('承認済みの日報と完了した現場には取り込めません');
   });
 
+  it('写真・資料の添付の章が、付け方・自動で軽く・10MB・G ドライブ・お客様用・協力会社・時期に触れている', async () => {
+    expect(GUIDE_CHAPTERS.find((c) => c.slug === 'photos')?.title).toBe('写真・資料の添付');
+    const html = await loadChapter('photos');
+    expect(html).toContain('ドラッグ＆ドロップ');
+    expect(html).toContain('自動で軽く');
+    expect(html).toContain('1 つ 10MB まで');
+    expect(html).toContain('共有の設定');
+    expect(html).toContain('お客様用 PDF に載せる');
+    expect(html).toContain('ファイル（見積書など）は見られません・付けられません');
+    expect(html).toContain('提出までに付ける');
+    expect(html).toContain('完了するまでいつでも');
+    expect(html).toContain('修正を申請');
+  });
+
   it('未掲載の slug は GuideNotFound', async () => {
     await expect(loadChapter('nothing')).rejects.toBeInstanceOf(GuideNotFound);
     await expect(loadChapter('../../package')).rejects.toBeInstanceOf(GuideNotFound);

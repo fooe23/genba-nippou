@@ -47,6 +47,11 @@ import { LeaseTable } from './tables/LeaseTable';
 import { CashTable, CreditTable } from './tables/PurchaseTable';
 import { WorkTable } from './tables/WorkTable';
 import { useReportDraft } from './useReportDraft';
+import { AttachmentPanel } from '@/components/attachments/AttachmentPanel';
+import { IssueAttachmentBadges, IssueAttachments } from '@/components/attachments/IssueAttachments';
+import type { AttachmentView, AttachmentViewer } from '@/components/attachments/types';
+
+const NO_ATTACHMENTS: AttachmentView[] = [];
 
 export interface ReportFormProps {
   siteId: string;
@@ -106,6 +111,12 @@ export interface ReportFormProps {
   exportLinks?: { pdfPreview: string; pdf: string; csv: string; clientPdfPreview: string; clientPdf: string };
   /** 客先確認の記録（無ければ null）。保存済みの日報なら、状態・閲覧専用・完了現場に関係なく記録・取り消しできる。 */
   clientConfirmation: DailyClientConfirmation | null;
+  /** この日報に付けた添付（写真・ファイル・リンク。署名付き URL 付き）。協力会社にはファイルの行が来ない。 */
+  attachments: AttachmentView[];
+  /** 件ごとの添付（上の枠の件とこの日報の件。件の id → 添付）。 */
+  issueAttachments: Record<string, AttachmentView[]>;
+  /** 社員・管理者（ファイル＝見積書などを見る・付ける、見積書の印を出す）。協力会社は false。 */
+  isStaff: boolean;
 }
 
 const SUBMIT_FAILED = '提出に失敗しました。通信状況を確認してもう一度お試しください。';
@@ -150,12 +161,16 @@ function IssueList({
   issues,
   onChanged,
   locked = false,
+  attachmentsByIssue,
+  viewer,
 }: {
   reportId: string | null;
   issues: Issue[];
   onChanged: () => void;
   /** 完了現場など、件を変更できないとき。一覧だけ表示する。 */
   locked?: boolean;
+  attachmentsByIssue: Record<string, AttachmentView[]>;
+  viewer: AttachmentViewer;
 }) {
   const [body, setBody] = useState('');
   const [kind, setKind] = useState<IssueKind>('other');
@@ -207,8 +222,10 @@ function IssueList({
                   {i.body}
                 </p>
                 {i.status === 'done' && i.doneAt && <p className="text-sm text-gray-600 dark:text-gray-400">完了 {jpDate(i.doneAt)}</p>}
+                <IssueAttachmentBadges attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS} status={i.status} isStaff={viewer.isStaff} />
               </div>
               <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={locked} onChanged={onChanged} />
+              <IssueAttachments issueId={i.id} status={i.status} attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS} viewer={viewer} />
             </li>
           ))}
         </ul>
@@ -568,6 +585,16 @@ function ReportFormBody({
   }
 
   const weatherOptions = p.masters.weather.map((w) => ({ value: w, label: w }));
+  const attachmentViewer: AttachmentViewer = {
+    siteId: p.siteId,
+    reportDate: p.date,
+    currentUserId: p.currentUserId,
+    isAdmin: p.isAdmin,
+    isStaff: p.isStaff,
+    siteClosed: !!p.siteClosed,
+  };
+  // 日報の添付は下書き・差戻しのあいだだけ足す・消すができる（提出後はお客様用のチェックだけ）
+  const reportAttachmentsLocked = !!p.siteClosed || !(p.status === 'draft' || p.status === 'rejected');
   const statusNote = pending
     ? '処理中…'
     : errors.length > 0
@@ -582,7 +609,15 @@ function ReportFormBody({
 
   return (
     <div className="pb-28">
-      {!p.review && <IssueBanner issues={p.openIssues} currentReportId={p.reportId} readOnly={p.siteClosed} />}
+      {!p.review && (
+        <IssueBanner
+          issues={p.openIssues}
+          currentReportId={p.reportId}
+          readOnly={p.siteClosed}
+          attachmentsByIssue={p.issueAttachments}
+          viewer={attachmentViewer}
+        />
+      )}
       <Link
         href={p.review ? '/approvals' : `/sites/${p.siteId}`}
         className="mb-1 inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400"
@@ -790,7 +825,33 @@ function ReportFormBody({
         </section>
       </fieldset>
 
-      <IssueList reportId={p.reportId} issues={p.issues} onChanged={() => router.refresh()} locked={p.siteClosed} />
+      <section aria-label="写真・資料" className="mb-6">
+        <h2 className="mb-2 border-b border-gray-300 pb-1 text-lg font-bold dark:border-gray-700">写真・資料（この日報）</h2>
+        {reportId === null ? (
+          <p className="text-sm text-gray-600 dark:text-gray-400">先に下書き保存してください（保存すると写真・資料を付けられます）。</p>
+        ) : (
+          <AttachmentPanel
+            target={{ siteId: p.siteId, reportId }}
+            attachments={p.attachments}
+            canAddFiles={p.isStaff}
+            locked={reportAttachmentsLocked}
+            lockedNotice={p.siteClosed ? '完了した現場には添付を足せません。' : '提出後は足せません（忘れたら「修正を申請」）。'}
+            viewer={attachmentViewer}
+          />
+        )}
+        <p className="mt-2 text-xs text-gray-600 dark:text-gray-400">
+          日報の写真・資料は提出までに付けてください。件に付けるもの（見積書・その後の写真など）は、件が完了するまでいつでも足せます。
+        </p>
+      </section>
+
+      <IssueList
+        reportId={p.reportId}
+        issues={p.issues}
+        onChanged={() => router.refresh()}
+        locked={p.siteClosed}
+        attachmentsByIssue={p.issueAttachments}
+        viewer={attachmentViewer}
+      />
 
       {!p.readOnly && !p.review && <Band tone="warn" title="確認してください（保存はできます）" items={warnings} />}
       <Band
