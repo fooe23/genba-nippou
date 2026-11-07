@@ -2,14 +2,15 @@ import { downloadObject, getClientSignatureState, SIGNED_PDF_BUCKET } from '@/li
 import { getCurrentProfile } from '@/lib/db/profile';
 import { getSite } from '@/lib/db/sites';
 import { contentDisposition } from '@/lib/export/query';
-import { parseSignedPdfQuery } from '@/lib/report/client-signature';
+import { parseSignedPdfQuery, signedPdfInline } from '@/lib/report/client-signature';
 import { dailyReportFileName } from '@/lib/reports/query';
 
 // サインした時点のお客様用日報 PDF を開く。
 //   GET /api/reports/signed?report=<uuid>              いまのサインの PDF
 //   GET /api/reports/signed?report=<uuid>&history=<n>  取り消したサインの PDF（client_signature_history の n 番目）
+//   &disposition=attachment で保存（ダウンロード）。指定なし・inline はブラウザで開く。
 // 読めるのは日報が見える現場メンバー（社員・管理者、協力会社は自分の現場だけ。RLS と Storage のポリシー）。
-// 実体はサーバーが本人のログインで読んでそのまま返す（URL を外に出さない）。ブラウザで開く（inline）、キャッシュしない。
+// 実体はサーバーが本人のログインで読んでそのまま返す（URL を外に出さない）。ふだんはブラウザで開く（inline）、キャッシュしない。
 
 export const runtime = 'nodejs';
 // 写真入りの PDF を作る・読むための上限時間（秒）。
@@ -55,7 +56,7 @@ export async function GET(request: Request): Promise<Response> {
     status: 200,
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': contentDisposition(name, { inline: true }),
+      'Content-Disposition': contentDisposition(name, { inline: signedPdfInline(request.url) }),
       'Content-Length': String(data.length),
       'Cache-Control': 'no-store',
     },

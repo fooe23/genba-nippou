@@ -1,8 +1,10 @@
 'use client';
 
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { Field, inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/masters/common';
+import { pdfViewerHref } from '@/lib/pdf-viewer';
 
 /** 出力できる月（日報のある月）。notice は原本 Excel に入りきらないときの案内文。 */
 export interface ExportMonthOption {
@@ -16,7 +18,7 @@ export interface ExportMonthOption {
 /**
  * 出力画面：原本 Excel（.xlsm、月ごと）、工事原価集計表（工期全体または月、PDF・Excel・CSV）、
  * 変更増減 精算資料（工期全体または月。客先用「精算のご提案」と社内確認用の 2 組、各 PDF・Excel）、日報（1 日分または月まとめ、PDF・CSV）。
- * PDF は「プレビュー」（新しいタブでブラウザに開く。disposition=inline）と「ダウンロード」の 2 つ。
+ * PDF は「プレビュー」（アプリの中の PDF ビューアー /pdf で同じ画面に開き、「戻る」でこの画面に戻る）と「ダウンロード」の 2 つ。
  * today は日報の日付の初期値（JST の 'YYYY-MM-DD'）。
  */
 export function ExportPanel({ siteId, months, today }: { siteId: string; months: ExportMonthOption[]; today: string }) {
@@ -72,7 +74,7 @@ export function ExportPanel({ siteId, months, today }: { siteId: string; months:
   );
 }
 
-/** 出力ボタン 1 つ。preview は PDF をブラウザで開く（&disposition=inline、新しいタブ）。 */
+/** 出力ボタン 1 つ。preview は PDF をアプリの中の PDF ビューアーで開く（&disposition=inline、同じ画面）。 */
 interface FormatButton {
   format: string;
   label: string;
@@ -118,7 +120,20 @@ function buttonClass(b: FormatButton, index: number, count: number): string {
 }
 
 /** 出力ボタンの並び。query が null（日付が空など）なら押せないボタン。 */
-function FormatButtons({ endpoint, query, buttons }: { endpoint: string; query: string | null; buttons: readonly FormatButton[] }) {
+function FormatButtons({
+  endpoint,
+  query,
+  buttons,
+  title,
+}: {
+  endpoint: string;
+  query: string | null;
+  buttons: readonly FormatButton[];
+  /** PDF ビューアーの見出し。 */
+  title: string;
+}) {
+  // PDF ビューアーの「戻る」で戻る先（この出力画面）
+  const pathname = usePathname();
   return (
     <div className={buttonGridClass(buttons.length)}>
       {buttons.map((b, i) => {
@@ -133,9 +148,9 @@ function FormatButtons({ endpoint, query, buttons }: { endpoint: string; query: 
         }
         const href = `${endpoint}?${query}&format=${b.format}${b.preview ? '&disposition=inline' : ''}`;
         return b.preview ? (
-          <a key={key} href={href} target="_blank" rel="noopener noreferrer" className={className}>
+          <Link key={key} href={pdfViewerHref({ src: href, title, back: pathname }) ?? href} className={className}>
             {b.label}
-          </a>
+          </Link>
         ) : (
           <a key={key} href={href} className={className}>
             {b.label}
@@ -237,19 +252,19 @@ function PeriodReportSection({
         groups.map((g) => (
           <div key={g.label} className="mt-4">
             <h3 className="text-base font-bold">{g.label}</h3>
-            <FormatButtons endpoint={endpoint} query={`${query}${g.extraQuery}`} buttons={formats} />
+            <FormatButtons endpoint={endpoint} query={`${query}${g.extraQuery}`} buttons={formats} title={`${title}（${g.label}）`} />
           </div>
         ))
       ) : (
-        <FormatButtons endpoint={endpoint} query={query} buttons={formats} />
+        <FormatButtons endpoint={endpoint} query={query} buttons={formats} title={title} />
       )}
     </section>
   );
 }
 
 /** 日報の PDF（プレビュー・ダウンロード）・CSV。query が null（日付が空）なら押せないボタン。 */
-function DailyButtons({ query }: { query: string | null }) {
-  return <FormatButtons endpoint="/api/reports/daily" query={query} buttons={DAILY_FORMATS} />;
+function DailyButtons({ query, title }: { query: string | null; title: string }) {
+  return <FormatButtons endpoint="/api/reports/daily" query={query} buttons={DAILY_FORMATS} title={title} />;
 }
 
 /** 日報：1 日分（日付を選ぶ）と月まとめ（日報のある月を選ぶ。日ごとに改ページ）を PDF（プレビュー・ダウンロード）・CSV で出す。 */
@@ -268,7 +283,7 @@ function DailyReportSection({ siteId, months, today }: { siteId: string; months:
       <Field label="1 日分（日付）">
         <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} />
       </Field>
-      <DailyButtons query={date ? `${site}&date=${encodeURIComponent(date)}` : null} />
+      <DailyButtons query={date ? `${site}&date=${encodeURIComponent(date)}` : null} title={`日報 ${date}`} />
       <div className="mt-4">
         <Field label="1 か月分（月）">
           <select value={month} onChange={(e) => setMonth(e.target.value)} className={inputClass}>
@@ -280,7 +295,7 @@ function DailyReportSection({ siteId, months, today }: { siteId: string; months:
           </select>
         </Field>
       </div>
-      <DailyButtons query={month ? `${site}&month=${encodeURIComponent(month)}` : null} />
+      <DailyButtons query={month ? `${site}&month=${encodeURIComponent(month)}` : null} title={`日報 ${month}`} />
     </section>
   );
 }

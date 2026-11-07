@@ -111,8 +111,8 @@ export interface ReportFormProps {
   /** この日報の未解決の修正申請。 */
   fixRequests: ReportFixRequest[];
   /**
-   * 帳票の出力先。pdfPreview は PDF をブラウザで開く（新しいタブ）、pdf・csv はダウンロード。clientPdfPreview・clientPdf は
-   * 現場日報（お客様用）の PDF（プレビュー・保存）。
+   * 帳票の出力先。pdfPreview は PDF をアプリの中の PDF ビューアー（/pdf の URL。同じ画面で開く）、pdf・csv はダウンロード。
+   * clientPdfPreview・clientPdf は現場日報（お客様用）の PDF（開く・保存）。
    * 保存済みの日報で、出力できる人（社員・管理者）だけに渡す。閲覧専用でも出す。
    */
   exportLinks?: { pdfPreview: string; pdf: string; csv: string; clientPdfPreview: string; clientPdf: string };
@@ -688,23 +688,27 @@ function ReportFormBody({
             )}
             {(p.exportLinks
               ? [
-                  { label: 'PDF', href: p.exportLinks.pdfPreview, newTab: true },
-                  { label: 'PDF 保存', href: p.exportLinks.pdf, newTab: false },
-                  { label: 'CSV', href: p.exportLinks.csv, newTab: false },
-                  { label: 'お客様用 PDF', href: p.exportLinks.clientPdfPreview, newTab: true },
-                  { label: 'お客様用 保存', href: p.exportLinks.clientPdf, newTab: false },
+                  // PDF・お客様用 PDF はアプリの中の PDF ビューアー（同じ画面。新しいタブは開かない）、保存・CSV はダウンロード
+                  { label: 'PDF', href: p.exportLinks.pdfPreview, inApp: true },
+                  { label: 'PDF 保存', href: p.exportLinks.pdf, inApp: false },
+                  { label: 'CSV', href: p.exportLinks.csv, inApp: false },
+                  { label: 'お客様用 PDF', href: p.exportLinks.clientPdfPreview, inApp: true },
+                  { label: 'お客様用 保存', href: p.exportLinks.clientPdf, inApp: false },
                 ]
               : []
-            ).map(({ label, href, newTab }) => (
-              <a
-                key={label}
-                href={href}
-                {...(newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-400 px-3 text-sm font-medium dark:border-gray-600"
-              >
-                {label}
-              </a>
-            ))}
+            ).map(({ label, href, inApp }) => {
+              const className =
+                'inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-400 px-3 text-sm font-medium dark:border-gray-600';
+              return inApp ? (
+                <Link key={label} href={href} className={className}>
+                  {label}
+                </Link>
+              ) : (
+                <a key={label} href={href} className={className}>
+                  {label}
+                </a>
+              );
+            })}
           </span>
         )}
       </div>

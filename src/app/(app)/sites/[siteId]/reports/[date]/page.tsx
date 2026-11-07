@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
+import { pdfViewerHref } from '@/lib/pdf-viewer';
 import { SITE_CLOSED_NOTICE } from '@/lib/constants';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { requireProfile } from '@/lib/db/profile';
@@ -23,17 +24,19 @@ export default async function ReportPage({ params }: PageProps<'/sites/[siteId]/
   const report = await getReport(siteId, date);
   const props = await loadReportFormProps(profile, site, date, report);
   // 帳票（PDF・CSV）は保存済みの日報だけ。協力会社は出力できない（/api/reports/daily も 403）。
-  // PDF はプレビュー（ブラウザで開く。disposition=inline）と保存（ダウンロード）の 2 つ。
+  // PDF は「開く」（アプリの中の PDF ビューアー /pdf。同じ画面で開き、「戻る」でこの日報に戻る）と保存（ダウンロード）の 2 つ。
   const exportHref = (format: 'pdf' | 'csv') =>
     `/api/reports/daily?site=${encodeURIComponent(siteId)}&date=${encodeURIComponent(date)}&format=${format}`;
+  const back = `/sites/${siteId}/reports/${date}`;
+  const viewer = (src: string, title: string) => pdfViewerHref({ src, title, back }) ?? src;
   const exportLinks =
     report.head && profile.accountType !== 'partner'
       ? {
-          pdfPreview: `${exportHref('pdf')}&disposition=inline`,
+          pdfPreview: viewer(`${exportHref('pdf')}&disposition=inline`, `日報 ${site.name} ${date}`),
           pdf: exportHref('pdf'),
           csv: exportHref('csv'),
-          // 現場日報（お客様用）：金額・氏名・連絡事項を出さない PDF（プレビューと保存）。
-          clientPdfPreview: `${exportHref('pdf')}&audience=client&disposition=inline`,
+          // 現場日報（お客様用）：金額・氏名・連絡事項を出さない PDF（開くと保存）。
+          clientPdfPreview: viewer(`${exportHref('pdf')}&audience=client&disposition=inline`, `日報（お客様用） ${site.name} ${date}`),
           clientPdf: `${exportHref('pdf')}&audience=client`,
         }
       : undefined;

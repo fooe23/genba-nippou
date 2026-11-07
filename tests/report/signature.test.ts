@@ -9,6 +9,7 @@ import {
   isSignaturePathFor,
   parseSignatureHistory,
   parseSignedPdfQuery,
+  signedPdfInline,
   REPORT_SIGNED_DELETE_MESSAGE,
   REVOKE_ADMIN_ONLY_MESSAGE,
   revokeReasonSchema,
@@ -179,5 +180,14 @@ describe('取り消したサインの記録・PDF のクエリ', () => {
     expect(parseSignedPdfQuery(`http://x/api/reports/signed?report=${REPORT}&history=2`)).toEqual({ reportId: REPORT, history: 2 });
     expect(parseSignedPdfQuery('http://x/api/reports/signed?report=abc')).toHaveProperty('error');
     expect(parseSignedPdfQuery(`http://x/api/reports/signed?report=${REPORT}&history=-1`)).toHaveProperty('error');
+  });
+});
+
+describe('signedPdfInline', () => {
+  it('disposition=attachment のときだけ保存、それ以外は開く', () => {
+    expect(signedPdfInline(`http://x/api/reports/signed?report=${REPORT}`)).toBe(true);
+    expect(signedPdfInline(`http://x/api/reports/signed?report=${REPORT}&disposition=inline`)).toBe(true);
+    expect(signedPdfInline(`http://x/api/reports/signed?report=${REPORT}&disposition=attachment`)).toBe(false);
+    expect(signedPdfInline(`http://x/api/reports/signed?report=${REPORT}&disposition=foo`)).toBe(true);
   });
 });

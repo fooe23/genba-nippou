@@ -207,6 +207,11 @@ export function clientIssueIdsForReport(s: { signed: boolean; signedIssueSet: re
   return [...s.reportIssueIds];
 }
 
+/** /api/reports/signed の &disposition：attachment なら保存（ダウンロード）、それ以外（指定なし・inline・別の値）はブラウザで開く。 */
+export function signedPdfInline(url: string): boolean {
+  return new URL(url).searchParams.get('disposition') !== 'attachment';
+}
+
 /** /api/reports/signed のクエリ：report=<uuid>（いまのサイン）か、&history=<番号>（取り消したサイン）。 */
 export function parseSignedPdfQuery(url: string): { reportId: string; history: number | null } | { error: string } {
   const q = new URL(url).searchParams;

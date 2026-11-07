@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { jpDateTime } from '@/lib/calc/format';
+import { downloadHref, pdfViewerHref } from '@/lib/pdf-viewer';
 import { revokeClientSignature, type ClientConfirmationResult } from '@/lib/db/reports-actions';
 import { clientConfirmHref } from '@/lib/report/client-confirm';
 import { canRevokeSignature, canSign, revokeReasonSchema, SIGNATURE_NOTE, type ClientSignatureView } from '@/lib/report/client-signature';
@@ -33,6 +35,13 @@ interface Props {
 
 function signedPdfHref(reportId: string, history?: number): string {
   return `/api/reports/signed?report=${encodeURIComponent(reportId)}${history === undefined ? '' : `&history=${history}`}`;
+}
+
+/** サインした時点の PDF の「開く」（アプリの中の PDF ビューアー。戻るとこの画面）と「保存」（ダウンロード）。 */
+function signedPdfLinks(reportId: string, back: string, date: string, history?: number): { open: string; save: string } {
+  const src = signedPdfHref(reportId, history);
+  const title = `サインした時点の日報 ${date}${history === undefined ? '' : '（取り消し）'}`;
+  return { open: pdfViewerHref({ src, title, back }) ?? src, save: downloadHref(src) ?? src };
 }
 
 function ErrorBox({ message }: { message: string }) {
@@ -110,6 +119,8 @@ function RevokeButton({ reportId, expected, onChanged }: { reportId: string; exp
 /** 「お客様のサイン」の欄（日報を保存した後に出す）。 */
 export function ClientSignatureSection(props: Props) {
   const { reportId, siteId, date, signature, isAdmin, expected, onChanged, unsavedChanges } = props;
+  // PDF ビューアーの「戻る」で戻る先（日報の画面・承認の画面）
+  const pathname = usePathname();
   if (reportId === null) return null;
   const current = signature.current;
 
@@ -135,14 +146,20 @@ export function ClientSignatureSection(props: Props) {
           <p className="text-sm text-gray-600 dark:text-gray-400">{SIGNATURE_NOTE}</p>
           <div className="flex flex-wrap gap-2">
             {current.hasPdf && (
-              <a
-                href={signedPdfHref(reportId)}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-11 items-center justify-center rounded-lg border border-blue-700 px-3 text-sm font-medium text-blue-700 dark:border-blue-400 dark:text-blue-400"
-              >
-                サインした時点の PDF を開く
-              </a>
+              <>
+                <Link
+                  href={signedPdfLinks(reportId, pathname, date).open}
+                  className="inline-flex min-h-11 items-center justify-center rounded-lg border border-blue-700 px-3 text-sm font-medium text-blue-700 dark:border-blue-400 dark:text-blue-400"
+                >
+                  サインした時点の PDF を開く
+                </Link>
+                <a
+                  href={signedPdfLinks(reportId, pathname, date).save}
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-lg border border-gray-400 px-3 text-sm font-medium dark:border-gray-600"
+                >
+                  保存
+                </a>
+              </>
             )}
             {canRevokeSignature({ isAdmin, signed: true }) && <RevokeButton reportId={reportId} expected={expected} onChanged={onChanged} />}
           </div>
@@ -180,14 +197,20 @@ export function ClientSignatureSection(props: Props) {
                   {h.revokedAt ? `（${jpDateTime(h.revokedAt)} 取り消し）` : ''}
                 </span>
                 {h.pdfPath && (
-                  <a
-                    href={signedPdfHref(reportId, h.index)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex min-h-11 items-center font-medium text-blue-700 underline dark:text-blue-400"
-                  >
-                    PDF を開く
-                  </a>
+                  <>
+                    <Link
+                      href={signedPdfLinks(reportId, pathname, date, h.index).open}
+                      className="inline-flex min-h-11 items-center font-medium text-blue-700 underline dark:text-blue-400"
+                    >
+                      PDF を開く
+                    </Link>
+                    <a
+                      href={signedPdfLinks(reportId, pathname, date, h.index).save}
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center font-medium text-blue-700 underline dark:text-blue-400"
+                    >
+                      保存
+                    </a>
+                  </>
                 )}
               </li>
             ))}
