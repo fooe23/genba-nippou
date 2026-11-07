@@ -82,6 +82,9 @@ export function canEditIssueContent(p: {
   return p.createdBy !== null && p.createdBy === p.currentUserId;
 }
 
+/** お客様の確認を受けた件を消そうとしたとき（gn_report_issues_delete_guard の issue_confirmed。2026-11-13）。 */
+export const ISSUE_CONFIRMED_DELETE_MESSAGE = 'お客様の確認を受けた件は消せません';
+
 /** 件を直す・消すときの DB のエラー（gn_report_issues_guard / gn_report_issues_delete_guard）の文言。該当しなければ null。 */
 export function issueEditErrorMessage(dbMessage: string, op: 'update' | 'delete'): string | null {
   if (dbMessage.includes('issue_locked')) {
@@ -93,6 +96,7 @@ export function issueEditErrorMessage(dbMessage: string, op: 'update' | 'delete'
   if (dbMessage.includes('issue_not_own')) return '協力会社のアカウントでは、自分が作った日報の件だけ直す・消すことができます';
   if (dbMessage.includes('issue_in_use')) return 'この件を選んでいる作業内容の行があります。先に行の根拠の件を外してください';
   if (dbMessage.includes('issue_has_attachments')) return '写真・資料が付いている件は消せません。先に添付を消してください';
+  if (dbMessage.includes('issue_confirmed')) return ISSUE_CONFIRMED_DELETE_MESSAGE;
   return null;
 }
 

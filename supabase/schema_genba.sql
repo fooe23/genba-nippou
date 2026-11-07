@@ -887,7 +887,8 @@ create trigger gn_report_issues_guard before insert or update on public.gn_repor
 
 -- 件の削除（2026-11-11）。件の日報が下書きか差戻しのあいだだけ消せる（管理者も同じ。issue_locked）。協力会社は自分が作った
 -- 日報の件だけ（issue_not_own）。作業内容の行が根拠の件にしている件（issue_in_use）と、写真・資料が付いている件
--- （issue_has_attachments。協力会社に見えないファイルも数える）は消せない。security definer：行・添付の有無を RLS に関係なく見る。
+-- （issue_has_attachments。協力会社に見えないファイルも数える）と、お客様の確認を受けた件（取り消されていない確認がある件。
+-- issue_confirmed。2026-11-13）は消せない。security definer：行・添付の有無を RLS に関係なく見る。
 -- 親の日報がもう無い＝日報を消したときの連鎖削除は、日報の削除の権限で決まっているので通す。
 -- auth.uid() が無い呼び出し（SQL Editor・service role）も通す。
 create or replace function public.gn_report_issues_delete_guard()
@@ -921,6 +922,10 @@ begin
   end if;
   if exists (select 1 from public.gn_attachments a where a.issue_id = old.id) then
     raise exception using message = 'issue_has_attachments';
+  end if;
+  -- お客様の確認を受けた件（取り消されていない確認がある件）は消せない（2026-11-13）
+  if exists (select 1 from public.gn_issue_client_confirmations c where c.issue_id = old.id and c.revoked_at is null) then
+    raise exception using message = 'issue_confirmed';
   end if;
   return old;
 end;

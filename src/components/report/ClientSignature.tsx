@@ -1,27 +1,19 @@
 'use client';
 
-import { useRef, useState, useTransition } from 'react';
+import { useState, useTransition } from 'react';
+import Link from 'next/link';
 import { jpDateTime } from '@/lib/calc/format';
-import { revokeClientSignature, saveClientSignature, type ClientConfirmationResult } from '@/lib/db/reports-actions';
-import {
-  canRevokeSignature,
-  canSign,
-  revokeReasonSchema,
-  SIGNATURE_IMAGE_FAILED_MESSAGE,
-  SIGNATURE_NOTE,
-  signatureFormSchema,
-  signaturePath,
-  type ClientSignatureView,
-} from '@/lib/report/client-signature';
+import { revokeClientSignature, type ClientConfirmationResult } from '@/lib/db/reports-actions';
+import { clientConfirmHref } from '@/lib/report/client-confirm';
+import { canRevokeSignature, canSign, revokeReasonSchema, SIGNATURE_NOTE, type ClientSignatureView } from '@/lib/report/client-signature';
 import { STALE_CONFIRMATION_MESSAGE } from '@/lib/report/rows';
-import { createBrowserSupabase } from '@/lib/supabase/client';
 import { EditDialog } from '@/components/masters/EditDialog';
-import { fieldClass, TextInput } from './inputs';
-import { SignaturePad, type SignaturePadHandle } from './SignaturePad';
+import { fieldClass } from './inputs';
 
-// 日報画面の「お客様のサイン」。サインが無ければ確認者・メモと「サインをもらう」（サインの欄を開く）。
+// 日報画面の「お客様のサイン」。サインが無ければ「サインをもらう（お客様用の画面へ）」（お客様用の確認画面
+// /sites/[siteId]/reports/[date]/client に移る。2026-11-13。その場のサインの欄はやめた）。
 // 保存すると確認者・日時・メモ・サインが固定され、その時点のお客様用日報 PDF が残る。取り消しは管理者だけ（理由必須）。
-// どの状態の日報でも・完了現場でも、現場メンバーならサインをもらえる（最終判定は DB）。
+// どの状態の日報でも・完了現場でも、現場メンバーならサインをもらえる（最終判定は DB）。日報が未保存のあいだは出さない。
 
 const FAILED = '保存できませんでした。通信状況を確認してもう一度お試しください。';
 const buttonBase = 'min-h-11 rounded-lg px-4 text-base font-bold disabled:opacity-50';
@@ -29,10 +21,11 @@ const buttonBase = 'min-h-11 rounded-lg px-4 text-base font-bold disabled:opacit
 interface Props {
   reportId: string | null;
   siteId: string;
+  /** 日報の日付（お客様用の確認画面の URL に使う）。 */
+  date: string;
   signature: ClientSignatureView;
-  /** 確認者の初期値（客先確認の記録があればその名前）。 */
-  defaultConfirmedBy: string;
-  defaultNote: string;
+  /** 日報に保存していない変更がある（お客様用の確認画面には保存した内容が出る）。 */
+  unsavedChanges?: boolean;
   isAdmin: boolean;
   expected: string | null;
   onChanged: (updatedAt: string | null) => void;
@@ -47,113 +40,6 @@ function ErrorBox({ message }: { message: string }) {
     <p role="alert" className="rounded-lg border border-red-500 bg-red-50 p-3 text-red-900 dark:bg-red-950 dark:text-red-50">
       {message}
     </p>
-  );
-}
-
-/** サインをもらう（確認者・メモ・サインの欄・書き直す・サインを保存）。 */
-function SignForm({
-  reportId,
-  siteId,
-  defaultConfirmedBy,
-  defaultNote,
-  expected,
-  onChanged,
-  onClose,
-}: Omit<Props, 'signature' | 'isAdmin' | 'reportId'> & { reportId: string; onClose: () => void }) {
-  const [by, setBy] = useState(defaultConfirmedBy);
-  const [note, setNote] = useState(defaultNote);
-  const [error, setError] = useState<string | null>(null);
-  const [sending, setSending] = useState(false);
-  const pad = useRef<SignaturePadHandle | null>(null);
-  // 二度押しの防止（state の更新を待たずに、同期で止める）
-  const inFlight = useRef(false);
-
-  async function save() {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    try {
-      await saveOnce();
-    } finally {
-      inFlight.current = false;
-    }
-  }
-
-  async function saveOnce() {
-    const checked = signatureFormSchema.safeParse({ confirmedBy: by, note });
-    if (!checked.success) {
-      setError(checked.error.issues[0]?.message ?? '入力内容が正しくありません');
-      return;
-    }
-    const png = await pad.current?.toPng();
-    if (!png) return;
-    if ('error' in png) {
-      setError(png.error);
-      return;
-    }
-    setError(null);
-    setSending(true);
-    try {
-      // サインの画像は本人のログインで Storage に置く（ランダムな名前。上書きしない）
-      const path = signaturePath(siteId, crypto.randomUUID());
-      const body = new File([png.blob], 'signature.png', { type: 'image/png' });
-      const { error: upError } = await createBrowserSupabase()
-        .storage.from('gn-photos')
-        .upload(path, body, { contentType: 'image/png', upsert: false });
-      if (upError) {
-        console.error('[signature upload]', upError.message);
-        setError(SIGNATURE_IMAGE_FAILED_MESSAGE);
-        return;
-      }
-      let res: ClientConfirmationResult;
-      try {
-        res = await saveClientSignature(reportId, { ...checked.data, signaturePath: path }, expected);
-      } catch {
-        res = { ok: false, error: FAILED };
-      }
-      if (!res.ok) {
-        setError(res.stale ? STALE_CONFIRMATION_MESSAGE : res.error);
-        return;
-      }
-      onChanged(res.updatedAt);
-      onClose();
-    } catch (e) {
-      console.error('[signature]', e);
-      setError(FAILED);
-    } finally {
-      setSending(false);
-    }
-  }
-
-  return (
-    <div className="space-y-3">
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium">確認者（必須）</span>
-        <TextInput value={by} maxLength={100} placeholder="例：施主 〇〇様" onChange={setBy} />
-      </label>
-      <label className="block">
-        <span className="mb-1 block text-sm font-medium">メモ（500文字まで）</span>
-        <textarea value={note} maxLength={500} rows={2} onChange={(e) => setNote(e.target.value)} className={`${fieldClass} py-2`} />
-      </label>
-      <SignaturePad handleRef={pad} disabled={sending} onChange={() => setError(null)} />
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={() => pad.current?.clear()}
-          disabled={sending}
-          className={`${buttonBase} flex-1 border border-blue-700 text-blue-700 dark:border-blue-400 dark:text-blue-400`}
-        >
-          書き直す
-        </button>
-        <button type="button" onClick={() => void save()} disabled={sending} className={`${buttonBase} flex-1 bg-blue-700 text-white`}>
-          {sending ? '保存中…' : 'サインを保存'}
-        </button>
-      </div>
-      <p className="text-sm text-gray-600 dark:text-gray-400">保存すると、確認者・日時・メモと一緒に残ります。{SIGNATURE_NOTE}</p>
-      {error && <ErrorBox message={error} />}
-      <button type="button" onClick={onClose} disabled={sending} className="min-h-11 text-sm font-medium text-blue-700 underline dark:text-blue-400">
-        やめる
-      </button>
-    </div>
   );
 }
 
@@ -223,8 +109,7 @@ function RevokeButton({ reportId, expected, onChanged }: { reportId: string; exp
 
 /** 「お客様のサイン」の欄（日報を保存した後に出す）。 */
 export function ClientSignatureSection(props: Props) {
-  const { reportId, signature, isAdmin, expected, onChanged } = props;
-  const [signing, setSigning] = useState(false);
+  const { reportId, siteId, date, signature, isAdmin, expected, onChanged, unsavedChanges } = props;
   if (reportId === null) return null;
   const current = signature.current;
 
@@ -262,15 +147,24 @@ export function ClientSignatureSection(props: Props) {
             {canRevokeSignature({ isAdmin, signed: true }) && <RevokeButton reportId={reportId} expected={expected} onChanged={onChanged} />}
           </div>
         </div>
-      ) : signing ? (
-        <SignForm {...props} reportId={reportId} onClose={() => setSigning(false)} />
       ) : (
         canSign({ reportId, signed: false }) && (
           <div className="space-y-2">
-            <p className="text-sm text-gray-600 dark:text-gray-400">お客様に確認してもらい、その場で指でサインをもらいます。{SIGNATURE_NOTE}</p>
-            <button type="button" onClick={() => setSigning(true)} className={`${buttonBase} w-full bg-blue-700 text-white sm:w-auto`}>
-              サインをもらう
-            </button>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              お客様用の確認画面（社内の情報を出さない画面）に切り替えて、端末をお客様に渡します。確認していただく件を選び、指でサインをもらいます。
+              社内の画面に戻るには「社内の画面に戻る」を長押しします。{SIGNATURE_NOTE}
+            </p>
+            {unsavedChanges && (
+              <p role="note" className="text-sm font-bold text-amber-800 dark:text-amber-300">
+                保存していない変更は、お客様用の確認画面に出ません。先に保存してください。
+              </p>
+            )}
+            <Link
+              href={clientConfirmHref(siteId, date)}
+              className={`${buttonBase} inline-flex w-full items-center justify-center bg-blue-700 text-white sm:w-auto`}
+            >
+              サインをもらう（お客様用の画面へ）
+            </Link>
           </div>
         )
       )}

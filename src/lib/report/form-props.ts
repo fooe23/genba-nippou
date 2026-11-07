@@ -7,7 +7,15 @@ import { isEmployeeOrAdmin, type Profile } from '@/lib/db/profile';
 import { listAttachmentsForIssues, listAttachmentsForReport, signedUrls } from '@/lib/db/attachments';
 import type { Attachment } from '@/lib/db/attachments-schemas';
 import type { AttachmentView } from '@/components/attachments/types';
-import { getMySiteRole, listIssuesForReport, listOpenFixRequestsForReport, listOpenIssues, listReportHeads, type ReportDetail } from '@/lib/db/reports';
+import {
+  getMySiteRole,
+  listIssueConfirmations,
+  listIssuesForReport,
+  listOpenFixRequestsForReport,
+  listOpenIssues,
+  listReportHeads,
+  type ReportDetail,
+} from '@/lib/db/reports';
 import { canRequestReportFix, canReviewSite } from '@/lib/report/issue-status';
 import { getSettings } from '@/lib/db/settings';
 import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-signature';
@@ -153,9 +161,10 @@ export async function loadReportFormProps(
     report.head ? listAttachmentsForReport(report.head.id) : Promise.resolve<Attachment[]>([]),
     report.head ? loadSignatureView(report.head.id) : Promise.resolve(NO_SIGNATURE),
   ]);
-  const attachmentViews = await loadAttachmentViews(reportAttachments, [
-    ...openIssues.map((i) => i.id),
-    ...issues.map((i) => i.id),
+  const issueIds = [...openIssues.map((i) => i.id), ...issues.map((i) => i.id)];
+  const [attachmentViews, confirmations] = await Promise.all([
+    loadAttachmentViews(reportAttachments, issueIds),
+    listIssueConfirmations(issueIds),
   ]);
   const used = { workers: new Set<string>(), suppliers: new Set<string>(), vehicles: new Set<string>(), leaseItems: new Set<string>() };
   for (const l of report.lines) {
@@ -260,5 +269,6 @@ export async function loadReportFormProps(
         ? { by: head.clientConfirmedBy ?? '', at: head.clientConfirmedAt, note: head.clientConfirmedNote ?? '' }
         : null,
     clientSignature: signature,
+    issueConfirmations: Object.fromEntries(confirmations),
   };
 }

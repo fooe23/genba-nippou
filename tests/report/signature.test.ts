@@ -165,11 +165,11 @@ describe('取り消したサインの記録・PDF のクエリ', () => {
     const h = parseSignatureHistory([
       { pdf_path: 'a.pdf', signed_at: '2026-11-06T07:20:00+00:00', confirmed_by: '佐藤様', revoked_at: '2026-11-07T00:00:00+00:00', reason: '名前違い' },
       null,
-      { reason: '理由だけ' },
+      { reason: '理由だけ', issue_ids: [] },
     ]);
     expect(h).toEqual([
-      { index: 0, pdfPath: 'a.pdf', signedAt: '2026-11-06T07:20:00+00:00', confirmedBy: '佐藤様', revokedAt: '2026-11-07T00:00:00+00:00', reason: '名前違い' },
-      { index: 2, pdfPath: null, signedAt: null, confirmedBy: '', revokedAt: null, reason: '理由だけ' },
+      { index: 0, pdfPath: 'a.pdf', signedAt: '2026-11-06T07:20:00+00:00', confirmedBy: '佐藤様', revokedAt: '2026-11-07T00:00:00+00:00', reason: '名前違い', recordsIssues: false },
+      { index: 2, pdfPath: null, signedAt: null, confirmedBy: '', revokedAt: null, reason: '理由だけ', recordsIssues: true },
     ]);
     expect(parseSignatureHistory(null)).toEqual([]);
   });

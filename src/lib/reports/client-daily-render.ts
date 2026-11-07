@@ -3,6 +3,7 @@ import { downloadAttachment, listAttachmentsForIssues, listAttachmentsForReport,
 import { downloadObject, getClientSignatureState, SIGNATURE_BUCKET } from '@/lib/db/client-signature';
 import type { Attachment } from '@/lib/db/attachments-schemas';
 import { getCurrentProfile, isEmployeeOrAdmin } from '@/lib/db/profile';
+import { isSignatureBeforeIssueConfirmations } from '@/lib/report/client-signature';
 import { getReportKey, listConfirmedIssueIdsForReport, listIssuesByIds, listIssuesForReports } from '@/lib/db/reports';
 import { loadDailyReportInput } from '@/lib/db/reports-data';
 import { getSite, type Site } from '@/lib/db/sites';
@@ -19,6 +20,7 @@ import type { DailyClientConfirmation } from '@/lib/reports/types';
 // 出して PDF は作る。
 // 確認していただく件（2026-11-13）：サインを保存するときは選んだ件（issueIds）。それ以外は、サインのある日報ならそのサインで
 // 記録した件（取り消していないもの）、サインの無い日報ならその日報の件。どれもやり直しの件は除く。
+// 件ごとの確認を記録する前（第 4 段階より前）にもらったサインの日報は、その日報の件（isSignatureBeforeIssueConfirmations）。
 // 見積書の列：協力会社のアカウントには見積書（file の添付）が見えず、「見積書あり／なし」も見せない決まりなので、協力会社が
 // 作る PDF（サインを保存した時点の PDF）には見積書の列を出さない。社員・管理者が作る PDF には出す。
 
@@ -72,8 +74,12 @@ async function signatureAndIssueIds(
   const state = await getClientSignatureState(reportId);
   const signed = state?.current ?? null;
   const signaturePng = opts.signaturePng ?? (signed ? ((await downloadObject(SIGNATURE_BUCKET, signed.path)) ?? undefined) : undefined);
-  const issueIds = opts.issueIds ?? (signed ? await listConfirmedIssueIdsForReport(reportId) : reportIssueIds);
-  return { signaturePng, issueIds };
+  if (opts.issueIds) return { signaturePng, issueIds: opts.issueIds };
+  if (!signed) return { signaturePng, issueIds: reportIssueIds };
+  const confirmed = await listConfirmedIssueIdsForReport(reportId);
+  // 件ごとの確認を記録する前（第 4 段階より前）にもらったサインは、その日報の件を載せる（「ありません」にしない）
+  const legacy = isSignatureBeforeIssueConfirmations({ confirmedIssueIds: confirmed, history: state?.history ?? [] });
+  return { signaturePng, issueIds: legacy ? reportIssueIds : confirmed };
 }
 
 async function loadImage(a: Attachment | undefined): Promise<ClientPhotoImage['image']> {

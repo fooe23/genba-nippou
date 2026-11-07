@@ -24,9 +24,11 @@ interface Props {
   /** 親が PNG を取り出すための口。 */
   handleRef: React.RefObject<SignaturePadHandle | null>;
   disabled?: boolean;
+  /** 欄の高さ（Tailwind のクラス）。既定は h-[clamp(190px,45vh,320px)]。 */
+  heightClass?: string;
 }
 
-export function SignaturePad({ onChange, handleRef, disabled }: Props) {
+export function SignaturePad({ onChange, handleRef, disabled, heightClass = 'h-[clamp(190px,45vh,320px)]' }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const strokes = useRef<Point[][]>([]);
@@ -139,7 +141,7 @@ export function SignaturePad({ onChange, handleRef, disabled }: Props) {
   return (
     <div
       ref={wrapRef}
-      className="relative h-[clamp(190px,45vh,320px)] w-full overflow-hidden rounded-lg border-2 border-slate-700 bg-white"
+      className={`relative ${heightClass} w-full overflow-hidden rounded-lg border-2 border-slate-700 bg-white`}
     >
       <canvas
         ref={canvasRef}

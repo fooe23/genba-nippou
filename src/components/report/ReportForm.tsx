@@ -40,7 +40,9 @@ import { canEditClientConfirmation, type ClientSignatureView } from '@/lib/repor
 import { ImportDaySheet } from './ImportDaySheet';
 import { fieldClass, NumInput, Select, TextInput, TimeInput } from './inputs';
 import { FixRequestPanel } from './FixRequestPanel';
-import { IssueBanner, IssueKindTag } from './IssueBanner';
+import { IssueBanner, IssueClientConfirmBadge, IssueKindTag } from './IssueBanner';
+import { clientConfirmHref } from '@/lib/report/client-confirm';
+import type { IssueConfirmation } from '@/lib/report/issue-confirmations';
 import { IssueEditControls } from './IssueEditControls';
 import { IssueStatusChip } from './IssueStatusChip';
 import { ReopenApprovalButton, REOPENED_MESSAGE } from './ReopenApprovalButton';
@@ -123,6 +125,8 @@ export interface ReportFormProps {
   issueAttachments: Record<string, AttachmentView[]>;
   /** 社員・管理者（ファイル＝見積書などを見る・付ける、見積書の印を出す）。協力会社は false。 */
   isStaff: boolean;
+  /** 件ごとの最新のお客様確認（取り消されていないもの。件の id → 確認）。件の印「お客様の確認：未／確認済み MM/DD」に使う。 */
+  issueConfirmations: Record<string, IssueConfirmation>;
 }
 
 const SUBMIT_FAILED = '提出に失敗しました。通信状況を確認してもう一度お試しください。';
@@ -169,6 +173,8 @@ function IssueList({
   locked = false,
   attachmentsByIssue,
   viewer,
+  confirmations,
+  confirmHref,
   editable = false,
 }: {
   reportId: string | null;
@@ -180,6 +186,8 @@ function IssueList({
   locked?: boolean;
   attachmentsByIssue: Record<string, AttachmentView[]>;
   viewer: AttachmentViewer;
+  confirmations: Record<string, IssueConfirmation>;
+  confirmHref: ((issueId: string) => string) | null;
 }) {
   const [body, setBody] = useState('');
   const [kind, setKind] = useState<IssueKind>('other');
@@ -232,6 +240,7 @@ function IssueList({
                 </p>
                 <p className="text-sm text-gray-600 dark:text-gray-400">{issueDatesLine(i)}</p>
                 <IssueAttachmentBadges attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS} status={i.status} isStaff={viewer.isStaff} />
+                <IssueClientConfirmBadge issue={i} confirmation={confirmations[i.id]} href={confirmHref ? confirmHref(i.id) : null} />
               </div>
               <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={locked} onChanged={onChanged} />
               <IssueAttachments issueId={i.id} status={i.status} attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS} viewer={viewer} />
@@ -627,6 +636,8 @@ function ReportFormBody({
     isStaff: p.isStaff,
     siteClosed: !!p.siteClosed,
   };
+  // 件の「この件の確認をもらう」：保存済みの日報で、承認画面でないときだけ（この日報の日付のお客様用の確認画面を、その件に印を付けて開く）
+  const confirmHref = reportId !== null && !p.review ? (issueId: string) => clientConfirmHref(p.siteId, p.date, issueId) : null;
   // 日報の添付は下書き・差戻しのあいだだけ足す・消すができる（提出後はお客様用のチェックだけ）
   const reportAttachmentsLocked = !!p.siteClosed || !(p.status === 'draft' || p.status === 'rejected');
   const statusNote = pending
@@ -650,6 +661,8 @@ function ReportFormBody({
           readOnly={p.siteClosed}
           attachmentsByIssue={p.issueAttachments}
           viewer={attachmentViewer}
+          confirmations={p.issueConfirmations}
+          confirmHref={confirmHref}
         />
       )}
       <Link
@@ -703,9 +716,9 @@ function ReportFormBody({
       <ClientSignatureSection
         reportId={reportId}
         siteId={p.siteId}
+        date={p.date}
         signature={p.clientSignature}
-        defaultConfirmedBy={p.clientConfirmation?.by ?? ''}
-        defaultNote={p.clientConfirmation?.note ?? ''}
+        unsavedChanges={dirty}
         isAdmin={p.isAdmin}
         expected={expected}
         onChanged={onClientConfirmation}
@@ -913,6 +926,8 @@ function ReportFormBody({
         locked={p.siteClosed}
         attachmentsByIssue={p.issueAttachments}
         viewer={attachmentViewer}
+        confirmations={p.issueConfirmations}
+        confirmHref={confirmHref}
         editable={
           !p.review &&
           canEditIssueContent({

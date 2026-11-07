@@ -13,8 +13,10 @@
 --    同じ日報で取り消した後にサインを取り直し、同じ件をまた選んだときは、取り消した行を新しい確認で上書きする。
 -- 3. gn_revoke_client_signature：その日報の確認の行（取り消していないもの）に revoked_at・revoked_by を入れる（消さない）。
 --    取り消した記録（client_signature_history）に、そのサインで確認していただいた件の id（issue_ids）も残す。
+-- 4. gn_report_issues_delete_guard：お客様の確認を受けた件（取り消されていない確認がある件）は消せない（issue_confirmed）。
+--    今までの確かめはすべてそのまま（関数を作り直し、トリガーも付け直す）。
 --
--- 拒否の理由（足したもの）：invalid_issue。
+-- 拒否の理由（足したもの）：invalid_issue、issue_confirmed。
 
 begin;
 
@@ -274,5 +276,55 @@ end;
 $$;
 revoke all on function public.gn_revoke_client_signature(uuid, text, timestamptz) from public, anon;
 grant execute on function public.gn_revoke_client_signature(uuid, text, timestamptz) to authenticated;
+
+-- 件の削除（2026-11-11）。件の日報が下書きか差戻しのあいだだけ消せる（管理者も同じ。issue_locked）。協力会社は自分が作った
+-- 日報の件だけ（issue_not_own）。作業内容の行が根拠の件にしている件（issue_in_use）と、写真・資料が付いている件
+-- （issue_has_attachments。協力会社に見えないファイルも数える）と、お客様の確認を受けた件（取り消されていない確認がある件。
+-- issue_confirmed。2026-11-13）は消せない。security definer：行・添付の有無を RLS に関係なく見る。
+-- 親の日報がもう無い＝日報を消したときの連鎖削除は、日報の削除の権限で決まっているので通す。
+-- auth.uid() が無い呼び出し（SQL Editor・service role）も通す。
+create or replace function public.gn_report_issues_delete_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_site    uuid;
+  v_status  text;
+  v_creator uuid;
+begin
+  if auth.uid() is null then
+    return old;
+  end if;
+  select r.site_id, r.status, r.created_by into v_site, v_status, v_creator from public.gn_daily_reports r where r.id = old.report_id;
+  if not found then
+    return old;
+  end if;
+  if not public.gn_is_site_member(v_site) then
+    raise exception using message = 'report_not_found';
+  end if;
+  if public.gn_site_closed(v_site) then
+    raise exception using message = 'site_closed';
+  end if;
+  if v_status not in ('draft','rejected') then
+    raise exception using message = 'issue_locked';
+  end if;
+  if not (public.gn_is_employee_or_admin() or v_creator = auth.uid()) then
+    raise exception using message = 'issue_not_own';
+  end if;
+  if exists (select 1 from public.gn_report_lines l where l.issue_id = old.id) then
+    raise exception using message = 'issue_in_use';
+  end if;
+  if exists (select 1 from public.gn_attachments a where a.issue_id = old.id) then
+    raise exception using message = 'issue_has_attachments';
+  end if;
+  -- お客様の確認を受けた件（取り消されていない確認がある件）は消せない（2026-11-13）
+  if exists (select 1 from public.gn_issue_client_confirmations c where c.issue_id = old.id and c.revoked_at is null) then
+    raise exception using message = 'issue_confirmed';
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists gn_report_issues_delete_guard on public.gn_report_issues;
+create trigger gn_report_issues_delete_guard before delete on public.gn_report_issues
+  for each row execute function public.gn_report_issues_delete_guard();
 
 commit;

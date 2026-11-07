@@ -2051,6 +2051,30 @@ begin
       if n = 1 then rep := rep || E'PASS 18-11 gn_save_client_signature は 1 つだけ（古い 7 引数の版は無い）\n';
       else fails := fails + 1; rep := rep || format(E'FAIL 18-11 関数の数=%s\n', n); end if;
     end;
+
+    -- 18-12 お客様の確認を受けた件（取り消されていない確認がある件）は、下書きの日報でも消せない
+    begin
+      perform pg_temp.as_user(v_a);
+      delete from public.gn_report_issues where id = i18a;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 18-12 お客様の確認を受けた件の削除が通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_confirmed%' then rep := rep || E'PASS 18-12 お客様の確認を受けた件の削除は断る（issue_confirmed）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-12 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 18-13 確認が取り消しだけの件は消せる（取り消した確認の行も一緒に消える）
+    begin
+      perform pg_temp.as_user(v_a);
+      delete from public.gn_report_issues where id = i18p;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i18p;
+      select count(*) into n2 from public.gn_issue_client_confirmations where issue_id = i18p;
+      if n = 0 and n2 = 0 then rep := rep || E'PASS 18-13 確認が取り消しだけの件は消せる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-13 件=%s 確認の行=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 18-13 エラー: %s\n', sqlerrm);
+    end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 18 準備でエラー: %s\n', sqlerrm);
   end;
