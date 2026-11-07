@@ -12,7 +12,9 @@ import {
   clientDailyFooterText,
   clientDailyHeaderRows,
   clientDailyTables,
+  clientIssueTable,
   clientPhotosNote,
+  type ClientIssueRow,
   NO_ISSUES_TODAY,
   PHOTO_LOAD_FAILED,
 } from '@/lib/reports/client-daily-sections';
@@ -22,7 +24,7 @@ import type { DailyReportModel } from '@/lib/reports/types';
 
 // 現場日報（お客様用）の PDF（A4 縦・余白 15mm・本文 9pt。見た目と部品は common.tsx で社内用の日報と共通）。
 // 並び：題名・現場名・日付 → 見出し（現場名・日付・天候・作業責任者・作業時間）→ 本日の作業（＋作業員の人数と人工）→
-// 追加・変更のご連絡 → 写真（1 行 2 枚・4:3 の枠に収める・写真の下に文。行の途中で切らず、多ければ次のページへ）→
+// 確認していただく件（件・種別・内容・状態・見積書・写真）→ 写真（1 行 2 枚・4:3 の枠に収める・写真の下に文。行の途中で切らず、多ければ次のページへ）→
 // お客様確認と作成者（横に並べる）・お客様確認のメモ・サイン欄（高さ 30mm。サインの画像があれば中に出す）。
 // お客様確認の塊はページの途中で切らない。日報の無い日は「日報がありません」だけ。
 // react-pdf の Image は PdfImage の名前で使う（PDF の画像に alt は無い。HTML の img 用の lint の対象外にする）。
@@ -52,6 +54,10 @@ export interface ClientDailyPdfOptions {
   photos?: ClientPhotoImage[];
   /** お客様のサインの画像（PNG）。あればサイン欄の中に出す。無ければ空欄（印刷して手書き）。 */
   signaturePng?: Buffer;
+  /** 確認していただく件（clientDailyIssueList の並び）。無ければ「ありません」の 1 行。 */
+  issues?: ClientIssueRow[];
+  /** 確認していただく件の表に見積書の列を出すか（協力会社のアカウントで作るときは false）。既定は true。 */
+  showEstimate?: boolean;
 }
 
 const d = StyleSheet.create({
@@ -144,15 +150,20 @@ function ClientDailyDocument({
   outputAt,
   photos,
   signaturePng,
+  issues,
+  showEstimate,
 }: {
   model: DailyReportModel;
   outputAt: string;
   photos: ClientPhotoImage[];
   signaturePng?: Buffer;
+  issues: ClientIssueRow[];
+  showEstimate: boolean;
 }) {
   const h = model.header;
   const date = dailyDateLabel(h.date);
   const t = model.isEmpty ? null : clientDailyTables(model);
+  const issueTable = clientIssueTable(issues, { showEstimate });
   const header = clientDailyHeaderRows(model);
   const confirmation = clientDailyConfirmation(model);
   return (
@@ -179,7 +190,7 @@ function ClientDailyDocument({
                 </Text>
               ) : null}
             </View>
-            <TableSection title={CLIENT_DAILY_ISSUES_TITLE} table={t.issues} emptyText={NO_ISSUES_TODAY} />
+            <TableSection title={CLIENT_DAILY_ISSUES_TITLE} table={issueTable} emptyText={NO_ISSUES_TODAY} />
             {photos.length > 0 ? <PhotoSection photos={photos} /> : null}
             {/* お客様確認の塊（枠・メモ・サイン欄）はページの途中で切らない（入らなければ塊ごと次のページ）。
                 minPresenceAhead は塊の「後ろ」の高さを測るので使わない（余分なページができる）。 */}
@@ -219,6 +230,8 @@ export async function renderClientDailyReportPdf(model: DailyReportModel, opts: 
       outputAt={opts.outputAt ?? new Date().toISOString()}
       photos={model.isEmpty ? [] : (opts.photos ?? [])}
       signaturePng={opts.signaturePng}
+      issues={model.isEmpty ? [] : (opts.issues ?? [])}
+      showEstimate={opts.showEstimate ?? true}
     />,
   );
 }

@@ -4,6 +4,12 @@ import { requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { isInstructionMethod, isIssueKind, isIssueStatus, isSettlementMethod, UNFINISHED_ISSUE_STATUSES } from '@/lib/report/change-labels';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
+import {
+  ISSUE_CONFIRMATION_COLUMNS,
+  latestConfirmations,
+  type IssueConfirmation,
+  type IssueConfirmationRow,
+} from '@/lib/report/issue-confirmations';
 import type { InstructionMethod, IssueKind, IssueStatus, ReportLine, ReportStatus, SettlementMethod, SiteRole, TimeSpec } from '@/lib/types';
 
 // 日報まわりの読み取り（RLS 前提）。
@@ -542,4 +548,37 @@ export async function listOpenFixRequestsForReport(reportId: string): Promise<Re
     requestedByName: r.requested_by_name ?? '',
     requestedAt: r.requested_at,
   }));
+}
+
+// ─── 件ごとのお客様確認（2026-11-13。書くのは DB の gn_save_client_signature / gn_revoke_client_signature だけ） ───
+
+/** 件ごとの最新のお客様確認（取り消されていないもの）。確認の無い件はキーが無い。 */
+export async function listIssueConfirmations(issueIds: string[]): Promise<Map<string, IssueConfirmation>> {
+  const unique = [...new Set(issueIds)];
+  if (unique.length === 0) return new Map();
+  const supabase = await createServerSupabase();
+  const parts = await Promise.all(
+    chunk(unique, REPORT_ID_CHUNK).map(async (part) => {
+      const { data, error } = await supabase
+        .from('gn_issue_client_confirmations')
+        .select(ISSUE_CONFIRMATION_COLUMNS)
+        .in('issue_id', part)
+        .is('revoked_at', null);
+      if (error) throw new Error(`[listIssueConfirmations] ${error.message}`);
+      return (data ?? []) as IssueConfirmationRow[];
+    }),
+  );
+  return latestConfirmations(parts.flat());
+}
+
+/** その日報のサインで確認していただいた件の id（取り消されていないもの）。 */
+export async function listConfirmedIssueIdsForReport(reportId: string): Promise<string[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_issue_client_confirmations')
+    .select('issue_id')
+    .eq('report_id', reportId)
+    .is('revoked_at', null);
+  if (error) throw new Error(`[listConfirmedIssueIdsForReport] ${error.message}`);
+  return ((data ?? []) as { issue_id: string }[]).map((r) => r.issue_id);
 }

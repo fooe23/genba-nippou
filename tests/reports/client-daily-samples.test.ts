@@ -2,10 +2,12 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { describe, it } from 'vitest';
 import type { Issue } from '@/lib/db/reports';
 import { renderClientDailyReportPdf, type ClientPhotoImage } from '@/lib/pdf/client-daily-report';
+import { clientDailyIssueList, type ClientListIssue } from '@/lib/reports/client-daily-sections';
 import { issues, lines, changeWorkLines, report, sampleDaily } from './daily-fixture';
 import { samplePhoto, sampleSignature } from './png-fixture';
 
-// 現場日報（お客様用）の見本 PDF（写真 0・1・3・8 枚、サインあり・なし）を docs/superpowers/samples/ に書き出す。
+// 現場日報（お客様用）の見本 PDF（写真 0・1・3・8 枚、サインあり・なし。確認していただく件 3 件・写真 2 枚・サインあり）を
+// docs/superpowers/samples/ に書き出す。
 // ふだんは動かさない：WRITE_PDF_SAMPLES=1 npx vitest run tests/reports/client-daily-samples.test.ts
 
 const OUT = 'docs/superpowers/samples';
@@ -15,6 +17,24 @@ const sampleIssues: Issue[] = [
   { ...issues[0], id: 'i1', body: '2 階トイレの手すりを追加（施主様より）', kind: 'extra', instructedBy: '施主様', instructionMethod: 'oral' },
   { ...issues[1], id: 'i2', body: '外壁の色を変更（色見本で確認）', kind: 'change', instructedBy: '設計 山田', instructionMethod: 'phone', status: 'open', doneAt: null },
 ];
+
+/** 確認していただく件（前の日の見積中の件・その日の件 2 件。やり直しの件は選んでいても出ない）。 */
+const confirmIssues: ClientListIssue[] = [
+  { id: 'i1', reportDate: '2026-11-02', number: 1, kind: 'extra', body: '2 階トイレの手すりを追加（施主様より）', status: 'open' },
+  { id: 'i2', reportDate: '2026-11-02', number: 2, kind: 'change', body: '外壁の色を変更（色見本で確認）', status: 'open' },
+  { id: 'i0', reportDate: '2026-10-30', number: 3, kind: 'site_judgment', body: '土間の下地が傷んでいたため補修。範囲と費用はご相談', status: 'estimating' },
+  { id: 'ir', reportDate: '2026-11-02', number: 3, kind: 'rework', body: '自社の手直し', status: 'open' },
+];
+const att = (kind: 'photo' | 'file', clientVisible = kind === 'photo') => ({ kind, clientVisible });
+const confirmRows = (ids: string[]) =>
+  clientDailyIssueList(
+    confirmIssues,
+    new Map([
+      ['i0', [att('file'), att('photo'), att('photo')]],
+      ['i1', [att('photo'), att('photo', false)]],
+    ]),
+    ids,
+  );
 
 const CAPTIONS = [
   '11/02-1 手すりの位置',
@@ -68,8 +88,21 @@ describe.skipIf(!process.env.WRITE_PDF_SAMPLES)('見本 PDF を書き出す', ()
         outputAt: AT,
         photos: list,
         signaturePng: signed ? sampleSignature() : undefined,
+        issues: confirmRows(['i1', 'i2']),
       });
       writeFileSync(`${OUT}/client-daily-photos-${name}.pdf`, pdf);
     }
+  }, 120_000);
+
+  it('確認していただく件 3 件（見積中・見積書あり）・写真 2 枚・サインあり', async () => {
+    mkdirSync(OUT, { recursive: true });
+    const pdf = await renderClientDailyReportPdf(signedModel(), {
+      outputAt: AT,
+      photos: photos(2),
+      signaturePng: sampleSignature(),
+      issues: confirmRows(['i1', 'i2', 'i0', 'ir']),
+      showEstimate: true,
+    });
+    writeFileSync(`${OUT}/client-daily-issues-signed.pdf`, pdf);
   }, 120_000);
 });

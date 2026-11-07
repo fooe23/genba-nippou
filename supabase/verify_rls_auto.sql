@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -1884,6 +1884,175 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 17 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 18. 件ごとのお客様確認（update_2026-11-13） =====
+  -- A（現場 X の協力会社の担当）が 12-19・12-20 の日報と件を作る。管理者が A の割り当ての無い現場 S18 の日報と件を作る。
+  -- サインの画像と PDF の実体は SQL Editor で置く（関数が有無・置いた人を見る）。
+  declare
+    s18 uuid := '00000000-0000-0000-0000-0000000000d3';
+    r18 uuid; r18p uuid; r18y uuid; i18a uuid; i18r uuid; i18p uuid; i18y uuid;
+    g18 text; g18b text; pdf18 text; pdf18b text; ts18 timestamptz;
+  begin
+    insert into public.gn_sites (id, name) values (s18, '検証現場S18');
+    perform pg_temp.as_user(v_a);
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-12-19', 'weather', '晴れ'), '[]'::jsonb) into r18p;
+    insert into public.gn_report_issues (site_id, report_id, body, kind) values (x, r18p, '前の日の対応中の件', 'change') returning id into i18p;
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-12-20', 'weather', '晴れ'), '[]'::jsonb) into r18;
+    insert into public.gn_report_issues (site_id, report_id, body, kind) values (x, r18, '棚を追加', 'extra') returning id into i18a;
+    insert into public.gn_report_issues (site_id, report_id, body, kind) values (x, r18, '自社の手直し', 'rework') returning id into i18r;
+    perform pg_temp.as_user(v_admin);
+    select public.gn_save_report(jsonb_build_object('site_id', s18, 'report_date', '2026-12-20', 'weather', '晴れ'), '[]'::jsonb) into r18y;
+    insert into public.gn_report_issues (site_id, report_id, body, kind) values (s18, r18y, 'ほかの現場の件', 'extra') returning id into i18y;
+    perform pg_temp.as_editor();
+    g18 := x::text || '/sign/' || gen_random_uuid()::text || '.png';
+    g18b := x::text || '/sign/' || gen_random_uuid()::text || '.png';
+    pdf18 := x::text || '/signed/' || r18::text || '-1796000000000.pdf';
+    pdf18b := x::text || '/signed/' || r18::text || '-1796000001000.pdf';
+    insert into storage.objects (bucket_id, name, owner, metadata) values
+      ('gn-photos',  g18,    v_a, '{"size": 20000}'::jsonb),
+      ('gn-photos',  g18b,   v_a, '{"size": 20000}'::jsonb),
+      ('gn-exports', pdf18,  v_a, '{"size": 300000}'::jsonb),
+      ('gn-exports', pdf18b, v_a, '{"size": 300000}'::jsonb),
+      ('gn-photos',  s18::text || '/sign/00000000-0000-0000-0000-0000000000f8.png', v_admin, '{"size": 20000}'::jsonb),
+      ('gn-exports', s18::text || '/signed/' || r18y::text || '-1.pdf', v_admin, '{"size": 300000}'::jsonb);
+
+    -- 18-1 ほかの現場の件・やり直しの件・無い件・null を含む一覧ではサインを保存できない（サインも入らない）
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_client_signature(r18, '施主様', '', now(), g18, pdf18, null, array[i18a, i18y]);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 18-1 ほかの現場の件で確認を記録できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%invalid_issue%' then rep := rep || E'PASS 18-1 ほかの現場の件は記録できない（invalid_issue）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-1 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_client_signature(r18, '施主様', '', now(), g18, pdf18, null, array[i18r]);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 18-2 やり直しの件で確認を記録できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%invalid_issue%' then rep := rep || E'PASS 18-2 やり直しの件は記録できない（invalid_issue）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-2 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_client_signature(r18, '施主様', '', now(), g18, pdf18, null, array[i18a, gen_random_uuid()]);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 18-3 無い件で確認を記録できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%invalid_issue%' then rep := rep || E'PASS 18-3 無い件は記録できない（invalid_issue）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-3 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_client_signature(r18, '施主様', '', now(), g18, pdf18, null, array[i18a, null]::uuid[]);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 18-4 null を含む一覧で記録できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_daily_reports where id = r18 and client_signature_path is null;
+      if sqlerrm like '%invalid_issue%' and n = 1 then rep := rep || E'PASS 18-4 null を含む一覧は記録できない（invalid_issue）。断ったときはサインも入らない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-4 想定外: %s サインなし=%s\n', sqlerrm, n); end if;
+    end;
+
+    -- 18-5 協力会社の担当 A は、その日報の件と前の日の件の確認を記録できる（重複は 1 行）
+    begin
+      perform pg_temp.as_user(v_a);
+      select public.gn_save_client_signature(r18, ' 施主 佐藤様 ', '', now(), g18, pdf18, null, array[i18a, i18p, i18a, i18p]) into ts18;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_issue_client_confirmations
+       where report_id = r18 and site_id = x and issue_id in (i18a, i18p) and confirmed_on = '2026-12-20'
+         and confirmed_by = '施主 佐藤様' and created_by = v_a and revoked_at is null and revoked_by is null
+         and signed_at = (select client_signed_at from public.gn_daily_reports where id = r18);
+      select count(*) into n2 from public.gn_issue_client_confirmations where report_id = r18;
+      if n = 2 and n2 = 2 then rep := rep || E'PASS 18-5 サインと一緒に件ごとの確認が入る（その日報の日付・確認者。重複は 1 行）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-5 行=%s 全部=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 18-5 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 18-6 確認の行は直接は入れられない・変えられない・消せない（管理者も）
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_issue_client_confirmations (issue_id, report_id, site_id, confirmed_on, confirmed_by, signed_at)
+      values (i18p, r18p, x, '2026-12-19', '偽の確認', now());
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 18-6 確認の行を直接入れられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%row-level security%' or sqlerrm like '%permission denied%' then rep := rep || E'PASS 18-6 確認の行は直接入れられない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-6 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_admin);
+      update public.gn_issue_client_confirmations set revoked_at = now(), revoked_by = v_admin where report_id = r18;
+      get diagnostics n = row_count;
+      delete from public.gn_issue_client_confirmations where report_id = r18;
+      get diagnostics n2 = row_count;
+      perform pg_temp.as_editor();
+      if n = 0 and n2 = 0 then rep := rep || E'PASS 18-7 確認の行は管理者も直接変えられない・消せない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-7 変えた=%s 消した=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%permission denied%' then rep := rep || E'PASS 18-7 確認の行は管理者も直接変えられない・消せない（permission denied）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-7 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 18-8 協力会社も自分の現場の確認は読める。割り当ての無い現場（S18。管理者がサインした）の確認は読めない
+    begin
+      perform pg_temp.as_user(v_admin);
+      perform public.gn_save_client_signature(r18y, '施主様', '', now(),
+        s18::text || '/sign/00000000-0000-0000-0000-0000000000f8.png', s18::text || '/signed/' || r18y::text || '-1.pdf', null, array[i18y]);
+      perform pg_temp.as_user(v_a);
+      select count(*) into n from public.gn_issue_client_confirmations where report_id = r18;
+      select count(*) into n2 from public.gn_issue_client_confirmations where site_id = s18;
+      perform pg_temp.as_editor();
+      select count(*) into num from public.gn_issue_client_confirmations where site_id = s18;
+      if n = 2 and n2 = 0 and num = 1 then rep := rep || E'PASS 18-8 協力会社は自分の現場の件の確認を読める（割り当ての無い現場の確認は読めない）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-8 A の現場=%s A から S18=%s S18 の行=%s\n', n, n2, num); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 18-8 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 18-9 管理者がサインを取り消すと、そのサインでの件の確認は消さずに「取り消し」になる（記録に件の id も残る）
+    begin
+      perform pg_temp.as_user(v_admin);
+      perform public.gn_revoke_client_signature(r18, '確認者の間違い');
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_issue_client_confirmations
+       where report_id = r18 and revoked_at is not null and revoked_by = v_admin;
+      select count(*) into n2 from public.gn_daily_reports
+       where id = r18 and jsonb_array_length(client_signature_history->0->'issue_ids') = 2;
+      if n = 2 and n2 = 1 then rep := rep || E'PASS 18-9 取り消しで件の確認は revoked になる（行は残る・記録に件の id）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-9 取り消し=%s 記録=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 18-9 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 18-10 取り消した後にサインを取り直すと、選んだ件だけ確認し直しになる（選ばなかった件は取り消しのまま）
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_client_signature(r18, '施主 佐藤 様', '', now(), g18b, pdf18b, null, array[i18a]);
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_issue_client_confirmations
+       where report_id = r18 and issue_id = i18a and revoked_at is null and revoked_by is null and confirmed_by = '施主 佐藤 様';
+      select count(*) into n2 from public.gn_issue_client_confirmations
+       where report_id = r18 and issue_id = i18p and revoked_at is not null;
+      if n = 1 and n2 = 1 then rep := rep || E'PASS 18-10 取り直したサインで選んだ件は確認し直し、選ばなかった件は取り消しのまま\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-10 確認し直し=%s 取り消しのまま=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 18-10 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 18-11 件の一覧を渡さない呼び出し（引数 6 つ）も今までどおり通る
+    begin
+      select count(*) into n from pg_proc p join pg_namespace s on s.oid = p.pronamespace
+       where s.nspname = 'public' and p.proname = 'gn_save_client_signature';
+      if n = 1 then rep := rep || E'PASS 18-11 gn_save_client_signature は 1 つだけ（古い 7 引数の版は無い）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 18-11 関数の数=%s\n', n); end if;
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 18 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

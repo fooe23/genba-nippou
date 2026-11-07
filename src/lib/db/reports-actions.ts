@@ -22,7 +22,7 @@ import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
 import { listLeaseItems, listVehicles, listWorkers } from '@/lib/db/masters';
-import { getPreviousReport } from '@/lib/db/reports';
+import { getPreviousReport, listIssuesByIds } from '@/lib/db/reports';
 import { getSettings } from '@/lib/db/settings';
 import {
   copyableLines,
@@ -47,6 +47,7 @@ import { createServerSupabase } from '@/lib/supabase/server';
 import {
   checkSignaturePng,
   clientSignatureSchema,
+  INVALID_ISSUE_MESSAGE,
   isSignaturePathFor,
   REPORT_SIGNED_DELETE_MESSAGE,
   REVOKE_ADMIN_ONLY_MESSAGE,
@@ -571,9 +572,11 @@ export async function clearClientConfirmation(reportId: string, expectedUpdatedA
 // gn-exports/<site_id>/signed/<report_id>-<ミリ秒>.pdf に置く → DB の gn_save_client_signature が規約・実体・置いた人を確かめて
 // 列を入れる（確認者・日時・メモも固定）。途中で失敗したら列は入らない（置いた実体は残るが、画面には出ない・害は無い）。
 // どの状態の日報でも・完了現場でも、現場メンバー（協力会社を含む）なら保存できる。
+// 確認していただく件（issueIds。2026-11-13）：PDF の「確認していただく件」に載せ、DB が件ごとの確認を同じ処理の中で記録する。
 
 /**
  * お客様のサインを保存する。expectedUpdatedAt を渡すと、その版のときだけ保存し、違えば stale。
+ * input.issueIds はお客様に確認していただいた件（その現場の件・やり直し以外・50 件まで。重複は除く）。
  * updatedAt は保存後の版（日報画面の楽観ロック用）。
  */
 export async function saveClientSignature(
@@ -605,6 +608,15 @@ export async function saveClientSignature(
     if (expected !== null && h.updated_at !== expected) return { ok: false, error: STALE_CONFIRMATION_MESSAGE, stale: true };
     if (!isSignaturePathFor(h.site_id, v.data.signaturePath)) return { ok: false, error: SIGNATURE_IMAGE_FAILED_MESSAGE };
 
+    // 確認していただく件：どれもこの現場の件で、やり直しでないこと（DB も同じことを確かめる。PDF を置く前に止める）
+    const issueIds = v.data.issueIds;
+    if (issueIds.length > 0) {
+      const found = await listIssuesByIds(issueIds);
+      if (found.length !== issueIds.length || found.some((i) => i.siteId !== h.site_id || i.kind === 'rework')) {
+        return { ok: false, error: INVALID_ISSUE_MESSAGE };
+      }
+    }
+
     // 置いたサインの画像を読み、PNG か・大きさを確かめる（空の絵は画面で止めている。ここでは小さすぎるものを弾く）
     const png = await downloadObject(SIGNATURE_BUCKET, v.data.signaturePath);
     if (!png) return { ok: false, error: SIGNATURE_IMAGE_FAILED_MESSAGE };
@@ -620,6 +632,7 @@ export async function saveClientSignature(
         signaturePng: png,
         outputAt: at,
         confirmation: { by: v.data.confirmedBy, at, note: v.data.note },
+        issueIds,
       });
     } catch (e) {
       console.error('[saveClientSignature:pdf]', e);
@@ -642,6 +655,7 @@ export async function saveClientSignature(
       p_signature_path: v.data.signaturePath,
       p_pdf_path: pdfPath,
       p_expected_updated_at: expected,
+      p_issue_ids: issueIds,
     });
     if (error) {
       console.error('[saveClientSignature]', error.message);

@@ -60,6 +60,9 @@ export function usesFixedAmount(m: SettlementMethod): boolean {
 
 /** 件の状態（見積中・対応中・完了）。画面の札と日報の帳票で共通。 */
 export const ISSUE_STATUS_LABELS: Record<IssueStatus, string> = { estimating: '見積中', open: '対応中', done: '完了' };
+/** 件の状態のお客様向けの表示名（お客様用の確認画面・お客様用日報 PDF の「確認していただく件」）。 */
+export const CLIENT_ISSUE_STATUS_LABELS = { estimating: 'お見積り中', open: '対応中', done: '完了' } as const satisfies Record<IssueStatus, string>;
+export type ClientIssueStatusLabel = (typeof CLIENT_ISSUE_STATUS_LABELS)[IssueStatus];
 /** 件の精算の方法。 */
 export const SETTLEMENT_METHOD_LABELS: Record<SettlementMethod, string> = { undecided: '未定', lump_sum: '一式', estimate: '見積', daily_rate: '常用' };
 

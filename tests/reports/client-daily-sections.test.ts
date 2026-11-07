@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
 import type { Attachment } from '@/lib/db/attachments-schemas';
-import type { Issue } from '@/lib/db/reports';
 import { formatCell, type SectionTable } from '@/lib/reports/cost-sections';
 import { buildEmptyDailyReport } from '@/lib/reports/daily-model';
 import {
@@ -9,27 +8,22 @@ import {
   clientDailyFooterText,
   clientDailyHeaderRows,
   clientDailyPhotos,
+  clientDailyIssueList,
   clientDailyTables,
+  clientIssueTable,
   clientPhotosNote,
+  CLIENT_DAILY_ISSUES_TITLE,
   NO_ISSUES_TODAY,
   PHOTO_LOAD_FAILED,
+  type ClientIssueRow,
+  type ClientListIssue,
   type ClientPhotoIssue,
 } from '@/lib/reports/client-daily-sections';
 import type { SavedReportLine } from '@/lib/reports/types';
-import { changeWorkLines, issues, lines, report, sampleDaily, site, withChanges } from './daily-fixture';
+import { changeWorkLines, lines, report, sampleDaily, site, withChanges } from './daily-fixture';
 
 const text = (t: SectionTable) => t.rows.map((r) => r.map(formatCell));
 const heads = (t: SectionTable) => t.columns.map((c) => c.label);
-
-const issue = (over: Partial<Issue>): Issue => ({ ...issues[0], ...over });
-
-/** やり直しを含む 4 件（登録順 1〜4）。 */
-const fourIssues: Issue[] = [
-  issue({ id: 'a', body: '棚を 2 台追加', kind: 'extra', instructedBy: '施主様', instructionMethod: 'oral' }),
-  issue({ id: 'b', body: '自社の手直し', kind: 'rework', instructedBy: null, instructionMethod: null }),
-  issue({ id: 'c', body: '照明を 3 台減', kind: 'minus', instructedBy: null, instructionMethod: 'phone' }),
-  issue({ id: 'd', body: '待機 2 時間', kind: 'client_delay', instructedBy: '設計 山田', instructionMethod: null }),
-];
 
 describe('お客様用日報の見出し', () => {
   it('現場名・日付（曜日）・天候・作業責任者・作業時間（共通時間の開始〜終了）', () => {
@@ -74,36 +68,13 @@ describe('お客様用日報の表', () => {
     expect(clientDailyTables(noWorkers).workersLine).toBeNull();
   });
 
-  it('追加・変更のご連絡：件（MM/DD-番号）／種別／ご指示（指示者／方法）／内容。やり直しの件は出さない', () => {
-    const { issues: t } = clientDailyTables(sampleDaily({ issues: fourIssues }));
-    expect(heads(t)).toEqual(['件', '種別', 'ご指示（指示者／方法）', '内容']);
-    expect(text(t)).toEqual([
-      ['11/02-1', '追加指示', '施主様／口頭', '棚を 2 台追加'],
-      ['11/02-3', '減', '電話', '照明を 3 台減'],
-      ['11/02-4', '客先都合（手待ち・待機）', '設計 山田', '待機 2 時間'],
-    ]);
-  });
-
-  it('現場判断（要協議）の件は、お客様には「現場の状況による追加（ご相談）」「指示なし（現場の状況による）」と出す', () => {
-    const t = clientDailyTables(
-      sampleDaily({ issues: [issue({ id: 'e', body: '下地の補修', kind: 'site_judgment', instructedBy: null, instructionMethod: 'site' })] }),
-    ).issues;
-    expect(text(t)).toEqual([['11/02-1', '現場の状況による追加（ご相談）', '指示なし（現場の状況による）', '下地の補修']]);
-  });
-
-  it('件が無い日・やり直しだけの日は行が無い（PDF は「ありません」の 1 行）', () => {
-    expect(NO_ISSUES_TODAY).toBe('ありません');
-    expect(clientDailyTables(sampleDaily({ issues: [] })).issues.rows).toEqual([]);
-    expect(clientDailyTables(sampleDaily({ issues: [fourIssues[1]] })).issues.rows).toEqual([]);
-  });
-
   it('金額・作業員の氏名と時間・日当・労務費・車両・リース・購入・連絡事項・重要事項の本文は出さない', () => {
     const m = withChanges();
     const t = clientDailyTables(m);
     const all = [
       ...clientDailyHeaderRows(m).flat(),
       t.workersLine ?? '',
-      ...[t.work, t.issues].flatMap((x) => [...heads(x), ...text(x).flat(), ...(x.total ?? []).map(formatCell)]),
+      ...[t.work].flatMap((x) => [...heads(x), ...text(x).flat(), ...(x.total ?? []).map(formatCell)]),
     ].join('\n');
     for (const bad of [
       '日当', '労務費', '円', '¥', '金額', '原価', '出来高', '進捗',
@@ -137,7 +108,6 @@ describe('お客様確認', () => {
   it('日報の無い日のモデルでも表は空', () => {
     const t = clientDailyTables(buildEmptyDailyReport(site, '2026-11-04'));
     expect(t.work.rows).toEqual([]);
-    expect(t.issues.rows).toEqual([]);
     expect(t.workersLine).toBeNull();
   });
 });
@@ -150,7 +120,11 @@ describe('お客様用日報に所属を出さない', () => {
         : l,
     );
     const m = sampleDaily({ report: report('2026-11-02', { lines: [...affiliated, ...changeWorkLines] }) });
-    const { work, workersLine, issues: issueTable } = clientDailyTables(m);
+    const { work, workersLine } = clientDailyTables(m);
+    const issueTable = clientIssueTable(
+      clientDailyIssueList([listIssue({ id: 'x1', body: '棚を 2 台追加' })], new Map(), ['x1']),
+      { showEstimate: true },
+    );
     const conf = clientDailyConfirmation(m);
     const photos = clientDailyPhotos(m, [photo({ id: 'p1', issueId: 'x1', caption: '' }), photo({ id: 'p2', caption: '下地' })], [
       photoIssue({ id: 'x1', body: '棚を 2 台追加' }),
@@ -248,5 +222,72 @@ describe('お客様用日報の写真（clientDailyPhotos）', () => {
   it('写真の節の枚数と、読めなかった写真の文', () => {
     expect(clientPhotosNote(3)).toBe('3 枚');
     expect(PHOTO_LOAD_FAILED).toBe('写真を読み込めませんでした');
+  });
+});
+
+// ─── 確認していただく件（clientDailyIssueList・clientIssueTable） ───
+
+function listIssue(over: Partial<ClientListIssue> & { id: string }): ClientListIssue {
+  return { reportDate: DAY, number: 1, kind: 'extra', body: '件の本文', status: 'open', ...over };
+}
+
+const att = (kind: Attachment['kind'], clientVisible = kind === 'photo') => ({ kind, clientVisible });
+
+describe('確認していただく件', () => {
+  const list: ClientListIssue[] = [
+    listIssue({ id: 'c', reportDate: DAY, number: 2, kind: 'minus', body: '照明を 3 台減', status: 'done' }),
+    listIssue({ id: 'a', reportDate: '2026-10-30', number: 3, kind: 'extra', body: '棚を 2 台追加', status: 'estimating' }),
+    listIssue({ id: 'r', reportDate: DAY, number: 3, kind: 'rework', body: '自社の手直し' }),
+    listIssue({ id: 'b', reportDate: DAY, number: 1, kind: 'site_judgment', body: '下地の補修', status: 'open' }),
+    listIssue({ id: 'n', reportDate: DAY, number: 4, kind: 'change', body: '選ばれていない件' }),
+  ];
+  const byIssue = new Map([
+    ['a', [att('file'), att('photo'), att('photo'), att('photo', false), att('link')]],
+    ['b', [att('photo', false)]],
+    ['c', [att('photo')]],
+    ['r', [att('photo')]],
+  ]);
+
+  it('選んだ件だけ、件の日付 → 番号の順。種別・状態はお客様向けの表示名、見積書あり・写真はチェックした写真の数', () => {
+    const rows = clientDailyIssueList(list, byIssue, ['c', 'a', 'b', 'r', 'a']);
+    expect(rows).toEqual<ClientIssueRow[]>([
+      { number: '10/30-3', kindLabel: '追加指示', body: '棚を 2 台追加', statusLabel: 'お見積り中', hasEstimate: true, photoCount: 2 },
+      { number: '11/02-1', kindLabel: '現場の状況による追加（ご相談）', body: '下地の補修', statusLabel: '対応中', hasEstimate: false, photoCount: 0 },
+      { number: '11/02-2', kindLabel: '減', body: '照明を 3 台減', statusLabel: '完了', hasEstimate: false, photoCount: 1 },
+    ]);
+  });
+
+  it('やり直しの件は選ばれていても入らない。何も選ばなければ空', () => {
+    expect(clientDailyIssueList(list, byIssue, ['r'])).toEqual([]);
+    expect(clientDailyIssueList(list, byIssue, [])).toEqual([]);
+  });
+
+  it('表：件／種別／内容／状態／見積書／写真。協力会社が作るときは見積書の列を出さない', () => {
+    const rows = clientDailyIssueList(list, byIssue, ['a', 'b']);
+    const staff = clientIssueTable(rows, { showEstimate: true });
+    expect(CLIENT_DAILY_ISSUES_TITLE).toBe('確認していただく件');
+    expect(heads(staff)).toEqual(['件', '種別', '内容', '状態', '見積書', '写真']);
+    expect(text(staff)).toEqual([
+      ['10/30-3', '追加指示', '棚を 2 台追加', 'お見積り中', 'あり', '2 枚'],
+      ['11/02-1', '現場の状況による追加（ご相談）', '下地の補修', '対応中', 'なし', 'なし'],
+    ]);
+    const partner = clientIssueTable(rows, { showEstimate: false });
+    expect(heads(partner)).toEqual(['件', '種別', '内容', '状態', '写真']);
+    expect(text(partner).flat().join('\n')).not.toMatch(/見積書|あり/);
+    expect(staff.columns.reduce((a, c) => a + c.w, 0)).toBeCloseTo(partner.columns.reduce((a, c) => a + c.w, 0));
+  });
+
+  it('件が無ければ行が無い（PDF は「ありません」の 1 行）', () => {
+    expect(NO_ISSUES_TODAY).toBe('ありません');
+    expect(clientIssueTable([], { showEstimate: true }).rows).toEqual([]);
+  });
+
+  it('社内の言葉（所属・自社・協力会社・金額・提案額・日当）が出ない', () => {
+    const rows = clientDailyIssueList(list, byIssue, list.map((i) => i.id));
+    const t = clientIssueTable(rows, { showEstimate: true });
+    const words = [...heads(t), ...text(t).flat()].join('\n');
+    for (const bad of ['所属', '自社', '協力会社', '金額', '提案額', '日当', '円', '見積中', 'やり直し', '手直し']) {
+      expect(words).not.toContain(bad);
+    }
   });
 });

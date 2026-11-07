@@ -1,21 +1,26 @@
 import { jpDateTime } from '@/lib/calc/format';
 import type { Attachment } from '@/lib/db/attachments-schemas';
 import type { Issue } from '@/lib/db/reports';
-import { CHANGE_KIND_LABELS, CLIENT_INSTRUCTION_METHOD_LABELS, CLIENT_ISSUE_KIND_LABELS } from '@/lib/report/change-labels';
+import {
+  CHANGE_KIND_LABELS,
+  CLIENT_ISSUE_KIND_LABELS,
+  CLIENT_ISSUE_STATUS_LABELS,
+  type ClientIssueStatusLabel,
+} from '@/lib/report/change-labels';
 import { cell, col, formatCell, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
 import { clientConfirmationBoxes, dailyDateLabel } from '@/lib/reports/daily-sections';
 import type { DailyReportModel } from '@/lib/reports/types';
 
 // 現場日報（お客様用）の見出しと表（純関数。PDF は src/lib/pdf/client-daily-report.tsx）。
 // 出すもの：現場名・日付・天候・作業責任者・作業時間、本日の作業（区分・工種・施工内容・数量・単位・人工）、作業員の人数と人工の合計、
-// 追加・変更のご連絡（その日報の件。やり直しを除く）、写真（その日に付けた「お客様用 PDF に載せる」写真）、お客様確認
-// （確認者名・日付の枠と大きなサイン欄）、作成者。
+// 確認していただく件（件・種別・内容・状態・見積書・写真。やり直しを除く。2026-11-13）、写真（その日に付けた「お客様用 PDF に
+// 載せる」写真）、お客様確認（確認者名・日付の枠と大きなサイン欄）、作成者。
 // 出さないもの：作業員の氏名・時間・日当・労務費、車両・リース・現金・買掛、本日原価集計、出来高・進捗率、金額、連絡事項、
 // 重要事項の本文（issues.text）。
 
 export const CLIENT_DAILY_TITLE = '現場日報（お客様用）';
 export const CLIENT_DAILY_WORK_TITLE = '本日の作業';
-export const CLIENT_DAILY_ISSUES_TITLE = '追加・変更のご連絡';
+export const CLIENT_DAILY_ISSUES_TITLE = '確認していただく件';
 export const CLIENT_DAILY_CHECK_TITLE = 'お客様確認';
 export const CLIENT_DAILY_PHOTOS_TITLE = '写真';
 /** サイン欄の見出し。 */
@@ -45,12 +50,10 @@ export function clientDailyHeaderRows(m: DailyReportModel): [string, string | nu
  * お客様用の表。
  * - work：区分／工種／施工内容／数量（減は負）／単位／人工。金額・単価・歩掛は出さない。追加・増・変更・減の行は太字。
  * - workersLine：「作業員 N 名・合計 M.M 人工」（作業員の行が無ければ null）。氏名・時間は出さない。
- * - issues：件（MM/DD-番号）／種別／ご指示（指示者／方法）／内容。やり直しの件は出さない。載せる件が無ければ rows は空
- *   （PDF は「ありません」の 1 行）。
+ * 件の表は clientIssueTable（確認していただく件）。
  */
-export function clientDailyTables(m: DailyReportModel): { work: SectionTable; workersLine: string | null; issues: SectionTable } {
+export function clientDailyTables(m: DailyReportModel): { work: SectionTable; workersLine: string | null } {
   const n = m.workers.rows.length;
-  const day = md(m.header.date);
   return {
     work: {
       columns: [col.text('区分', 1.1), col.text('工種', 1.8), col.text('施工内容', 5.2), col.num('数量', 1.2), col.text('単位', 1), col.num('人工', 1.1)],
@@ -65,19 +68,82 @@ export function clientDailyTables(m: DailyReportModel): { work: SectionTable; wo
       boldRows: m.work.rows.flatMap((r, i) => (r.changeKind !== 'contract' ? [i] : [])),
     },
     workersLine: n === 0 ? null : `作業員 ${n} 名・合計 ${formatCell(cell.dec1(m.workers.total.manDays))} 人工`,
-    issues: {
-      columns: [col.text('件', 1.3), col.text('種別', 2.4), col.text('ご指示（指示者／方法）', 2.8), col.text('内容', 5.6)],
-      rows: m.issues.items
-        .filter((i) => i.kind !== 'rework')
-        .map((i): Cell[] => [
-          `${day}-${i.number}`,
-          CLIENT_ISSUE_KIND_LABELS[i.kind],
-          [i.instructedBy?.trim() || null, i.instructionMethod ? CLIENT_INSTRUCTION_METHOD_LABELS[i.instructionMethod] : null]
-            .filter((v): v is string => v !== null)
-            .join('／'),
-          i.body,
-        ]),
-    },
+  };
+}
+
+// ─── 確認していただく件（2026-11-13） ───
+
+/** 確認していただく件の 1 行（お客様用の確認画面・お客様用日報 PDF で共通）。 */
+export interface ClientIssueRow {
+  /** 件番号「MM/DD-番号」（件を書いた日報の日付と、その日報の件の中での番号）。 */
+  number: string;
+  /** 種別のお客様向けの表示名（CLIENT_ISSUE_KIND_LABELS）。 */
+  kindLabel: string;
+  body: string;
+  statusLabel: ClientIssueStatusLabel;
+  /** 見積書（ファイル）が付いているか。協力会社のアカウントには file の添付が見えないので、そのときは表に出さない。 */
+  hasEstimate: boolean;
+  /** 件に付けた「お客様用 PDF に載せる」写真の数（チェックなしの写真は数えない）。 */
+  photoCount: number;
+}
+
+/** 件番号付けのための件（件番号はその件を書いた日報の中での登録順。issueNumbers と同じ数え方）。 */
+export type ClientListIssue = Pick<Issue, 'id' | 'reportDate' | 'kind' | 'body' | 'status'> & { number: number };
+
+/**
+ * 確認していただく件の一覧。issues のうち selectedIds に入っていて、やり直しでない件だけ（同じ件は 1 行）。
+ * 並びは件を書いた日報の日付 → 件番号。見積書あり＝その件に file の添付がある、写真＝「お客様用 PDF に載せる」写真の数。
+ */
+export function clientDailyIssueList(
+  issues: readonly ClientListIssue[],
+  attachmentsByIssue: ReadonlyMap<string, readonly Pick<Attachment, 'kind' | 'clientVisible'>[]>,
+  selectedIds: Iterable<string>,
+): ClientIssueRow[] {
+  const selected = new Set(selectedIds);
+  const seen = new Set<string>();
+  return issues
+    .filter((i) => {
+      if (!selected.has(i.id) || i.kind === 'rework' || seen.has(i.id)) return false;
+      seen.add(i.id);
+      return true;
+    })
+    .sort((a, b) => a.reportDate.localeCompare(b.reportDate) || a.number - b.number)
+    .map((i): ClientIssueRow => {
+      const atts = attachmentsByIssue.get(i.id) ?? [];
+      return {
+        number: `${md(i.reportDate)}-${i.number}`,
+        kindLabel: CLIENT_ISSUE_KIND_LABELS[i.kind],
+        body: i.body,
+        statusLabel: CLIENT_ISSUE_STATUS_LABELS[i.status],
+        hasEstimate: atts.some((a) => a.kind === 'file'),
+        photoCount: atts.filter((a) => a.kind === 'photo' && a.clientVisible).length,
+      };
+    });
+}
+
+/**
+ * 確認していただく件の表：件／種別／内容／状態／見積書（あり・なし）／写真（N 枚）。showEstimate が false（協力会社の
+ * アカウントで作るとき）は見積書の列を出さない。件が無ければ rows は空（PDF は「ありません」の 1 行）。
+ */
+export function clientIssueTable(rows: readonly ClientIssueRow[], opts: { showEstimate: boolean }): SectionTable {
+  const { showEstimate } = opts;
+  return {
+    columns: [
+      col.text('件', 1.3),
+      col.text('種別', 2.3),
+      col.text('内容', showEstimate ? 5.0 : 6.1),
+      col.text('状態', 1.4),
+      ...(showEstimate ? [col.text('見積書', 1.1)] : []),
+      col.text('写真', 1.0),
+    ],
+    rows: rows.map((r): Cell[] => [
+      r.number,
+      r.kindLabel,
+      r.body,
+      r.statusLabel,
+      ...(showEstimate ? [r.hasEstimate ? 'あり' : 'なし'] : []),
+      r.photoCount > 0 ? `${r.photoCount} 枚` : 'なし',
+    ]),
   };
 }
 

@@ -48,11 +48,30 @@ export const signatureFormSchema = z.object({
   note: z.string({ error: 'メモは文字で入力してください' }).trim().max(500, 'メモは500文字以内で入力してください').default(''),
 });
 
+/** 1 回のサインで確認していただける件の数の上限（DB の gn_save_client_signature と同じ）。 */
+export const MAX_CONFIRM_ISSUES = 50;
+export const INVALID_ISSUE_MESSAGE = '確認していただく件に選べない件があります。画面を再読み込みして選び直してください。';
+export const TOO_MANY_ISSUES_MESSAGE = `確認していただく件は ${MAX_CONFIRM_ISSUES} 件までです`;
+
+/**
+ * 確認していただく件の id の一覧（uuid。大文字は小文字にそろえ、重複を除いて 50 件まで。並びは最初に出た順）。
+ * 渡さなければ空（件の確認は記録しない）。
+ */
+export const confirmIssueIdsSchema = z
+  .array(z.string({ error: INVALID_ISSUE_MESSAGE }).regex(new RegExp(`^${UUID_RE}$`, 'i'), INVALID_ISSUE_MESSAGE), {
+    error: INVALID_ISSUE_MESSAGE,
+  })
+  .max(MAX_CONFIRM_ISSUES * 4, TOO_MANY_ISSUES_MESSAGE)
+  .default([])
+  .transform((ids) => [...new Set(ids.map((id) => id.toLowerCase()))])
+  .refine((ids) => ids.length <= MAX_CONFIRM_ISSUES, TOO_MANY_ISSUES_MESSAGE);
+
 /** saveClientSignature の入力。 */
 export const clientSignatureSchema = signatureFormSchema.extend({
   signaturePath: z
     .string({ error: SIGNATURE_IMAGE_FAILED_MESSAGE })
     .regex(new RegExp(`^${UUID_RE}/sign/${UUID_RE}\\.png$`), SIGNATURE_IMAGE_FAILED_MESSAGE),
+  issueIds: confirmIssueIdsSchema,
 });
 export type ClientSignatureInput = z.input<typeof clientSignatureSchema>;
 
@@ -113,6 +132,7 @@ export function signatureErrorMessage(dbMessage: string | null | undefined): str
   if (m.includes('signature_locked')) return SIGNATURE_LOCKED_MESSAGE;
   if (m.includes('report_signed')) return REPORT_SIGNED_DELETE_MESSAGE;
   if (m.includes('report_not_found')) return '日報が見つからないか、権限がありません';
+  if (m.includes('invalid_issue')) return INVALID_ISSUE_MESSAGE;
   if (m.includes('invalid_signature_input')) return '確認者・メモ・日時の内容が正しくありません。入力を確かめてもう一度お試しください。';
   if (m.includes('storage_object_too_large')) return SIGNATURE_TOO_LARGE_MESSAGE;
   if (m.includes('invalid_storage_path') || m.includes('storage_object_missing') || m.includes('storage_object_not_owned')) {

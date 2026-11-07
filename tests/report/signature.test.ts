@@ -35,7 +35,7 @@ describe('サインの入力', () => {
 
   it('確認者は前後の空白を落とし、メモは省略できる', () => {
     const r = clientSignatureSchema.safeParse(ok);
-    expect(r.success && r.data).toEqual({ confirmedBy: '施主 佐藤様', note: '手すり位置OK', signaturePath: ok.signaturePath });
+    expect(r.success && r.data).toEqual({ confirmedBy: '施主 佐藤様', note: '手すり位置OK', signaturePath: ok.signaturePath, issueIds: [] });
     const r2 = signatureFormSchema.safeParse({ confirmedBy: '佐藤様' });
     expect(r2.success && r2.data.note).toBe('');
   });
