@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import type { Attachment } from '@/lib/db/attachments-schemas';
 import type { Issue } from '@/lib/db/reports';
 import { formatCell, type SectionTable } from '@/lib/reports/cost-sections';
 import { buildEmptyDailyReport } from '@/lib/reports/daily-model';
@@ -7,8 +8,12 @@ import {
   clientDailyConfirmation,
   clientDailyFooterText,
   clientDailyHeaderRows,
+  clientDailyPhotos,
   clientDailyTables,
+  clientPhotosNote,
   NO_ISSUES_TODAY,
+  PHOTO_LOAD_FAILED,
+  type ClientPhotoIssue,
 } from '@/lib/reports/client-daily-sections';
 import type { SavedReportLine } from '@/lib/reports/types';
 import { changeWorkLines, issues, lines, report, sampleDaily, site, withChanges } from './daily-fixture';
@@ -106,17 +111,19 @@ describe('お客様用日報の表', () => {
 });
 
 describe('お客様確認', () => {
-  it('記録済み：確認者名・確認日時（サインは空）とメモ', () => {
+  it('記録済み：確認者名・確認日時とメモ。サインは小さな枠ではなく大きなサイン欄', () => {
     expect(clientDailyConfirmation(withChanges())).toEqual({
-      boxes: [['確認者名', '施主 〇〇様'], ['確認日時', '2026/11/02 17:15'], ['サイン', '']],
+      boxes: [['確認者名', '施主 〇〇様'], ['確認日時', '2026/11/02 17:15']],
       note: '棚の追加と窓の変更を現地で確認。照明は 3 台減で了承。',
+      signLabel: 'サイン',
     });
   });
 
-  it('未記録：確認者名／日付／サイン の空欄 3 つ、メモなし', () => {
+  it('未記録：確認者名／日付 の空欄とサイン欄（空欄 3 つ）、メモなし', () => {
     expect(clientDailyConfirmation(sampleDaily())).toEqual({
-      boxes: [['確認者名', ''], ['日付', ''], ['サイン', '']],
+      boxes: [['確認者名', ''], ['日付', '']],
       note: null,
+      signLabel: 'サイン',
     });
   });
 
@@ -138,7 +145,12 @@ describe('お客様用日報に所属を出さない', () => {
     const m = sampleDaily({ report: report('2026-11-02', { lines: [...affiliated, ...changeWorkLines] }) });
     const { work, workersLine, issues: issueTable } = clientDailyTables(m);
     const conf = clientDailyConfirmation(m);
+    const photos = clientDailyPhotos(m, [photo({ id: 'p1', issueId: 'x1', caption: '' }), photo({ id: 'p2', caption: '下地' })], [
+      photoIssue({ id: 'x1', body: '棚を 2 台追加' }),
+    ]);
+    expect(photos).toHaveLength(2);
     const words = [
+      ...photos.map((p) => p.caption),
       ...clientDailyHeaderRows(m).flat(),
       ...heads(work), ...text(work).flat(),
       ...heads(issueTable), ...text(issueTable).flat(),
@@ -147,6 +159,87 @@ describe('お客様用日報に所属を出さない', () => {
       conf.note,
     ].filter((v): v is string => typeof v === 'string');
     expect(workersLine).not.toBeNull();
-    for (const word of ['所属', '自社', '協力会社', '所属なし']) expect(words.filter((w) => w.includes(word))).toEqual([]);
+    for (const word of ['所属', '自社', '協力会社', '所属なし', '円', '金額']) expect(words.filter((w) => w.includes(word))).toEqual([]);
+  });
+});
+
+// ─── 写真 ───
+
+const DAY = '2026-11-02';
+
+function photo(over: Partial<Attachment> & { id: string }): Attachment {
+  return {
+    siteId: 's1',
+    kind: 'photo',
+    name: `${over.id}.jpg`,
+    caption: '',
+    storageBucket: 'gn-photos',
+    storagePath: `s1/att/${over.id}.jpg`,
+    mime: 'image/jpeg',
+    sizeBytes: 300_000,
+    clientVisible: true,
+    attachedOn: DAY,
+    createdBy: 'p1',
+    createdByName: '大江',
+    createdAt: '2026-11-02T03:00:00Z',
+    ...(over.issueId ? {} : { reportId: `r-${DAY}` }),
+    ...over,
+  };
+}
+
+function photoIssue(over: Partial<ClientPhotoIssue> & { id: string }): ClientPhotoIssue {
+  return { reportDate: DAY, number: 1, kind: 'extra', body: '件の本文', ...over };
+}
+
+describe('お客様用日報の写真（clientDailyPhotos）', () => {
+  const photoIssues: ClientPhotoIssue[] = [
+    photoIssue({ id: 'today2', number: 2, body: '2 階トイレの手すりを追加する（位置は現地で確認済み）' }),
+    photoIssue({ id: 'today1', number: 1, body: '棚の追加' }),
+    photoIssue({ id: 'old', reportDate: '2026-10-30', number: 3, kind: 'change', body: '外壁の色を変更' }),
+    photoIssue({ id: 'redo', number: 4, kind: 'rework', body: '自社の手直し' }),
+  ];
+
+  it('件の写真（件を書いた日 → 番号の順）→ 日報の写真。文は「MM/DD-番号 ひと言」、ひと言が空なら本文の先頭 20 字', () => {
+    const list = [
+      photo({ id: 'rep1', caption: '朝の様子' }),
+      photo({ id: 'a2', issueId: 'today2', caption: '' }),
+      photo({ id: 'rep2', caption: '' }),
+      photo({ id: 'a1', issueId: 'today1', caption: '棚の位置' }),
+      photo({ id: 'a1b', issueId: 'today1', caption: '  下地  ' }),
+      photo({ id: 'o1', issueId: 'old', caption: '色見本' }),
+    ];
+    expect(clientDailyPhotos(sampleDaily(), list, photoIssues)).toEqual([
+      { attachmentId: 'o1', caption: '10/30-3 色見本' },
+      { attachmentId: 'a1', caption: '11/02-1 棚の位置' },
+      { attachmentId: 'a1b', caption: '11/02-1 下地' },
+      { attachmentId: 'a2', caption: '11/02-2 2 階トイレの手すりを追加する（位置は現…' },
+      { attachmentId: 'rep1', caption: '朝の様子' },
+      { attachmentId: 'rep2', caption: '' },
+    ]);
+  });
+
+  it('チェックなしの写真・ファイル・リンク・やり直しの件の写真・別の日に付けた写真・知らない件の写真は出さない', () => {
+    const list = [
+      photo({ id: 'ok', issueId: 'today1' }),
+      photo({ id: 'unchecked', clientVisible: false }),
+      photo({ id: 'unchecked-issue', issueId: 'today1', clientVisible: false }),
+      photo({ id: 'file', kind: 'file', mime: 'application/pdf', storageBucket: 'gn-estimates', issueId: 'today1' }),
+      { ...photo({ id: 'link', kind: 'link', url: 'https://drive.google.com/x' }), storageBucket: undefined, storagePath: undefined },
+      photo({ id: 'redo-photo', issueId: 'redo' }),
+      photo({ id: 'other-day', issueId: 'today1', attachedOn: '2026-11-01' }),
+      photo({ id: 'other-day-report', attachedOn: '2026-11-03' }),
+      photo({ id: 'unknown-issue', issueId: 'zzz' }),
+    ];
+    expect(clientDailyPhotos(sampleDaily(), list, photoIssues).map((p) => p.attachmentId)).toEqual(['ok']);
+  });
+
+  it('写真が無い日・日報の無い日は空（PDF は写真の節を出さない）', () => {
+    expect(clientDailyPhotos(sampleDaily(), [], photoIssues)).toEqual([]);
+    expect(clientDailyPhotos(buildEmptyDailyReport(site, DAY), [photo({ id: 'x' })], [])).toEqual([]);
+  });
+
+  it('写真の節の枚数と、読めなかった写真の文', () => {
+    expect(clientPhotosNote(3)).toBe('3 枚');
+    expect(PHOTO_LOAD_FAILED).toBe('写真を読み込めませんでした');
   });
 });

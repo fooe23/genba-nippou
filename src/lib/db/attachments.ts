@@ -113,3 +113,36 @@ export async function signedUrls(attachments: Attachment[]): Promise<Map<string,
   );
   return out;
 }
+
+/**
+ * その現場で、その日（attached_on）に件へ付けた「お客様用 PDF に載せる」写真（お客様用日報 PDF 用）。件が前の日の日報で
+ * 作られていても含む。並びは sort_order・付けた順。
+ */
+export async function listClientIssuePhotosOn(siteId: string, date: string): Promise<Attachment[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_attachments')
+    .select(ATTACHMENT_COLUMNS)
+    .eq('site_id', siteId)
+    .eq('attached_on', date)
+    .eq('kind', 'photo')
+    .eq('client_visible', true)
+    .not('issue_id', 'is', null)
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true })
+    .order('id', { ascending: true });
+  if (error) throw new Error(`[listClientIssuePhotosOn] ${error.message}`);
+  return toAttachments((data ?? []) as AttachmentRow[]);
+}
+
+/** 写真・ファイルの中身をサーバーで読む（PDF に載せる用）。読めない（権限が無い・実体が無い）ときは null（ログに残す）。 */
+export async function downloadAttachment(attachment: Attachment): Promise<Buffer | null> {
+  if (!attachment.storageBucket || !attachment.storagePath) return null;
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.storage.from(attachment.storageBucket).download(attachment.storagePath);
+  if (error || !data) {
+    console.error('[downloadAttachment]', attachment.id, error?.message);
+    return null;
+  }
+  return Buffer.from(await data.arrayBuffer());
+}

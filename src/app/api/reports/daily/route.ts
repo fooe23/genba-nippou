@@ -2,11 +2,11 @@ import { getCurrentProfile } from '@/lib/db/profile';
 import { loadDailyMonthInputs, loadDailyReportInput } from '@/lib/db/reports-data';
 import { getSite, type Site } from '@/lib/db/sites';
 import { contentDisposition } from '@/lib/export/query';
-import { renderClientDailyPdf } from '@/lib/pdf/client-daily-report';
 import { renderDailyPdf } from '@/lib/pdf/daily-report';
+import { renderClientDailyPdfFor } from '@/lib/reports/client-daily-render';
 import { buildDailyCsv } from '@/lib/reports/daily-csv';
 import { buildDailyReport, buildEmptyDailyReport } from '@/lib/reports/daily-model';
-import { dailyReportFileName, parseDailyQuery, type DailyFormat, type DailyTarget, type ReportAudience } from '@/lib/reports/query';
+import { dailyReportFileName, parseDailyQuery, type DailyFormat, type DailyTarget } from '@/lib/reports/query';
 import type { DailyReportModel } from '@/lib/reports/types';
 
 // 日報の帳票。GET /api/reports/daily?site=<uuid>&date=YYYY-MM-DD&format=pdf|csv（1 日分）
@@ -15,7 +15,8 @@ import type { DailyReportModel } from '@/lib/reports/types';
 // （400 クエリ／401・403 権限／404 現場／500 読み込み・作成失敗）。PDF（react-pdf）は Node で作る。
 // PDF は &disposition=inline のときだけブラウザで開く（inline。プレビュー）。それ以外と xlsx/csv は attachment。
 // &audience=client は現場日報（お客様用）の PDF（date＋pdf のときだけ。月まとめ・CSV との組み合わせは 400）。
-// 同じ DailyReportModel から金額・氏名・連絡事項を除いた帳票を作る（client-daily-report.tsx）。
+// 同じ DailyReportModel から金額・氏名・連絡事項を除き、その日の「お客様用 PDF に載せる」写真（Storage から読む）を
+// 足した帳票を作る（client-daily-render.ts → client-daily-report.tsx）。
 
 export const runtime = 'nodejs';
 
@@ -38,11 +39,15 @@ async function loadModels(site: Site, target: DailyTarget): Promise<DailyReportM
   return inputs.length > 0 ? inputs.map(buildDailyReport) : [buildEmptyDailyReport(site, target.month)];
 }
 
-async function render(models: DailyReportModel[], format: DailyFormat, audience: ReportAudience, outputAt: string): Promise<Buffer> {
-  // お客様用は parseDailyQuery が date＋pdf に限るので models は 1 件。
-  if (audience === 'client') return renderClientDailyPdf(models[0], outputAt);
+async function render(models: DailyReportModel[], format: DailyFormat, outputAt: string): Promise<Buffer> {
   if (format === 'pdf') return renderDailyPdf(models, outputAt);
   return Buffer.from(buildDailyCsv(models), 'utf-8');
+}
+
+/** お客様用（parseDailyQuery が date＋pdf に限る）。日報・写真の読み込みから PDF まで。 */
+async function renderClient(site: Site, target: DailyTarget): Promise<Buffer> {
+  if (target.kind !== 'date') throw new Error('お客様用は 1 日分だけです');
+  return renderClientDailyPdfFor(site, target.date);
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -58,20 +63,28 @@ export async function GET(request: Request): Promise<Response> {
   const site = await getSite(siteId);
   if (!site || site.deletedAt !== null) return fail(404, '現場が見つかりません');
 
-  let models: DailyReportModel[];
-  try {
-    models = await loadModels(site, target);
-  } catch (e) {
-    console.error('[reports/daily] load', e);
-    return fail(500, '日報を読み込めませんでした。時間をおいてやり直してください');
-  }
-
   let data: Buffer;
-  try {
-    data = await render(models, format, audience, new Date().toISOString());
-  } catch (e) {
-    console.error('[reports/daily] render', format, audience, e);
-    return fail(500, '日報の帳票の作成に失敗しました');
+  if (audience === 'client') {
+    try {
+      data = await renderClient(site, target);
+    } catch (e) {
+      console.error('[reports/daily] client', e);
+      return fail(500, '日報の帳票の作成に失敗しました。時間をおいてやり直してください');
+    }
+  } else {
+    let models: DailyReportModel[];
+    try {
+      models = await loadModels(site, target);
+    } catch (e) {
+      console.error('[reports/daily] load', e);
+      return fail(500, '日報を読み込めませんでした。時間をおいてやり直してください');
+    }
+    try {
+      data = await render(models, format, new Date().toISOString());
+    } catch (e) {
+      console.error('[reports/daily] render', format, e);
+      return fail(500, '日報の帳票の作成に失敗しました');
+    }
   }
 
   return new Response(new Uint8Array(data), {

@@ -417,6 +417,31 @@ export async function listIssuesForReport(reportId: string): Promise<Issue[]> {
 /** 1 回の問い合わせに入れる日報 id の数（URL の長さの上限に収める）。 */
 const REPORT_ID_CHUNK = 200;
 
+/** 件の id から件を読む（お客様用日報の写真の件番号用）。並びは問い合わせ順ではないので、呼び出し側で並べる。 */
+export async function listIssuesByIds(ids: string[]): Promise<Issue[]> {
+  const unique = [...new Set(ids)];
+  if (unique.length === 0) return [];
+  const supabase = await createServerSupabase();
+  const parts = await Promise.all(
+    chunk(unique, REPORT_ID_CHUNK).map(async (part) => {
+      const { data, error } = await supabase.from('gn_report_issues').select(ISSUE_COLUMNS).in('id', part);
+      if (error) throw new Error(error.message);
+      return ((data ?? []) as unknown as IssueRow[]).map(toIssue);
+    }),
+  );
+  return parts.flat();
+}
+
+/** 日報の id から現場と日付だけを読む。RLS で見えなければ null。 */
+export async function getReportKey(reportId: string): Promise<{ siteId: string; date: string } | null> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.from('gn_daily_reports').select('site_id, report_date').eq('id', reportId).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  const row = data as { site_id: string; report_date: string };
+  return { siteId: row.site_id, date: row.report_date };
+}
+
 /**
  * 複数の日報の件（対応中・完了とも。帳票の月まとめ・変更増減の一覧用）。同じ日報の件は登録順（同時刻は id 順）。
  * 現場の全日報（数百件）でも読めるよう、日報 id を分けて問い合わせ、1,000 行ごとにページングする。
