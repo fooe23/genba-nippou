@@ -1873,6 +1873,15 @@ begin
     exception when others then
       perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 17-11 エラー: %s\n', sqlerrm);
     end;
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_issues set report_id = gen_random_uuid() where id = i17a;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 17-12 件の日報の付け替えが通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_report_fixed%' then rep := rep || E'PASS 17-12 件の日報（report_id）は付け替えられない（issue_report_fixed）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-12 想定外: %s\n', sqlerrm); end if;
+    end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 17 準備でエラー: %s\n', sqlerrm);
   end;

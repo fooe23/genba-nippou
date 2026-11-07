@@ -829,6 +829,11 @@ declare
   v_creator uuid;
   v_settles boolean;
 begin
+  -- 件の日報（report_id）は、アプリの利用者からは変えられない（提出済みの日報の件を自分の下書きの日報に付け替えて
+  -- 中身の鍵を外すことを防ぐ）。2026-11-12（update_2026-11-12_issue_report_fixed.sql）。SQL Editor・service role は対象外。
+  if tg_op = 'UPDATE' and auth.uid() is not null and new.report_id is distinct from old.report_id then
+    raise exception using message = 'issue_report_fixed';
+  end if;
   select r.site_id, r.status, r.created_by into v_site, v_status, v_creator from public.gn_daily_reports r where r.id = new.report_id;
   if v_site is null or not public.gn_is_site_member(v_site) then
     raise exception using message = 'report_not_found';

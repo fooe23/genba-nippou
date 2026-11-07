@@ -89,6 +89,7 @@ export function issueEditErrorMessage(dbMessage: string, op: 'update' | 'delete'
       ? '提出した日報の件は直せません（直すときは修正を申請してください）'
       : '提出した日報の件は消せません（直すときは修正を申請してください）';
   }
+  if (dbMessage.includes('issue_report_fixed')) return '件の日報は変えられません';
   if (dbMessage.includes('issue_not_own')) return '協力会社のアカウントでは、自分が作った日報の件だけ直す・消すことができます';
   if (dbMessage.includes('issue_in_use')) return 'この件を選んでいる作業内容の行があります。先に行の根拠の件を外してください';
   if (dbMessage.includes('issue_has_attachments')) return '写真・資料が付いている件は消せません。先に添付を消してください';
