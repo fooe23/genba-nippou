@@ -90,7 +90,7 @@ export const timeSpecSchema = z.object({
 /** 指示方法（空欄は null）。重要事項の件（src/lib/db/issue-schemas.ts）と同じ選択肢・文言。 */
 export const instructionMethodSchema = z.preprocess(
   emptyToNull,
-  z.enum(INSTRUCTION_METHODS, { error: '指示方法は口頭・電話・メール・書面・その他から選んでください' }).nullable(),
+  z.enum(INSTRUCTION_METHODS, { error: '指示方法は口頭・電話・メール・書面・その他・指示なし（現場判断）から選んでください' }).nullable(),
 );
 
 // 指示日（YYYY-MM-DD の実在する日付。空欄は null）。

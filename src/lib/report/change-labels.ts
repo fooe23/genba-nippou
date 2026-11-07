@@ -4,8 +4,8 @@ import type { ChangeKind, InstructionMethod, IssueKind, IssueStatus, SettlementM
 // 追加・増・変更・減の記録の選択肢と表示名（画面・帳票・検証で共通）。
 
 export const CHANGE_KINDS = ['contract', 'extra', 'increase', 'change', 'minus'] as const satisfies readonly ChangeKind[];
-export const INSTRUCTION_METHODS = ['oral', 'phone', 'email', 'document', 'other'] as const satisfies readonly InstructionMethod[];
-export const ISSUE_KINDS = ['extra', 'increase', 'change', 'minus', 'client_delay', 'rework', 'other'] as const satisfies readonly IssueKind[];
+export const INSTRUCTION_METHODS = ['oral', 'phone', 'email', 'document', 'other', 'site'] as const satisfies readonly InstructionMethod[];
+export const ISSUE_KINDS = ['extra', 'increase', 'change', 'minus', 'site_judgment', 'client_delay', 'rework', 'other'] as const satisfies readonly IssueKind[];
 export const SETTLEMENT_METHODS = ['undecided', 'lump_sum', 'estimate', 'daily_rate'] as const satisfies readonly SettlementMethod[];
 /** 件の状態（見積中・対応中・完了）。札で直接どれにでも変えられる。 */
 export const ISSUE_STATUSES = ['estimating', 'open', 'done'] as const satisfies readonly IssueStatus[];
@@ -30,6 +30,12 @@ export const INSTRUCTION_METHOD_LABELS: Record<InstructionMethod, string> = {
   email: 'メール',
   document: '書面',
   other: 'その他',
+  site: '指示なし（現場判断）',
+};
+/** お客様に見せる帳票（お客様用の日報・精算のご提案）の指示方法。「現場判断」は言い換える。 */
+export const CLIENT_INSTRUCTION_METHOD_LABELS: Record<InstructionMethod, string> = {
+  ...INSTRUCTION_METHOD_LABELS,
+  site: '指示なし（現場の状況による）',
 };
 /** 重要事項の件の種別。 */
 export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
@@ -40,6 +46,12 @@ export const ISSUE_KIND_LABELS: Record<IssueKind, string> = {
   client_delay: '客先都合（手待ち・待機）',
   rework: 'やり直し',
   other: 'その他',
+  site_judgment: '現場判断（要協議）',
+};
+/** お客様に見せる帳票（お客様用の日報・精算のご提案。PDF・Excel）の件の種別。「現場判断（要協議）」は言い換える。 */
+export const CLIENT_ISSUE_KIND_LABELS: Record<IssueKind, string> = {
+  ...ISSUE_KIND_LABELS,
+  site_judgment: '現場の状況による追加（ご相談）',
 };
 /** 確定額（fixedAmount）で精算する方法か（一式・見積。計算は同じ）。 */
 export function usesFixedAmount(m: SettlementMethod): boolean {
@@ -58,10 +70,11 @@ const SETTLEMENT_CATEGORY: Record<IssueKind, ChangeLedgerKind | null> = {
   minus: 'minus',
   client_delay: 'extra',
   other: 'extra',
+  site_judgment: 'extra',
   rework: null,
 };
 /**
- * 件の種別から精算の区分（追加・増・変更・減）を決める。客先都合・その他は追加として数え、
+ * 件の種別から精算の区分（追加・増・変更・減）を決める。客先都合・その他・現場判断（要協議）は追加として数え、
  * やり直し（自社の手直し）は客先に請求しないので数えない（null）。
  */
 export function settlementCategory(kind: IssueKind): ChangeLedgerKind | null {

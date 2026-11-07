@@ -1,7 +1,7 @@
 import { jpDateTime } from '@/lib/calc/format';
 import type { Attachment } from '@/lib/db/attachments-schemas';
 import type { Issue } from '@/lib/db/reports';
-import { CHANGE_KIND_LABELS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS } from '@/lib/report/change-labels';
+import { CHANGE_KIND_LABELS, CLIENT_INSTRUCTION_METHOD_LABELS, CLIENT_ISSUE_KIND_LABELS } from '@/lib/report/change-labels';
 import { cell, col, formatCell, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
 import { clientConfirmationBoxes, dailyDateLabel } from '@/lib/reports/daily-sections';
 import type { DailyReportModel } from '@/lib/reports/types';
@@ -71,8 +71,8 @@ export function clientDailyTables(m: DailyReportModel): { work: SectionTable; wo
         .filter((i) => i.kind !== 'rework')
         .map((i): Cell[] => [
           `${day}-${i.number}`,
-          ISSUE_KIND_LABELS[i.kind],
-          [i.instructedBy?.trim() || null, i.instructionMethod ? INSTRUCTION_METHOD_LABELS[i.instructionMethod] : null]
+          CLIENT_ISSUE_KIND_LABELS[i.kind],
+          [i.instructedBy?.trim() || null, i.instructionMethod ? CLIENT_INSTRUCTION_METHOD_LABELS[i.instructionMethod] : null]
             .filter((v): v is string => v !== null)
             .join('／'),
           i.body,

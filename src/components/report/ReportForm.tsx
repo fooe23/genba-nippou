@@ -847,7 +847,15 @@ function ReportFormBody({
         <LeaseTable rows={state.rows.lease} onChange={setRows('lease')} date={p.date} items={p.masters.leaseItems} units={p.masters.units} />
         <CashTable rows={state.rows.cash} onChange={setRows('cash')} units={p.masters.units} />
         <CreditTable rows={state.rows.credit} onChange={setRows('credit')} units={p.masters.units} suppliers={p.masters.suppliers} />
-        <WorkTable rows={state.rows.work} onChange={setRows('work')} units={p.masters.units} issues={issueCandidates} flagged={flaggedWorkRows} />
+        <WorkTable
+          rows={state.rows.work}
+          onChange={setRows('work')}
+          units={p.masters.units}
+          issues={issueCandidates}
+          flagged={flaggedWorkRows}
+          reportId={p.readOnly ? null : p.reportId}
+          onIssueCreated={() => router.refresh()}
+        />
 
         <ReportSummary
           totals={totals}

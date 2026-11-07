@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   CHANGE_KINDS,
   CHANGE_KIND_LABELS,
+  CLIENT_INSTRUCTION_METHOD_LABELS,
+  CLIENT_ISSUE_KIND_LABELS,
   EMPTY_WORK_CHANGE,
   INSTRUCTION_METHODS,
   INSTRUCTION_METHOD_LABELS,
@@ -42,10 +44,16 @@ function errorsOf(input: unknown): string[] {
 describe('ラベル', () => {
   it('区分・指示方法・件の種別の表示名', () => {
     expect(CHANGE_KINDS.map((k) => CHANGE_KIND_LABELS[k])).toEqual(['契約内', '追加', '増', '変更', '減']);
-    expect(INSTRUCTION_METHODS.map((k) => INSTRUCTION_METHOD_LABELS[k])).toEqual(['口頭', '電話', 'メール', '書面', 'その他']);
+    expect(INSTRUCTION_METHODS.map((k) => INSTRUCTION_METHOD_LABELS[k])).toEqual(['口頭', '電話', 'メール', '書面', 'その他', '指示なし（現場判断）']);
     expect(ISSUE_KINDS.map((k) => ISSUE_KIND_LABELS[k])).toEqual([
-      '追加指示', '増（数量増）', '仕様変更', '減', '客先都合（手待ち・待機）', 'やり直し', 'その他',
+      '追加指示', '増（数量増）', '仕様変更', '減', '現場判断（要協議）', '客先都合（手待ち・待機）', 'やり直し', 'その他',
     ]);
+  });
+  it('お客様に見せる帳票では、現場判断を言い換える（ほかは社内と同じ）', () => {
+    expect(CLIENT_ISSUE_KIND_LABELS.site_judgment).toBe('現場の状況による追加（ご相談）');
+    expect(CLIENT_INSTRUCTION_METHOD_LABELS.site).toBe('指示なし（現場の状況による）');
+    for (const k of ISSUE_KINDS) if (k !== 'site_judgment') expect(CLIENT_ISSUE_KIND_LABELS[k]).toBe(ISSUE_KIND_LABELS[k]);
+    for (const m of INSTRUCTION_METHODS) if (m !== 'site') expect(CLIENT_INSTRUCTION_METHOD_LABELS[m]).toBe(INSTRUCTION_METHOD_LABELS[m]);
   });
   it('既定値は契約内・指示なし', () => {
     expect(EMPTY_WORK_CHANGE).toEqual({ changeKind: 'contract', instructedBy: '', instructionMethod: null, instructedOn: null, issueId: null });
@@ -73,7 +81,7 @@ describe('作業内容の区分・指示の検証', () => {
   it('正しくない値は日本語の文言で止める', () => {
     expect(errorsOf({ ...oldWork, changeKind: 'plus' })).toEqual(['作業内容の1行目：区分は契約内・追加・増・変更・減から選んでください']);
     expect(errorsOf({ ...oldWork, changeKind: null })).toEqual(['作業内容の1行目：区分は契約内・追加・増・変更・減から選んでください']);
-    expect(errorsOf({ ...oldWork, instructionMethod: 'fax' })).toEqual(['作業内容の1行目：指示方法は口頭・電話・メール・書面・その他から選んでください']);
+    expect(errorsOf({ ...oldWork, instructionMethod: 'fax' })).toEqual(['作業内容の1行目：指示方法は口頭・電話・メール・書面・その他・指示なし（現場判断）から選んでください']);
     expect(errorsOf({ ...oldWork, instructedOn: '2026/11/04' })).toEqual(['作業内容の1行目：指示日は YYYY-MM-DD 形式で入力してください']);
     expect(errorsOf({ ...oldWork, instructedOn: '2026-02-30' })).toEqual(['作業内容の1行目：指示日は YYYY-MM-DD 形式で入力してください']);
     expect(errorsOf({ ...oldWork, issueId: 'abc' })).toEqual(['作業内容の1行目：IDの形式が正しくありません']);

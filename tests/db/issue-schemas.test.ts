@@ -21,7 +21,7 @@ describe('issueExtraSchema', () => {
   });
   it('正しくない値は日本語の文言で弾く', () => {
     expect(firstError(issueExtraSchema, { kind: 'plus' })).toBe('件の種別が正しくありません');
-    expect(firstError(issueExtraSchema, { instructionMethod: 'fax' })).toBe('指示方法は口頭・電話・メール・書面・その他から選んでください');
+    expect(firstError(issueExtraSchema, { instructionMethod: 'fax' })).toBe('指示方法は口頭・電話・メール・書面・その他・指示なし（現場判断）から選んでください');
     expect(firstError(issueExtraSchema, { amountEstimate: -1 })).toBe('金額見込みは0以上の数値で入力してください');
     expect(firstError(issueExtraSchema, { amountEstimate: 'abc' })).toBe('金額見込みは0以上の数値で入力してください');
     expect(firstError(issueExtraSchema, { instructedBy: 'あ'.repeat(101) })).toBe('指示者は100文字以内で入力してください');

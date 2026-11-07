@@ -30,10 +30,13 @@ export interface CreditLine { kind: 'credit'; itemName: string; spec: string; un
  * 追加（extra）は新しく別の仕事が増えたもの、増（increase）は同じ流れの中で数量が増えたもの。計算・集計は増も追加と同じ。
  */
 export type ChangeKind = 'contract' | 'extra' | 'increase' | 'change' | 'minus';
-/** 指示方法（口頭・電話・メール・書面・その他）。 */
-export type InstructionMethod = 'oral' | 'phone' | 'email' | 'document' | 'other';
-/** 重要事項の件の種別（追加指示・増（数量増）・仕様変更・減・客先都合・やり直し・その他）。 */
-export type IssueKind = 'extra' | 'increase' | 'change' | 'minus' | 'client_delay' | 'rework' | 'other';
+/** 指示方法（口頭・電話・メール・書面・その他・指示なし（現場判断））。site は指示が無く現場の状況でやったもの（指示者は空でよい）。 */
+export type InstructionMethod = 'oral' | 'phone' | 'email' | 'document' | 'other' | 'site';
+/**
+ * 重要事項の件の種別（追加指示・増（数量増）・仕様変更・減・客先都合・やり直し・その他・現場判断（要協議））。
+ * site_judgment は指示が無いのに現場の状況でやった作業（精算はあとで協議。数え方は追加と同じ）。
+ */
+export type IssueKind = 'extra' | 'increase' | 'change' | 'minus' | 'client_delay' | 'rework' | 'other' | 'site_judgment';
 /**
  * 重要事項の件の状態（見積中・対応中・完了）。見積中と対応中は完了まで日報の上の枠に出続ける。
  * 精算の資料の「見積中の件」（金額が確定していない件）とは別のもの。

@@ -84,6 +84,13 @@ describe('お客様用日報の表', () => {
     ]);
   });
 
+  it('現場判断（要協議）の件は、お客様には「現場の状況による追加（ご相談）」「指示なし（現場の状況による）」と出す', () => {
+    const t = clientDailyTables(
+      sampleDaily({ issues: [issue({ id: 'e', body: '下地の補修', kind: 'site_judgment', instructedBy: null, instructionMethod: 'site' })] }),
+    ).issues;
+    expect(text(t)).toEqual([['11/02-1', '現場の状況による追加（ご相談）', '指示なし（現場の状況による）', '下地の補修']]);
+  });
+
   it('件が無い日・やり直しだけの日は行が無い（PDF は「ありません」の 1 行）', () => {
     expect(NO_ISSUES_TODAY).toBe('ありません');
     expect(clientDailyTables(sampleDaily({ issues: [] })).issues.rows).toEqual([]);

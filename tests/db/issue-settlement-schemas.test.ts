@@ -89,14 +89,15 @@ describe('精算の方法の選択肢と表示名', () => {
 });
 
 describe('settlementCategory（件の種別 → 精算の区分）', () => {
-  it('7 種別の対応。やり直しは数えない（null）', () => {
+  it('8 種別の対応。現場判断（要協議）は追加として数え、やり直しは数えない（null）', () => {
     expect(settlementCategory('extra')).toBe('extra');
     expect(settlementCategory('increase')).toBe('increase');
     expect(settlementCategory('change')).toBe('change');
     expect(settlementCategory('minus')).toBe('minus');
     expect(settlementCategory('client_delay')).toBe('extra');
     expect(settlementCategory('other')).toBe('extra');
+    expect(settlementCategory('site_judgment')).toBe('extra');
     expect(settlementCategory('rework')).toBeNull();
-    expect(ISSUE_KINDS).toHaveLength(7);
+    expect(ISSUE_KINDS).toHaveLength(8);
   });
 });

@@ -1,5 +1,5 @@
 import { jpDateTime } from '@/lib/calc/format';
-import { CHANGE_KIND_LABELS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS } from '@/lib/report/change-labels';
+import { CHANGE_KIND_LABELS, CLIENT_INSTRUCTION_METHOD_LABELS, CLIENT_ISSUE_KIND_LABELS } from '@/lib/report/change-labels';
 import { clientSettlement } from '@/lib/reports/change-model';
 import { changeInfoRows, groupDetailByIssue, NO_BASE_NOTE, type ChangeReportMeta } from '@/lib/reports/change-sections';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
@@ -58,7 +58,7 @@ export function clientNotes(model: ChangeLedgerModel, cs: ClientSettlement = cli
 
 /** ご指示：「指示者／方法 MM/DD」（日付は件を登録した日報の日。無い部分は省く）。 */
 function instruction(i: ChangeIssueSettlement): string {
-  const who = [i.instructedBy?.trim() || null, i.instructionMethod ? INSTRUCTION_METHOD_LABELS[i.instructionMethod] : null]
+  const who = [i.instructedBy?.trim() || null, i.instructionMethod ? CLIENT_INSTRUCTION_METHOD_LABELS[i.instructionMethod] : null]
     .filter((v): v is string => v !== null)
     .join('／');
   return who ? `${who} ${md(i.reportDate)}` : md(i.reportDate);
@@ -84,7 +84,7 @@ export function clientChangeIssues(model: ChangeLedgerModel, cs: ClientSettlemen
     rows: cs.issues.map((i): Cell[] => {
       const pending = cs.pendingIds.has(i.id);
       return [
-        `${md(i.reportDate)}-${i.number} ${ISSUE_KIND_LABELS[i.kind]} ${i.bodyHead}`.trim(),
+        `${md(i.reportDate)}-${i.number} ${CLIENT_ISSUE_KIND_LABELS[i.kind]} ${i.bodyHead}`.trim(),
         instruction(i),
         terms(i, pending),
         pending ? null : cell.yen(i.settled),
@@ -125,7 +125,7 @@ export function clientChangeDetail(model: ChangeLedgerModel): SectionTable {
         r.unit,
         cell.dec1(r.manDays),
         r.instructedBy ?? '',
-        r.instructionMethod ? INSTRUCTION_METHOD_LABELS[r.instructionMethod] : '',
+        r.instructionMethod ? CLIENT_INSTRUCTION_METHOD_LABELS[r.instructionMethod] : '',
         r.issue ? `${md(r.issue.reportDate)}-${r.issue.number}` : '',
         r.clientConfirmed ? 'あり' : 'なし',
       ],

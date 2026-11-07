@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし［update_2026-11-11］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -1690,6 +1690,56 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 16. 現場判断（要協議）の件・指示なし（現場判断）（update_2026-11-11） =====
+  -- A（現場 X の担当）が 12-15 の日報を作り、種別 site_judgment・指示方法 site の件と、指示方法 site の作業内容の行を保存する。
+  declare
+    r16 uuid; i16 uuid;
+  begin
+    perform pg_temp.as_user(v_a);
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-12-15', 'weather', '晴れ'), '[]'::jsonb) into r16;
+    perform pg_temp.as_editor();
+
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_issues (site_id, report_id, body, kind, instruction_method)
+        values (x, r16, '下地が傷んでいたので補修', 'site_judgment', 'site') returning id into i16;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i16 and kind = 'site_judgment' and instruction_method = 'site' and instructed_by is null;
+      if n = 1 then rep := rep || E'PASS 16-1 種別「現場判断（要協議）」・指示方法「指示なし」（指示者なし）の件を作れる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 16-1 件の行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 16-1 エラー: %s\n', sqlerrm);
+    end;
+
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_report(
+        jsonb_build_object('site_id', x, 'report_date', '2026-12-15', 'weather', '晴れ'),
+        jsonb_build_array(jsonb_build_object(
+          'kind', 'work', 'sort_order', 0, 'trade', '大工', 'description', '下地の補修', 'qty', 1, 'unit', '式',
+          'unit_price', 10000, 'man_days', 0.5, 'source', 'extra',
+          'change_kind', 'extra', 'instruction_method', 'site', 'issue_id', i16)));
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_lines where report_id = r16 and kind = 'work' and instruction_method = 'site' and issue_id = i16;
+      if n = 1 then rep := rep || E'PASS 16-2 作業内容の行に指示方法「指示なし」と現場判断の件を付けて保存できる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 16-2 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 16-2 エラー: %s\n', sqlerrm);
+    end;
+
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_issues (site_id, report_id, body, kind) values (x, r16, '種別が変', 'judgment');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 16-3 決まりに無い種別で件を作れた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlstate = '23514' then rep := rep || E'PASS 16-3 決まりに無い種別は check で断る\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 16-3 想定外: %s\n', sqlerrm); end if;
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 16 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

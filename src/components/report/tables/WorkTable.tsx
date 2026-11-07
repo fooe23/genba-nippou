@@ -7,6 +7,7 @@ import type { WorkLine } from '@/lib/types';
 import { decimal, money, newLine, patchRow, removeRow, row, type Row } from '../form-state';
 import { Computed, fieldClass, NumInput, Select, TextInput, type SelectOption } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
+import { LineIssueCreator } from './LineIssueCreator';
 
 const methodOptions: SelectOption[] = INSTRUCTION_METHODS.map((m) => ({ value: m, label: INSTRUCTION_METHOD_LABELS[m] }));
 
@@ -48,6 +49,8 @@ export function WorkTable({
   units,
   issues,
   flagged,
+  reportId,
+  onIssueCreated,
 }: {
   rows: Row<WorkLine>[];
   onChange: (update: (rows: Row<WorkLine>[]) => Row<WorkLine>[]) => void;
@@ -56,6 +59,10 @@ export function WorkTable({
   issues: Issue[];
   /** 赤枠で示す行（作業内容の行の添字）。提出を断られた、件を選んでいない追加・増・変更・減の行。 */
   flagged?: ReadonlySet<number>;
+  /** 保存済みの日報の id（「この行の件を作る」に使う。未保存なら null）。 */
+  reportId: string | null;
+  /** 行から件を作ったあと（件の候補を読み直す）。 */
+  onIssueCreated: () => void;
 }) {
   const set = (i: number, patch: Partial<WorkLine>) => onChange((rs) => patchRow(rs, i, patch));
   const unitOptions = units.map((u) => ({ value: u, label: u }));
@@ -100,36 +107,49 @@ export function WorkTable({
       rowClass={(_, i) => (flagged?.has(i) ? 'outline-2 -outline-offset-2 outline-red-600 md:rounded-lg md:px-2 dark:outline-red-500' : '')}
       rowExtra={(l, i) =>
         l.changeKind === 'contract' ? null : (
-          <div role="group" aria-label={`${i + 1}行目の${CHANGE_KIND_LABELS[l.changeKind]}の指示`} className="grid grid-cols-2 gap-2 md:grid-cols-4">
-            <SubField label="指示者">
-              <TextInput value={l.instructedBy} maxLength={100} placeholder="例：施主 山田様" onChange={(v) => set(i, { instructedBy: v })} />
-            </SubField>
-            <SubField label="指示方法">
-              <Select
-                value={l.instructionMethod ?? ''}
-                options={methodOptions}
-                placeholder="—"
-                onChange={(v) => set(i, { instructionMethod: isInstructionMethod(v) ? v : null })}
+          <div role="group" aria-label={`${i + 1}行目の${CHANGE_KIND_LABELS[l.changeKind]}の指示`}>
+            <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+              <SubField label="指示者">
+                <TextInput value={l.instructedBy} maxLength={100} placeholder="例：施主 山田様" onChange={(v) => set(i, { instructedBy: v })} />
+              </SubField>
+              <SubField label="指示方法">
+                <Select
+                  value={l.instructionMethod ?? ''}
+                  options={methodOptions}
+                  placeholder="—"
+                  onChange={(v) => set(i, { instructionMethod: isInstructionMethod(v) ? v : null })}
+                />
+              </SubField>
+              <SubField label="指示日">
+                <input
+                  type="date"
+                  value={l.instructedOn ?? ''}
+                  onChange={(e) => set(i, { instructedOn: e.target.value === '' ? null : e.target.value })}
+                  className={fieldClass}
+                />
+              </SubField>
+              <SubField label="根拠の件">
+                <Select
+                  value={l.issueId ?? ''}
+                  options={issueChoices}
+                  placeholder="なし"
+                  missingLabel="（一覧に無い件）"
+                  onChange={(v) => set(i, { issueId: v === '' ? null : v })}
+                />
+                {flagged?.has(i) && <span className="mt-0.5 block text-sm font-bold text-red-700 dark:text-red-400">件を選んでください</span>}
+              </SubField>
+            </div>
+            {!l.issueId && (
+              <LineIssueCreator
+                line={l}
+                rowNumber={i + 1}
+                reportId={reportId}
+                onCreated={(id) => {
+                  set(i, { issueId: id });
+                  onIssueCreated();
+                }}
               />
-            </SubField>
-            <SubField label="指示日">
-              <input
-                type="date"
-                value={l.instructedOn ?? ''}
-                onChange={(e) => set(i, { instructedOn: e.target.value === '' ? null : e.target.value })}
-                className={fieldClass}
-              />
-            </SubField>
-            <SubField label="根拠の件">
-              <Select
-                value={l.issueId ?? ''}
-                options={issueChoices}
-                placeholder="なし"
-                missingLabel="（一覧に無い件）"
-                onChange={(v) => set(i, { issueId: v === '' ? null : v })}
-              />
-              {flagged?.has(i) && <span className="mt-0.5 block text-sm font-bold text-red-700 dark:text-red-400">件を選んでください</span>}
-            </SubField>
+            )}
           </div>
         )
       }

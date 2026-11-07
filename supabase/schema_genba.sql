@@ -268,6 +268,8 @@ create index if not exists gn_report_issues_report_idx on public.gn_report_issue
 
 -- 既存環境向け（2026-11-04 追加列。update_2026-11-04_change_tracking.sql）：追加・増・変更・減の記録
 -- 区分・種別の「増」（increase）は 2026-11-04d（update_2026-11-04d_increase_kind.sql。既存環境は check 制約を付け直す）
+-- 件の種別の「現場判断（要協議）」（site_judgment）と指示方法の「指示なし（現場判断）」（site）は 2026-11-11
+-- （update_2026-11-11_site_judgment.sql。既存環境は check 制約を付け直す）
 -- 日報の客先確認（確認者名・日時・メモ）。日報の保存（gn_save_report）では変えない。
 alter table public.gn_daily_reports add column if not exists client_confirmed_by   text;
 alter table public.gn_daily_reports add column if not exists client_confirmed_at   timestamptz;
@@ -287,16 +289,16 @@ alter table public.gn_report_lines add column if not exists change_kind text not
   check (change_kind in ('contract','extra','increase','change','minus'));
 alter table public.gn_report_lines add column if not exists instructed_by text;
 alter table public.gn_report_lines add column if not exists instruction_method text
-  check (instruction_method in ('oral','phone','email','document','other'));
+  check (instruction_method in ('oral','phone','email','document','other','site'));
 alter table public.gn_report_lines add column if not exists instructed_on date;
 alter table public.gn_report_lines add column if not exists issue_id uuid
   references public.gn_report_issues(id) on delete set null;
 -- 重要事項の件の種別・指示者・指示方法・金額見込み
 alter table public.gn_report_issues add column if not exists kind text not null default 'other'
-  check (kind in ('extra','increase','change','minus','client_delay','rework','other'));
+  check (kind in ('extra','increase','change','minus','client_delay','rework','other','site_judgment'));
 alter table public.gn_report_issues add column if not exists instructed_by text;
 alter table public.gn_report_issues add column if not exists instruction_method text
-  check (instruction_method in ('oral','phone','email','document','other'));
+  check (instruction_method in ('oral','phone','email','document','other','site'));
 alter table public.gn_report_issues add column if not exists amount_estimate numeric
   check (amount_estimate is null or amount_estimate >= 0);
 -- 既存環境向け（2026-11-05 追加列。update_2026-11-05_issue_settlement.sql）：件ごとの精算
