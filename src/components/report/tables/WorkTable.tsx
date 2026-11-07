@@ -51,6 +51,7 @@ export function WorkTable({
   flagged,
   reportId,
   onIssueCreated,
+  readOnly = false,
 }: {
   rows: Row<WorkLine>[];
   onChange: (update: (rows: Row<WorkLine>[]) => Row<WorkLine>[]) => void;
@@ -63,6 +64,8 @@ export function WorkTable({
   reportId: string | null;
   /** 行から件を作ったあと（件の候補を読み直す）。 */
   onIssueCreated: () => void;
+  /** 提出済み・承認済みなど、日報を直せないとき。「この行の件を作る」を出さない。 */
+  readOnly?: boolean;
 }) {
   const set = (i: number, patch: Partial<WorkLine>) => onChange((rs) => patchRow(rs, i, patch));
   const unitOptions = units.map((u) => ({ value: u, label: u }));
@@ -139,7 +142,7 @@ export function WorkTable({
                 {flagged?.has(i) && <span className="mt-0.5 block text-sm font-bold text-red-700 dark:text-red-400">件を選んでください</span>}
               </SubField>
             </div>
-            {!l.issueId && (
+            {!l.issueId && !readOnly && (
               <LineIssueCreator
                 line={l}
                 rowNumber={i + 1}

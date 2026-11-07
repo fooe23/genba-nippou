@@ -383,6 +383,8 @@ function ReportFormBody({
   const unlinked = useMemo(() => unlinkedChangeLines(state.rows.work.map((r) => r.line)), [state.rows.work]);
   // 提出を断られたら、まだ件の無い行を赤枠で示す（件を選ぶと枠が消える）。
   const [flagUnlinked, setFlagUnlinked] = useState(false);
+  // すべての行に件を選んだら赤枠の表示を終える（あとで足した行がいきなり赤くならないように）。
+  if (flagUnlinked && unlinked.length === 0) setFlagUnlinked(false);
   const flaggedWorkRows = useMemo(() => (flagUnlinked ? new Set(unlinked.map((u) => u.index)) : undefined), [flagUnlinked, unlinked]);
   const submittable = p.status === 'none' || p.status === 'draft' || p.status === 'rejected';
   const warnings = useMemo(() => {
@@ -860,6 +862,7 @@ function ReportFormBody({
           flagged={flaggedWorkRows}
           reportId={p.readOnly ? null : p.reportId}
           onIssueCreated={() => router.refresh()}
+          readOnly={p.readOnly}
         />
 
         <ReportSummary
