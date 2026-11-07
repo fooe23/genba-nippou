@@ -272,6 +272,16 @@ create index if not exists gn_report_issues_report_idx on public.gn_report_issue
 alter table public.gn_daily_reports add column if not exists client_confirmed_by   text;
 alter table public.gn_daily_reports add column if not exists client_confirmed_at   timestamptz;
 alter table public.gn_daily_reports add column if not exists client_confirmed_note text;
+-- お客様のサイン（2026-11-10。update_2026-11-10_client_signature.sql）。gn_save_client_signature / gn_revoke_client_signature だけが書く
+-- （gn_report_guard の印 gn.in_signature）。取り消したサインの記録は client_signature_history に足していく（PDF のパスも残す）。
+alter table public.gn_daily_reports add column if not exists client_signature_path          text;
+alter table public.gn_daily_reports add column if not exists client_signed_at               timestamptz;
+alter table public.gn_daily_reports add column if not exists client_signed_by               uuid references public.profiles(id);
+alter table public.gn_daily_reports add column if not exists client_signed_pdf_path         text;
+alter table public.gn_daily_reports add column if not exists client_signature_revoked_at    timestamptz;
+alter table public.gn_daily_reports add column if not exists client_signature_revoked_by    uuid references public.profiles(id);
+alter table public.gn_daily_reports add column if not exists client_signature_revoke_reason text;
+alter table public.gn_daily_reports add column if not exists client_signature_history       jsonb not null default '[]'::jsonb;
 -- 作業内容の行（kind = 'work'）の区分・指示者・指示方法・指示日・根拠の件。作業内容以外の行の区分は 'contract' のまま使わない。
 alter table public.gn_report_lines add column if not exists change_kind text not null default 'contract'
   check (change_kind in ('contract','extra','increase','change','minus'));
@@ -473,6 +483,8 @@ $$;
 --     （PostgREST からは set_config を直接呼べないので、利用者がこの印を立てることはできない）
 --   * 客先確認の3列（client_confirmed_by / client_confirmed_at / client_confirmed_note）だけの変更は、
 --     状態（承認済みを含む）や現場の完了・削除に関係なく通す（2026-11-04c。RLS の現場メンバーの条件は効く）
+--   * お客様のサインの列（client_signature_* など）は gn_save_client_signature / gn_revoke_client_signature の中
+--     （gn.in_signature = '1'）でだけ変えられる。サインがある間は客先確認の3列も変えられない（signature_locked。2026-11-10）
 -- gn_save_report はこの4列に触れず status も変えない（insert は draft、on conflict update は
 -- 本文の列のみ）ので、draft / submitted / rejected の日報では担当者でもこのガードを通る。
 -- メッセージ文字列はクライアントが判定に使うため変更しないこと
@@ -504,10 +516,49 @@ begin
     new.output_total   := 0;
     new.cost_total     := 0;
     new.man_days_total := 0;
+    -- サインは gn_save_client_signature でだけ入れる（insert では常に空）
+    new.client_signature_path          := null;
+    new.client_signed_at               := null;
+    new.client_signed_by               := null;
+    new.client_signed_pdf_path         := null;
+    new.client_signature_revoked_at    := null;
+    new.client_signature_revoked_by    := null;
+    new.client_signature_revoke_reason := null;
+    new.client_signature_history       := '[]'::jsonb;
     return new;
   end if;
 
   -- update
+  -- サインの列は gn_save_client_signature / gn_revoke_client_signature の中（gn.in_signature = '1'）でだけ変えられる
+  -- （管理者も同じ）。関数が変えるのはサインの列・客先確認の 3 列・updated_at だけ。状態・完了現場に関係なく通す
+  -- （権限・状態の判定は関数がする）。2026-11-10（update_2026-11-10_client_signature.sql）。
+  if (new.client_signature_path, new.client_signed_at, new.client_signed_by, new.client_signed_pdf_path,
+      new.client_signature_revoked_at, new.client_signature_revoked_by, new.client_signature_revoke_reason,
+      new.client_signature_history)
+     is distinct from
+     (old.client_signature_path, old.client_signed_at, old.client_signed_by, old.client_signed_pdf_path,
+      old.client_signature_revoked_at, old.client_signature_revoked_by, old.client_signature_revoke_reason,
+      old.client_signature_history) then
+    if current_setting('gn.in_signature', true) is distinct from '1'
+       or (to_jsonb(new) - 'client_signature_path' - 'client_signed_at' - 'client_signed_by' - 'client_signed_pdf_path'
+                         - 'client_signature_revoked_at' - 'client_signature_revoked_by' - 'client_signature_revoke_reason'
+                         - 'client_signature_history'
+                         - 'client_confirmed_by' - 'client_confirmed_at' - 'client_confirmed_note' - 'updated_at')
+          is distinct from
+          (to_jsonb(old) - 'client_signature_path' - 'client_signed_at' - 'client_signed_by' - 'client_signed_pdf_path'
+                         - 'client_signature_revoked_at' - 'client_signature_revoked_by' - 'client_signature_revoke_reason'
+                         - 'client_signature_history'
+                         - 'client_confirmed_by' - 'client_confirmed_at' - 'client_confirmed_note' - 'updated_at') then
+      raise exception using message = 'signature_locked';
+    end if;
+    return new;
+  end if;
+  -- サインがある間は、客先確認の 3 列（確認者・日時・メモ）を誰も変えられない（管理者がサインを取り消した後なら変えられる）
+  if old.client_signature_path is not null
+     and (new.client_confirmed_by, new.client_confirmed_at, new.client_confirmed_note)
+         is distinct from (old.client_confirmed_by, old.client_confirmed_at, old.client_confirmed_note) then
+    raise exception using message = 'signature_locked';
+  end if;
   -- 客先確認の3列だけの変更（updated_at は gn_daily_reports_touch が進める）は、承認済み・完了現場でも通す。
   -- 3列のどれかが実際に変わったときだけ（何も変えない更新はこの例外に入れない）
   if (to_jsonb(new) - 'client_confirmed_by' - 'client_confirmed_at' - 'client_confirmed_note' - 'updated_at')
@@ -566,12 +617,15 @@ drop trigger if exists gn_report_guard on public.gn_daily_reports;
 create trigger gn_report_guard before insert or update on public.gn_daily_reports
   for each row execute function public.gn_report_guard();
 
--- 日報の削除も完了・削除済みの現場では不可
+-- 日報の削除も完了・削除済みの現場では不可。サインがある日報は誰も消せない（管理者が取り消した後なら消せる。2026-11-10）
 create or replace function public.gn_report_delete_guard()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if public.gn_site_closed(old.site_id) then
     raise exception using message = 'site_closed';
+  end if;
+  if old.client_signature_path is not null then
+    raise exception using message = 'report_signed';
   end if;
   return old;
 end;
@@ -1276,6 +1330,8 @@ create policy gn_estimates_insert on storage.objects for insert to authenticated
 -- 置いた本人か（2026-11-09。update_2026-11-09_attachments.sql）：いまの Storage は置いた人を owner_id（text）に入れ、
 -- owner（uuid）は古い版の列。どちらの版でも動くよう、owner_id の列があれば owner_id（空なら owner）で比べる。
 -- gn-photos・gn-estimates の上書き（update）・削除（delete）は、置いた本人か管理者だけ。
+-- ただし gn-photos の <site_id>/sign/（サイン）と gn-exports の <site_id>/signed/（サインした時点の PDF）は、置いた本人・管理者でも
+-- 上書き・削除できない（2026-11-10。update_2026-11-10_client_signature.sql）。
 do $do$
 declare
   v_owner text;
@@ -1290,9 +1346,9 @@ begin
   end if;
 
   execute 'drop policy if exists gn_photos_update on storage.objects';
-  execute format($p$create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s) with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and (public.is_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(att|sign)/'))$p$, v_owner);
+  execute format($p$create policy gn_photos_update on storage.objects for update to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/sign/') with check (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and (public.is_admin() or name ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(att|sign)/'))$p$, v_owner);
   execute 'drop policy if exists gn_photos_delete on storage.objects';
-  execute format($p$create policy gn_photos_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s)$p$, v_owner);
+  execute format($p$create policy gn_photos_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-photos' and public.gn_is_site_member(public.gn_storage_site(name)) and %1$s and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/sign/')$p$, v_owner);
   execute 'drop policy if exists gn_estimates_update on storage.objects';
   execute format($p$create policy gn_estimates_update on storage.objects for update to authenticated using (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and %1$s) with check (bucket_id = 'gn-estimates' and public.gn_is_site_member(public.gn_storage_site(name)) and public.gn_is_employee_or_admin() and %1$s)$p$, v_owner);
   execute 'drop policy if exists gn_estimates_delete on storage.objects';
@@ -1304,9 +1360,9 @@ create policy gn_exports_read on storage.objects for select to authenticated usi
 drop policy if exists gn_exports_insert on storage.objects;
 create policy gn_exports_insert on storage.objects for insert to authenticated with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)));
 drop policy if exists gn_exports_update on storage.objects;
-create policy gn_exports_update on storage.objects for update to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin())) with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
+create policy gn_exports_update on storage.objects for update to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()) and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/') with check (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
 drop policy if exists gn_exports_delete on storage.objects;
-create policy gn_exports_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()));
+create policy gn_exports_delete on storage.objects for delete to authenticated using (bucket_id = 'gn-exports' and public.gn_is_site_member(public.gn_storage_site(name)) and (owner = auth.uid() or public.is_admin()) and name !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/signed/');
 
 -- =====================================================================
 -- 現場の削除（戻せる非表示）と削除ログ（2026-11-02）
@@ -2011,3 +2067,185 @@ update storage.buckets set allowed_mime_types = array[
     'application/msword',
     'image/jpeg',
     'image/png'];
+
+-- =====================================================================
+-- お客様のサインとサインした時点の PDF（2026-11-10。update_2026-11-10_client_signature.sql）
+-- =====================================================================
+-- 列は 5. 日報の後、ガードは 8.、Storage の上書き・削除の禁止は 11. にある。
+-- 流れ（アプリ）：ブラウザがサインの画像（PNG）を本人のログインで gn-photos/<site_id>/sign/<uuid>.png に置く →
+-- サーバーがその画像を読み、お客様用日報 PDF を作って gn-exports/<site_id>/signed/<report_id>-<ミリ秒>.pdf に置く（本人のログイン）→
+-- gn_save_client_signature で列を入れる。途中で失敗したら列は入らない（置いた実体は残るが、画面には出ない）。
+-- 拒否の理由（アプリが文言に変える。文字列を変えないこと）：
+--   not_authenticated・report_not_found・stale_report・signature_exists・signature_missing・invalid_signature_input・
+--   invalid_storage_path・storage_object_missing・storage_object_not_owned・storage_object_too_large・not_admin・
+--   invalid_revoke_reason・signature_locked（ガード）・report_signed（削除のガード）。
+
+-- サインを保存する（現場メンバー。どの状態の日報でも・完了現場でも。1 回だけ）。
+--   p_signed_at：サインした日時（＝客先確認の日時。PDF に出した時刻と同じにするためアプリが送る）。今から 10 分前〜1 分後の範囲だけ。
+--   p_signature_path：gn-photos/<site_id>/sign/<uuid>.png（本人が置いた実体。2MB まで）
+--   p_pdf_path：gn-exports/<site_id>/signed/<report_id>-<数字>.pdf（本人が置いた実体）
+--   p_expected_updated_at：画面の版（null なら比べない）。違えば stale_report。
+-- 戻り値は保存後の updated_at（画面の楽観ロック用）。
+create or replace function public.gn_save_client_signature(
+  p_report_id uuid,
+  p_confirmed_by text,
+  p_note text,
+  p_signed_at timestamptz,
+  p_signature_path text,
+  p_pdf_path text,
+  p_expected_updated_at timestamptz default null
+)
+returns timestamptz language plpgsql security definer set search_path = public as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_site    uuid;
+  v_updated timestamptz;
+  v_path    text;
+  v_history jsonb;
+  v_by      text := btrim(coalesce(p_confirmed_by, ''));
+  v_note    text := nullif(btrim(coalesce(p_note, '')), '');
+  v_at      timestamptz := coalesce(p_signed_at, now());
+  v_obj     jsonb;
+  v_size    bigint;
+  v_uuid_re constant text := '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+begin
+  if v_uid is null then
+    raise exception using message = 'not_authenticated';
+  end if;
+  select r.site_id, r.updated_at, r.client_signature_path, r.client_signature_history
+    into v_site, v_updated, v_path, v_history
+    from public.gn_daily_reports r where r.id = p_report_id
+     for update;
+  if v_site is null or not public.gn_is_site_member(v_site) then
+    raise exception using message = 'report_not_found';
+  end if;
+  if p_expected_updated_at is not null and v_updated is distinct from p_expected_updated_at then
+    raise exception using message = 'stale_report';
+  end if;
+  if v_path is not null then
+    raise exception using message = 'signature_exists';
+  end if;
+  if char_length(v_by) not between 1 and 100
+     or (v_note is not null and char_length(v_note) > 500)
+     or v_at < now() - interval '10 minutes' or v_at > now() + interval '1 minute' then
+    raise exception using message = 'invalid_signature_input';
+  end if;
+
+  -- パスの規約（その日報の現場の下）。取り消したサインの画像・PDF をもう一度使うことはできない
+  if p_signature_path is null
+     or p_signature_path !~ ('^' || v_site::text || '/sign/' || v_uuid_re || '\.png$')
+     or p_pdf_path is null
+     or p_pdf_path !~ ('^' || v_site::text || '/signed/' || p_report_id::text || '-[0-9]{1,20}\.pdf$')
+     or exists (
+       select 1 from jsonb_array_elements(coalesce(v_history, '[]'::jsonb)) e
+        where e->>'path' = p_signature_path or e->>'pdf_path' = p_pdf_path
+     ) then
+    raise exception using message = 'invalid_storage_path';
+  end if;
+
+  -- サインの画像：本人が置いた実体で、2MB まで（列の有無に頼らないよう jsonb で読む。owner_id か owner）
+  select to_jsonb(o) into v_obj from storage.objects o
+   where o.bucket_id = 'gn-photos' and o.name = p_signature_path;
+  if v_obj is null then
+    raise exception using message = 'storage_object_missing';
+  end if;
+  if coalesce(nullif(v_obj->>'owner_id', ''), v_obj->>'owner') is distinct from v_uid::text then
+    raise exception using message = 'storage_object_not_owned';
+  end if;
+  v_size := coalesce((v_obj->'metadata'->>'size')::bigint, 0);
+  if v_size > 2097152 then
+    raise exception using message = 'storage_object_too_large';
+  end if;
+
+  -- サインした時点の PDF：本人が置いた実体
+  v_obj := null;
+  select to_jsonb(o) into v_obj from storage.objects o
+   where o.bucket_id = 'gn-exports' and o.name = p_pdf_path;
+  if v_obj is null then
+    raise exception using message = 'storage_object_missing';
+  end if;
+  if coalesce(nullif(v_obj->>'owner_id', ''), v_obj->>'owner') is distinct from v_uid::text then
+    raise exception using message = 'storage_object_not_owned';
+  end if;
+
+  perform set_config('gn.in_signature', '1', true);
+  update public.gn_daily_reports
+     set client_signature_path  = p_signature_path,
+         client_signed_at       = v_at,
+         client_signed_by       = v_uid,
+         client_signed_pdf_path = p_pdf_path,
+         client_confirmed_by    = v_by,
+         client_confirmed_at    = v_at,
+         client_confirmed_note  = v_note
+   where id = p_report_id
+   returning updated_at into v_updated;
+  perform set_config('gn.in_signature', '', true);
+  return v_updated;
+end;
+$$;
+revoke all on function public.gn_save_client_signature(uuid, text, text, timestamptz, text, text, timestamptz) from public, anon;
+grant execute on function public.gn_save_client_signature(uuid, text, text, timestamptz, text, text, timestamptz) to authenticated;
+
+-- サインを取り消す（管理者だけ。理由 1〜500 文字）。サインの列を空にし、取り消した記録（画像・PDF のパス、サインした日時・
+-- 保存した人・確認者・日時・メモ、取り消した日時・人・理由）を client_signature_history に足す。客先確認の 3 列は残す
+-- （取り消した後は記録し直し・取り消しができる）。PDF・画像の実体は消さない。
+create or replace function public.gn_revoke_client_signature(
+  p_report_id uuid,
+  p_reason text,
+  p_expected_updated_at timestamptz default null
+)
+returns timestamptz language plpgsql security definer set search_path = public as $$
+declare
+  v_uid     uuid := auth.uid();
+  v_reason  text := btrim(coalesce(p_reason, ''));
+  r         public.gn_daily_reports;
+  v_updated timestamptz;
+begin
+  if v_uid is null then
+    raise exception using message = 'not_authenticated';
+  end if;
+  if not public.is_admin() then
+    raise exception using message = 'not_admin';
+  end if;
+  if char_length(v_reason) not between 1 and 500 then
+    raise exception using message = 'invalid_revoke_reason';
+  end if;
+  select * into r from public.gn_daily_reports where id = p_report_id for update;
+  if not found then
+    raise exception using message = 'report_not_found';
+  end if;
+  if p_expected_updated_at is not null and r.updated_at is distinct from p_expected_updated_at then
+    raise exception using message = 'stale_report';
+  end if;
+  if r.client_signature_path is null then
+    raise exception using message = 'signature_missing';
+  end if;
+
+  perform set_config('gn.in_signature', '1', true);
+  update public.gn_daily_reports
+     set client_signature_path          = null,
+         client_signed_at               = null,
+         client_signed_by               = null,
+         client_signed_pdf_path         = null,
+         client_signature_revoked_at    = now(),
+         client_signature_revoked_by    = v_uid,
+         client_signature_revoke_reason = v_reason,
+         client_signature_history       = coalesce(r.client_signature_history, '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+           'path',         r.client_signature_path,
+           'pdf_path',     r.client_signed_pdf_path,
+           'signed_at',    r.client_signed_at,
+           'signed_by',    r.client_signed_by,
+           'confirmed_by', r.client_confirmed_by,
+           'confirmed_at', r.client_confirmed_at,
+           'note',         r.client_confirmed_note,
+           'revoked_at',   now(),
+           'revoked_by',   v_uid,
+           'reason',       v_reason))
+   where id = p_report_id
+   returning updated_at into v_updated;
+  perform set_config('gn.in_signature', '', true);
+  return v_updated;
+end;
+$$;
+revoke all on function public.gn_revoke_client_signature(uuid, text, timestamptz) from public, anon;
+grant execute on function public.gn_revoke_client_signature(uuid, text, timestamptz) to authenticated;

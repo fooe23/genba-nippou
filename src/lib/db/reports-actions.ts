@@ -40,6 +40,22 @@ import { usesFixedAmount } from '@/lib/report/change-labels';
 import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots, type StoredAffiliations } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
+import {
+  checkSignaturePng,
+  clientSignatureSchema,
+  isSignaturePathFor,
+  REPORT_SIGNED_DELETE_MESSAGE,
+  REVOKE_ADMIN_ONLY_MESSAGE,
+  revokeReasonSchema,
+  SIGNATURE_EXISTS_MESSAGE,
+  SIGNATURE_IMAGE_FAILED_MESSAGE,
+  SIGNATURE_LOCKED_MESSAGE,
+  signatureErrorMessage,
+  signedPdfPath,
+  type ClientSignatureInput,
+} from '@/lib/report/client-signature';
+import { downloadObject, SIGNATURE_BUCKET, SIGNED_PDF_BUCKET } from '@/lib/db/client-signature';
+import { renderClientDailyPdf } from '@/lib/reports/client-daily-render';
 import { loadSupplierRoles } from '@/lib/db/supplier-roles';
 import { creditSupplierError } from '@/lib/calc/supplier-roles';
 import type { IssueStatus, ReportLine } from '@/lib/types';
@@ -211,6 +227,7 @@ function stateErrorMessage(dbMessage: string | null | undefined): string {
   if (m.includes('site_closed')) return SITE_CLOSED_MESSAGE;
   if (m.includes('not_reviewer')) return 'この現場の確認者・承認者ではありません';
   if (m.includes('approved_report_locked')) return '承認済みのため編集できません';
+  if (m.includes('signature_locked')) return SIGNATURE_LOCKED_MESSAGE;
   return GENERIC_ERROR;
 }
 
@@ -393,6 +410,7 @@ export async function deleteReport(reportId: string): Promise<ReportStateResult>
     const { data, error } = await q.select('id');
     if (error) {
       console.error('[deleteReport]', error.message);
+      if (error.message.includes('report_signed')) return { ok: false, error: REPORT_SIGNED_DELETE_MESSAGE };
       return { ok: false, error: error.message.includes('site_closed') ? SITE_CLOSED_MESSAGE : GENERIC_ERROR };
     }
     if (!data || data.length === 0) return { ok: false, error: CANNOT };
@@ -430,7 +448,7 @@ async function writeClientConfirmation(
     const supabase = await createServerSupabase();
     const { data: head, error: headError } = await supabase
       .from('gn_daily_reports')
-      .select('site_id, report_date, updated_at, client_confirmed_by, client_confirmed_at, client_confirmed_note')
+      .select('site_id, report_date, updated_at, client_confirmed_by, client_confirmed_at, client_confirmed_note, client_signature_path')
       .eq('id', reportId)
       .maybeSingle();
     if (headError) {
@@ -445,7 +463,10 @@ async function writeClientConfirmation(
       client_confirmed_by: string | null;
       client_confirmed_at: string | null;
       client_confirmed_note: string | null;
+      client_signature_path: string | null;
     };
+    // お客様のサインがある間は、確認者・日時・メモは固定（DB のガードも signature_locked で止める）
+    if (h.client_signature_path) return { ok: false, error: SIGNATURE_LOCKED_MESSAGE };
     // 同じ内容の記録し直し・記録の無い日報の取り消しは書かずに済ませる（unchangedConfirmationResult）。
     const unchanged = unchangedConfirmationResult(h, patch, expected);
     if (unchanged) return unchanged;
@@ -501,6 +522,145 @@ export async function clearClientConfirmation(reportId: string, expectedUpdatedA
     { client_confirmed_by: null, client_confirmed_at: null, client_confirmed_note: null },
     expectedUpdatedAt,
   );
+}
+
+// ─── お客様のサイン ───
+// 流れ：画面がサインを PNG にして本人のログインで gn-photos/<site_id>/sign/<uuid>.png に置く → saveClientSignature が
+// その画像を読み、お客様用日報 PDF（確認者・日時・メモ・サイン入り）を作って本人のログインで
+// gn-exports/<site_id>/signed/<report_id>-<ミリ秒>.pdf に置く → DB の gn_save_client_signature が規約・実体・置いた人を確かめて
+// 列を入れる（確認者・日時・メモも固定）。途中で失敗したら列は入らない（置いた実体は残るが、画面には出ない・害は無い）。
+// どの状態の日報でも・完了現場でも、現場メンバー（協力会社を含む）なら保存できる。
+
+/**
+ * お客様のサインを保存する。expectedUpdatedAt を渡すと、その版のときだけ保存し、違えば stale。
+ * updatedAt は保存後の版（日報画面の楽観ロック用）。
+ */
+export async function saveClientSignature(
+  reportId: string,
+  input: ClientSignatureInput,
+  expectedUpdatedAt?: string | null,
+): Promise<ClientConfirmationResult> {
+  await requireProfile();
+  if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
+  const v = clientSignatureSchema.safeParse(input);
+  if (!v.success) return { ok: false, error: v.error.issues[0]?.message ?? '入力内容が正しくありません' };
+  const expected = expectedUpdatedAt ?? null;
+  if (expected !== null && !timestampSchema.safeParse(expected).success) return { ok: false, error: STALE_VERSION_ERROR };
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data: head, error: headError } = await supabase
+      .from('gn_daily_reports')
+      .select('site_id, report_date, updated_at, client_signature_path')
+      .eq('id', reportId)
+      .maybeSingle();
+    if (headError) {
+      console.error('[saveClientSignature:head]', headError.message);
+      return { ok: false, error: GENERIC_ERROR };
+    }
+    if (!head) return { ok: false, error: NOT_FOUND };
+    const h = head as { site_id: string; report_date: string; updated_at: string | null; client_signature_path: string | null };
+    if (h.client_signature_path) return { ok: false, error: SIGNATURE_EXISTS_MESSAGE };
+    if (expected !== null && h.updated_at !== expected) return { ok: false, error: STALE_CONFIRMATION_MESSAGE, stale: true };
+    if (!isSignaturePathFor(h.site_id, v.data.signaturePath)) return { ok: false, error: SIGNATURE_IMAGE_FAILED_MESSAGE };
+
+    // 置いたサインの画像を読み、PNG か・大きさを確かめる（空の絵は画面で止めている。ここでは小さすぎるものを弾く）
+    const png = await downloadObject(SIGNATURE_BUCKET, v.data.signaturePath);
+    if (!png) return { ok: false, error: SIGNATURE_IMAGE_FAILED_MESSAGE };
+    const bad = checkSignaturePng(png);
+    if (bad) return { ok: false, error: bad };
+
+    // これから保存する確認者・日時・メモとサインを載せたお客様用日報 PDF（日時は DB にも同じ値を入れる）
+    const signedAt = new Date();
+    const at = signedAt.toISOString();
+    let pdf: Buffer;
+    try {
+      pdf = await renderClientDailyPdf(reportId, {
+        signaturePng: png,
+        outputAt: at,
+        confirmation: { by: v.data.confirmedBy, at, note: v.data.note },
+      });
+    } catch (e) {
+      console.error('[saveClientSignature:pdf]', e);
+      return { ok: false, error: 'お客様用日報 PDF を作れませんでした。時間をおいてもう一度「サインを保存」を押してください。' };
+    }
+    const pdfPath = signedPdfPath(h.site_id, reportId, signedAt.getTime());
+    const { error: upError } = await supabase.storage
+      .from(SIGNED_PDF_BUCKET)
+      .upload(pdfPath, new Uint8Array(pdf), { contentType: 'application/pdf', upsert: false });
+    if (upError) {
+      console.error('[saveClientSignature:upload]', upError.message);
+      return { ok: false, error: 'サインした時点の PDF を保存できませんでした。通信状況を確認してもう一度「サインを保存」を押してください。' };
+    }
+
+    const { data, error } = await supabase.rpc('gn_save_client_signature', {
+      p_report_id: reportId,
+      p_confirmed_by: v.data.confirmedBy,
+      p_note: v.data.note,
+      p_signed_at: at,
+      p_signature_path: v.data.signaturePath,
+      p_pdf_path: pdfPath,
+      p_expected_updated_at: expected,
+    });
+    if (error) {
+      console.error('[saveClientSignature]', error.message);
+      return { ok: false, error: signatureErrorMessage(error.message), ...(error.message.includes('stale_report') ? { stale: true } : {}) };
+    }
+
+    revalidatePath(`/sites/${h.site_id}`);
+    revalidatePath(`/sites/${h.site_id}/reports/${h.report_date}`);
+    revalidatePath(`/approvals/${reportId}`);
+    return { ok: true, updatedAt: typeof data === 'string' ? data : null };
+  } catch (e) {
+    console.error('[saveClientSignature]', e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
+}
+
+/** お客様のサインを取り消す（管理者だけ。理由必須）。サインした時点の PDF は消さず「取り消し」として残る。 */
+export async function revokeClientSignature(
+  reportId: string,
+  reason: string,
+  expectedUpdatedAt?: string | null,
+): Promise<ClientConfirmationResult> {
+  const profile = await requireProfile();
+  if (!profile.isAdmin) return { ok: false, error: REVOKE_ADMIN_ONLY_MESSAGE };
+  if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
+  const r = revokeReasonSchema.safeParse(reason);
+  if (!r.success) return { ok: false, error: r.error.issues[0]?.message ?? '取り消しの理由を入力してください' };
+  const expected = expectedUpdatedAt ?? null;
+  if (expected !== null && !timestampSchema.safeParse(expected).success) return { ok: false, error: STALE_VERSION_ERROR };
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data: head, error: headError } = await supabase
+      .from('gn_daily_reports')
+      .select('site_id, report_date')
+      .eq('id', reportId)
+      .maybeSingle();
+    if (headError) {
+      console.error('[revokeClientSignature:head]', headError.message);
+      return { ok: false, error: GENERIC_ERROR };
+    }
+    if (!head) return { ok: false, error: NOT_FOUND };
+    const h = head as { site_id: string; report_date: string };
+    const { data, error } = await supabase.rpc('gn_revoke_client_signature', {
+      p_report_id: reportId,
+      p_reason: r.data,
+      p_expected_updated_at: expected,
+    });
+    if (error) {
+      console.error('[revokeClientSignature]', error.message);
+      return { ok: false, error: signatureErrorMessage(error.message), ...(error.message.includes('stale_report') ? { stale: true } : {}) };
+    }
+    revalidatePath(`/sites/${h.site_id}`);
+    revalidatePath(`/sites/${h.site_id}/reports/${h.report_date}`);
+    revalidatePath(`/approvals/${reportId}`);
+    return { ok: true, updatedAt: typeof data === 'string' ? data : null };
+  } catch (e) {
+    console.error('[revokeClientSignature]', e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
 }
 
 // ─── 重要事項の件 ───

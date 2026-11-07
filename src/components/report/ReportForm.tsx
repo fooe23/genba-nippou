@@ -34,6 +34,8 @@ import { issueStatusLabel } from '@/lib/report/issue-status';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
 import { ClientConfirmationButton, ClientConfirmationStatus } from './ClientConfirmation';
+import { ClientSignatureSection } from './ClientSignature';
+import { canEditClientConfirmation, type ClientSignatureView } from '@/lib/report/client-signature';
 import { ImportDaySheet } from './ImportDaySheet';
 import { fieldClass, NumInput, Select, TextInput, TimeInput } from './inputs';
 import { FixRequestPanel } from './FixRequestPanel';
@@ -111,6 +113,8 @@ export interface ReportFormProps {
   exportLinks?: { pdfPreview: string; pdf: string; csv: string; clientPdfPreview: string; clientPdf: string };
   /** 客先確認の記録（無ければ null）。保存済みの日報なら、状態・閲覧専用・完了現場に関係なく記録・取り消しできる。 */
   clientConfirmation: DailyClientConfirmation | null;
+  /** お客様のサイン（いまのサインと取り消したサインの記録）。サインがある間は客先確認の記録し直し・取り消しを出さない。 */
+  clientSignature: ClientSignatureView;
   /** この日報に付けた添付（写真・ファイル・リンク。署名付き URL 付き）。協力会社にはファイルの行が来ない。 */
   attachments: AttachmentView[];
   /** 件ごとの添付（上の枠の件とこの日報の件。件の id → 添付）。 */
@@ -554,6 +558,8 @@ function ReportFormBody({
   }
 
   const reportId = p.reportId;
+  // お客様のサインがある間は、客先確認（確認者・日時・メモ）を記録し直す・取り消すことはできない（DB も止める）
+  const confirmationEditable = canEditClientConfirmation(p.clientSignature.current !== null);
   const canDelete =
     reportId !== null &&
     !p.review &&
@@ -629,7 +635,7 @@ function ReportFormBody({
         <span className={`rounded border px-2 py-0.5 text-sm font-bold ${STATUS_COLOR[p.status]}`}>{STATUS_LABEL[p.status]}</span>
         {(p.exportLinks || reportId !== null) && (
           <span className="ml-auto flex flex-wrap justify-end gap-2">
-            {reportId !== null && (
+            {reportId !== null && confirmationEditable && (
               <ClientConfirmationButton reportId={reportId} current={p.clientConfirmation} expected={expected} onChanged={onClientConfirmation} />
             )}
             {(p.exportLinks
@@ -658,8 +664,24 @@ function ReportFormBody({
       {p.review && <p className="mb-2 text-sm text-gray-600 dark:text-gray-400">{p.siteName}</p>}
 
       {reportId !== null && (
-        <ClientConfirmationStatus reportId={reportId} current={p.clientConfirmation} expected={expected} onChanged={onClientConfirmation} />
+        <ClientConfirmationStatus
+          reportId={reportId}
+          current={p.clientConfirmation}
+          expected={expected}
+          onChanged={onClientConfirmation}
+          locked={!confirmationEditable}
+        />
       )}
+      <ClientSignatureSection
+        reportId={reportId}
+        siteId={p.siteId}
+        signature={p.clientSignature}
+        defaultConfirmedBy={p.clientConfirmation?.by ?? ''}
+        defaultNote={p.clientConfirmation?.note ?? ''}
+        isAdmin={p.isAdmin}
+        expected={expected}
+        onChanged={onClientConfirmation}
+      />
 
       {p.status === 'rejected' && !p.review && (
         <p role="alert" className="mb-4 rounded-lg border border-red-500 bg-red-50 p-3 font-bold text-red-900 dark:bg-red-950 dark:text-red-50">

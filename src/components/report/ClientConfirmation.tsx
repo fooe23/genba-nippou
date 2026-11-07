@@ -120,8 +120,11 @@ export function ClientConfirmationButton(props: Props) {
   );
 }
 
-/** 記録済みの客先確認（名前・日時・メモ）と「取り消す」。記録が無ければ何も出さない。 */
-export function ClientConfirmationStatus({ reportId, current, expected, onChanged }: Props) {
+/**
+ * 記録済みの客先確認（名前・日時・メモ）と「取り消す」。記録が無ければ何も出さない。
+ * locked（お客様のサインがある）のときは「取り消す」を出さない（確認者・日時・メモはサインと一緒に固定）。
+ */
+export function ClientConfirmationStatus({ reportId, current, expected, onChanged, locked = false }: Props & { locked?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   if (!current) return null;
@@ -149,14 +152,16 @@ export function ClientConfirmationStatus({ reportId, current, expected, onChange
     <div role="status" className="mb-4 rounded-lg border border-green-600 bg-green-50 px-3 py-1 text-green-950 dark:bg-green-950 dark:text-green-50">
       <div className="flex flex-wrap items-center justify-between gap-x-3">
         <p className="py-2 font-bold break-words">{clientConfirmationLabel(current)}</p>
-        <button
-          type="button"
-          onClick={clear}
-          disabled={pending}
-          className="min-h-11 text-sm font-medium text-blue-700 underline disabled:opacity-50 dark:text-blue-400"
-        >
-          {pending ? '取り消し中…' : '取り消す'}
-        </button>
+        {!locked && (
+          <button
+            type="button"
+            onClick={clear}
+            disabled={pending}
+            className="min-h-11 text-sm font-medium text-blue-700 underline disabled:opacity-50 dark:text-blue-400"
+          >
+            {pending ? '取り消し中…' : '取り消す'}
+          </button>
+        )}
       </div>
       {current.note && <p className="pb-2 text-sm whitespace-pre-wrap break-words">{current.note}</p>}
       {error && (

@@ -10,6 +10,8 @@ import type { AttachmentView } from '@/components/attachments/types';
 import { getMySiteRole, listIssuesForReport, listOpenFixRequestsForReport, listOpenIssues, listReportHeads, type ReportDetail } from '@/lib/db/reports';
 import { canRequestReportFix, canReviewSite } from '@/lib/report/issue-status';
 import { getSettings } from '@/lib/db/settings';
+import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-signature';
+import { NO_SIGNATURE, type ClientSignatureView } from '@/lib/report/client-signature';
 import { getSiteMasters, type Site } from '@/lib/db/sites';
 import { vendorSuppliers } from '@/lib/calc/supplier-roles';
 import type { SaveInput } from '@/lib/report/schema';
@@ -114,6 +116,19 @@ async function loadAttachmentViews(
 }
 
 /** ReportForm の props のうち、画面ごとに決める readOnly / review は除いたものを返す。 */
+/** 日報のお客様のサイン（いまのサインの画像の URL と、取り消したサインの記録）。 */
+async function loadSignatureView(reportId: string): Promise<ClientSignatureView> {
+  const state = await getClientSignatureState(reportId);
+  if (!state) return NO_SIGNATURE;
+  const c = state.current;
+  return {
+    current: c
+      ? { signedAt: c.signedAt, confirmedBy: c.confirmedBy, note: c.note, imageUrl: await signatureImageUrl(c.path), hasPdf: c.pdfPath !== null }
+      : null,
+    history: state.history,
+  };
+}
+
 export async function loadReportFormProps(
   profile: Profile,
   site: Site,
@@ -121,7 +136,7 @@ export async function loadReportFormProps(
   report: ReportDetail,
 ): Promise<Omit<ReportFormProps, 'readOnly' | 'review'>> {
   const siteId = site.id;
-  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings, role, fixRequests, reportAttachments] = await Promise.all([
+  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings, role, fixRequests, reportAttachments, signature] = await Promise.all([
     listReportHeads(siteId),
     getSiteMasters(siteId),
     listWorkers(),
@@ -136,6 +151,7 @@ export async function loadReportFormProps(
     getMySiteRole(siteId),
     report.head ? listOpenFixRequestsForReport(report.head.id) : Promise.resolve([]),
     report.head ? listAttachmentsForReport(report.head.id) : Promise.resolve<Attachment[]>([]),
+    report.head ? loadSignatureView(report.head.id) : Promise.resolve(NO_SIGNATURE),
   ]);
   const attachmentViews = await loadAttachmentViews(reportAttachments, [
     ...openIssues.map((i) => i.id),
@@ -243,5 +259,6 @@ export async function loadReportFormProps(
       head && head.clientConfirmedAt !== null
         ? { by: head.clientConfirmedBy ?? '', at: head.clientConfirmedAt, note: head.clientConfirmedNote ?? '' }
         : null,
+    clientSignature: signature,
   };
 }

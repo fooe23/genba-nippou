@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -1400,6 +1400,269 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 14 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 15. お客様のサイン（update_2026-11-10） =====
+  -- X は進行中：A＝協力会社の担当、B＝協力会社の確認者（reviewer）、C＝社員。A が 11-28 の日報を作って提出する。
+  -- サインの画像と PDF の実体は SQL Editor で置く（関数が有無・置いた人を見る）。
+  declare
+    r15 uuid; r15s uuid; s15 uuid := '00000000-0000-0000-0000-0000000000d2';
+    g1 text; g2 text; g3 text; pdf1 text; pdf2 text; pdf3 text; ts2 timestamptz;
+  begin
+    perform pg_temp.as_user(v_a);
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-11-28', 'weather', '晴れ'), '[]'::jsonb) into r15;
+    update public.gn_daily_reports set status = 'submitted' where id = r15;
+    perform pg_temp.as_editor();
+    g1 := x::text || '/sign/' || gen_random_uuid()::text || '.png';   -- A が置いたサイン
+    g2 := x::text || '/sign/' || gen_random_uuid()::text || '.png';   -- C が置いたサイン（A は使えない）
+    pdf1 := x::text || '/signed/' || r15::text || '-1793930338000.pdf';
+    pdf2 := x::text || '/signed/' || r15::text || '-1793930339000.pdf';
+    insert into storage.objects (bucket_id, name, owner, metadata) values
+      ('gn-photos',  g1,   v_a, '{"size": 20000}'::jsonb),
+      ('gn-photos',  g2,   v_c, '{"size": 20000}'::jsonb),
+      ('gn-exports', pdf1, v_a, '{"size": 300000}'::jsonb),
+      ('gn-exports', pdf2, v_c, '{"size": 300000}'::jsonb);
+
+    -- 15-1 他人が置いた画像・PDF、ほかの現場のパスではサインを保存できない
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_client_signature(r15, '佐藤様', '', now(), g2, pdf1);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-1 他人が置いたサインの画像で保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%storage_object_not_owned%' then rep := rep || E'PASS 15-1 他人が置いたサインの画像では保存できない（storage_object_not_owned）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-1 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_client_signature(r15, '佐藤様', '', now(), y::text || '/sign/' || gen_random_uuid()::text || '.png', pdf1);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-2 ほかの現場のパスで保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%invalid_storage_path%' then rep := rep || E'PASS 15-2 ほかの現場のパスでは保存できない（invalid_storage_path）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-2 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 15-3 協力会社の担当 A は提出済みの日報にサインを保存できる（確認者・日時・メモも入る）
+    begin
+      perform pg_temp.as_user(v_a);
+      select public.gn_save_client_signature(r15, ' 施主 佐藤様 ', '手すり位置OK', now(), g1, pdf1) into ts2;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_daily_reports
+       where id = r15 and client_signature_path = g1 and client_signed_pdf_path = pdf1 and client_signed_by = v_a
+         and client_confirmed_by = '施主 佐藤様' and client_confirmed_note = '手すり位置OK'
+         and client_confirmed_at = client_signed_at and updated_at = ts2;
+      if n = 1 then rep := rep || E'PASS 15-3 現場メンバーはサインを保存できる（確認者・日時・メモも固定）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-3 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15-3 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 15-4 サインは 1 回だけ
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_client_signature(r15, '別の人', '', now(), g2, pdf2);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-4 2 回目のサインを保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%signature_exists%' then rep := rep || E'PASS 15-4 サインは 1 回だけ（signature_exists）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-4 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 15-5 サインの列は直接変えられない（管理者も）
+    begin
+      perform pg_temp.as_user(v_admin);
+      update public.gn_daily_reports set client_signature_path = null where id = r15;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-5 管理者がサインの列を直接消せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%signature_locked%' then rep := rep || E'PASS 15-5 サインの列は直接変えられない（signature_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-5 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 15-6 サインがある間は客先確認を変えられない（担当者も管理者も）
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_daily_reports set client_confirmed_by = null, client_confirmed_at = null, client_confirmed_note = null where id = r15;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-6 サインがあるのに担当者が客先確認を消せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%signature_locked%' then rep := rep || E'PASS 15-6 サインがある間は担当者は客先確認を消せない（signature_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-6 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_admin);
+      update public.gn_daily_reports set client_confirmed_by = '書き換え' where id = r15;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-7 サインがあるのに管理者が確認者を書き換えられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%signature_locked%' then rep := rep || E'PASS 15-7 サインがある間は管理者も確認者を書き換えられない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-7 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 15-8 承認・承認解除・差戻しでサインは消えない
+    begin
+      perform pg_temp.as_user(v_b);
+      update public.gn_daily_reports set status = 'approved', approved_by = v_b, approved_at = now(), reviewed_by = v_b where id = r15;
+      update public.gn_daily_reports set status = 'draft', approved_by = null, approved_at = null where id = r15;
+      perform pg_temp.as_user(v_a);
+      update public.gn_daily_reports set status = 'submitted' where id = r15;
+      perform pg_temp.as_user(v_b);
+      update public.gn_daily_reports set status = 'rejected', rejected_reason = '写真を足す', reviewed_by = v_b where id = r15;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_daily_reports
+       where id = r15 and status = 'rejected' and client_signature_path = g1 and client_signed_pdf_path = pdf1 and client_confirmed_by = '施主 佐藤様';
+      if n = 1 then rep := rep || E'PASS 15-8 承認・承認解除・差戻しでサインと客先確認は残る\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-8 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15-8 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 15-9 日報の保存（gn_save_report）でもサインは残る
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-11-28', 'weather', '曇り'), '[]'::jsonb);
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_daily_reports where id = r15 and weather = '曇り' and client_signature_path = g1;
+      if n = 1 then rep := rep || E'PASS 15-9 日報を保存し直してもサインは残る\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-9 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15-9 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 15-10 サインのある日報は消せない（管理者も）
+    begin
+      perform pg_temp.as_user(v_admin);
+      delete from public.gn_daily_reports where id = r15;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-10 サインのある日報を消せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%report_signed%' then rep := rep || E'PASS 15-10 サインのある日報は消せない（report_signed）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-10 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 15-11 サインの画像・サインした時点の PDF は置いた本人も消せない
+    begin
+      perform pg_temp.as_user(v_a);
+      delete from storage.objects where bucket_id = 'gn-photos' and name = g1;
+      get diagnostics n = row_count;
+      delete from storage.objects where bucket_id = 'gn-exports' and name = pdf1;
+      get diagnostics n2 = row_count;
+      perform pg_temp.as_editor();
+      if n = 0 and n2 = 0 then rep := rep || E'PASS 15-11 サインの画像・PDF は置いた本人も消せない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-11 画像=%s PDF=%s\n', n, n2); end if;
+    exception when others then
+      -- Storage の版によっては SQL からの直接の削除そのものをトリガーが止める。そのときはポリシーの条件で確かめる
+      perform pg_temp.as_editor();
+      select count(*) into n from pg_policies
+       where schemaname = 'storage' and tablename = 'objects'
+         and policyname in ('gn_photos_delete','gn_exports_delete') and qual like '%/sign%';
+      if n = 2 then rep := rep || format(E'PASS 15-11 サインの画像・PDF の削除はポリシーで止めている（直接の削除は %s）\n', sqlerrm);
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-11 エラー: %s ポリシー=%s\n', sqlerrm, n); end if;
+    end;
+
+    -- 15-12 取り消しは管理者だけ、理由必須
+    begin
+      perform pg_temp.as_user(v_b);
+      perform public.gn_revoke_client_signature(r15, '確認者の間違い');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-12 確認者（管理者でない）がサインを取り消せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%not_admin%' then rep := rep || E'PASS 15-12 管理者でなければ取り消せない（not_admin）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-12 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_admin);
+      perform public.gn_revoke_client_signature(r15, '   ');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-13 理由なしで取り消せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%invalid_revoke_reason%' then rep := rep || E'PASS 15-13 取り消しは理由必須（invalid_revoke_reason）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-13 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 15-14 管理者は理由付きで取り消せる。PDF のパスは記録に残り、客先確認も残る（取り消した後は変えられる）
+    begin
+      perform pg_temp.as_user(v_admin);
+      perform public.gn_revoke_client_signature(r15, '確認者の名前の間違い');
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_daily_reports
+       where id = r15 and client_signature_path is null and client_signed_pdf_path is null
+         and client_signature_revoked_by = v_admin and client_signature_revoke_reason = '確認者の名前の間違い'
+         and jsonb_array_length(client_signature_history) = 1
+         and client_signature_history->0->>'pdf_path' = pdf1 and client_signature_history->0->>'path' = g1
+         and client_signature_history->0->>'reason' = '確認者の名前の間違い'
+         and client_confirmed_by = '施主 佐藤様';
+      perform pg_temp.as_user(v_a);
+      update public.gn_daily_reports set client_confirmed_by = '施主 佐藤 様' where id = r15;
+      get diagnostics n2 = row_count;
+      perform pg_temp.as_editor();
+      if n = 1 and n2 = 1 then rep := rep || E'PASS 15-14 管理者は理由付きで取り消せる（PDF は記録に残る・その後は客先確認を直せる）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-14 行=%s 直し=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15-14 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 15-15 取り消したサインの画像・PDF はもう一度使えない。新しい画像なら取り直せる
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_client_signature(r15, '佐藤様', '', now(), g1, pdf1);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-15 取り消したサインの画像をもう一度使えた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%invalid_storage_path%' then rep := rep || E'PASS 15-15 取り消したサインの画像・PDF はもう一度使えない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-15 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      g3 := x::text || '/sign/' || gen_random_uuid()::text || '.png';
+      pdf3 := x::text || '/signed/' || r15::text || '-1793930340000.pdf';
+      insert into storage.objects (bucket_id, name, owner, metadata) values
+        ('gn-photos', g3, v_c, '{"size": 20000}'::jsonb), ('gn-exports', pdf3, v_c, '{"size": 300000}'::jsonb);
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_client_signature(r15, '施主 佐藤 様', '', now(), g3, pdf3);
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_daily_reports where id = r15 and client_signature_path = g3 and jsonb_array_length(client_signature_history) = 1;
+      if n = 1 then rep := rep || E'PASS 15-16 取り消した後は新しいサインを取り直せる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-16 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15-16 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 15-17 承認済み・完了した現場の日報にもサインできる（社員 C）
+    begin
+      insert into public.gn_sites (id, name) values (s15, '検証現場S15');
+      insert into public.gn_daily_reports (site_id, report_date, client_signature_path) values (s15, '2026-11-28', 'x') returning id into r15s;
+      select count(*) into n from public.gn_daily_reports where id = r15s and client_signature_path is null;
+      perform pg_temp.as_user(v_admin);
+      update public.gn_daily_reports set status = 'approved', approved_by = v_admin, approved_at = now() where id = r15s;
+      perform pg_temp.as_editor();
+      update public.gn_sites set status = 'done' where id = s15;
+      insert into storage.objects (bucket_id, name, owner, metadata) values
+        ('gn-photos', s15::text || '/sign/00000000-0000-0000-0000-0000000000f9.png', v_c, '{"size": 20000}'::jsonb),
+        ('gn-exports', s15::text || '/signed/' || r15s::text || '-1.pdf', v_c, '{"size": 300000}'::jsonb);
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_client_signature(r15s, '施主様', '', now(),
+        s15::text || '/sign/00000000-0000-0000-0000-0000000000f9.png', s15::text || '/signed/' || r15s::text || '-1.pdf');
+      perform pg_temp.as_editor();
+      select count(*) into n2 from public.gn_daily_reports where id = r15s and client_signature_path is not null and status = 'approved';
+      if n = 1 and n2 = 1 then rep := rep || E'PASS 15-17 承認済み・完了した現場の日報にもサインできる（insert ではサインの列は空になる）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-17 insert=%s サイン=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15-17 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 15-18 協力会社はほかの現場（Y）の日報にはサインできない
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_client_signature(r15s, '施主様', '', now(), g1, pdf1);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 15-18 割り当ての無い現場の日報にサインできた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%report_not_found%' then rep := rep || E'PASS 15-18 割り当ての無い現場の日報にはサインできない（report_not_found）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 15-18 想定外: %s\n', sqlerrm); end if;
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 15 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

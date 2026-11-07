@@ -1,5 +1,6 @@
 import 'server-only';
 import { downloadAttachment, listAttachmentsForReport, listClientIssuePhotosOn } from '@/lib/db/attachments';
+import { loadCurrentSignaturePng } from '@/lib/db/client-signature';
 import type { Attachment } from '@/lib/db/attachments-schemas';
 import { getReportKey, listIssuesByIds, listIssuesForReports } from '@/lib/db/reports';
 import { loadDailyReportInput } from '@/lib/db/reports-data';
@@ -9,6 +10,7 @@ import { issueNumbers } from '@/lib/reports/change-model';
 import { imageFormat, mapWithLimit } from '@/lib/reports/client-daily-images';
 import { clientDailyPhotos, type ClientPhotoIssue } from '@/lib/reports/client-daily-sections';
 import { buildDailyReport, buildEmptyDailyReport } from '@/lib/reports/daily-model';
+import type { DailyClientConfirmation } from '@/lib/reports/types';
 
 // 現場日報（お客様用）の PDF を、日報の中身・その日の写真（Storage から読む）・サインの画像から作る（サーバーだけ）。
 // 読み取りはすべてログイン中の利用者の Supabase クライアント（RLS 前提）。協力会社のアカウントは帳票の Route Handler で
@@ -18,8 +20,13 @@ import { buildDailyReport, buildEmptyDailyReport } from '@/lib/reports/daily-mod
 const DOWNLOAD_CONCURRENCY = 4;
 
 export interface RenderClientDailyOptions {
-  /** お客様のサインの画像（PNG）。あればサイン欄の中に出す（Task 5 のサインした時点の PDF）。 */
+  /**
+   * お客様のサインの画像（PNG）。あればサイン欄の中に出す（サインを保存するときの PDF）。
+   * 渡さなければ、日報に保存したサイン（取り消していないもの）を Storage から読んで出す（無ければ空のサイン欄）。
+   */
   signaturePng?: Buffer;
+  /** 客先確認（確認者・日時・メモ）を差し替える。サインを保存するとき、これから保存する内容を PDF に出すのに使う。 */
+  confirmation?: DailyClientConfirmation;
   /** 脚注の出力日時（ISO）。既定は今。 */
   outputAt?: string;
 }
@@ -53,7 +60,9 @@ async function loadImage(a: Attachment | undefined): Promise<ClientPhotoImage['i
 export async function renderClientDailyPdfFor(site: Site, date: string, opts: RenderClientDailyOptions = {}): Promise<Buffer> {
   const input = await loadDailyReportInput(site, date);
   if (!input) return renderClientDailyReportPdf(buildEmptyDailyReport(site, date), { outputAt: opts.outputAt, signaturePng: opts.signaturePng });
-  const model = buildDailyReport(input);
+  const built = buildDailyReport(input);
+  const model = opts.confirmation ? { ...built, clientConfirmation: opts.confirmation } : built;
+  const signaturePng = opts.signaturePng ?? (await loadCurrentSignaturePng(input.report.id));
 
   const [reportAttachments, issueAttachments] = await Promise.all([
     listAttachmentsForReport(input.report.id),
@@ -69,7 +78,7 @@ export async function renderClientDailyPdfFor(site: Site, date: string, opts: Re
     image: await loadImage(byId.get(p.attachmentId)),
   }));
 
-  return renderClientDailyReportPdf(model, { outputAt: opts.outputAt, photos, signaturePng: opts.signaturePng });
+  return renderClientDailyReportPdf(model, { outputAt: opts.outputAt, photos, signaturePng });
 }
 
 /**
