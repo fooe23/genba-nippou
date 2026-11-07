@@ -150,3 +150,53 @@
 - 第 2 段階（Task 3・4）：同じ（`update_2026-11-09_…`）。
 - 第 3 段階（Task 6 → 5 の順でもよい）：同じ（`update_2026-11-10_…`）。印刷イメージの見本を利用者に確認してもらう。
 - 全体の最終レビューは各段階の最後に行う（段階ごとに本番へ出すため）。
+
+---
+
+## 第 4 段階：お客様用の確認画面と、件ごとのお客様確認（2026-11-08 追加）
+
+設計書の「追加（利用者 2026-11-07）：お客様用の確認画面と、件ごとのお客様確認」が正。
+
+### 第 4 段階の Global Constraints（上の共通の決まりに加えて）
+- お客様用の確認画面に出してよいもの：現場名・日付・天候、本日の施工内容（区分・工種・施工内容・数量・単位）、人工の合計（作業員 N 名・合計 M 人工）、確認してもらう件の一覧（件番号・種別はお客様向けの表示名 `CLIENT_ISSUE_KIND_LABELS`・本文・状態・見積書あり・写真の数）、チェックした写真、確認者・メモ・サインの枠。**出さないもの**：日当・労務費・作業員の氏名と時間・買掛・燃料・リース・原価・提案額・精算の金額・所属・会社名・連絡事項・社内のメモ・社内の操作ボタン。
+- 件の状態のお客様向けの表示名：見積中＝「お見積り中」、対応中＝「対応中」、完了＝「完了」。
+- 確認してもらう件の候補：その日報の件＋その現場の見積中・対応中の件（やり直しの件は除く）。初めは全部に印（外せる）。「この件の確認をもらう」から開いたときは、その件だけに印。
+- 確認画面から社内の画面に戻るのは、保存したとき、または「社内の画面に戻る」を 1.5 秒長押ししたときだけ（お客様が誤って開かない）。
+- サインを保存したら、印を付けた件ごとに「お客様確認済み（その日報の日付・確認者・日時）」を記録する（同じ処理の中で。サインが保存できなければ記録もしない）。管理者がサインを取り消したら、そのサインでの件の確認も「取り消し」にする（消さない）。
+- 件の印「お客様の確認：未／確認済み 11/06」は、取り消されていない確認のうち最新の日付。社内の画面（黄色い枠・件の一覧）にだけ出す。
+
+### Task 7: 件ごとの確認の記録・保存の処理・PDF の件の一覧（DB・操作・帳票）
+
+**Files:**
+- Create: `supabase/update_2026-11-13_issue_client_confirmations.sql`
+- Modify: `supabase/schema_genba.sql`、`supabase/verify_rls_auto.sql`、`src/lib/db/reports-actions.ts`（`saveClientSignature` に件の id の一覧）、`src/lib/report/client-signature.ts`（入力の型・検証）、`src/lib/reports/client-daily-sections.ts`（件の一覧の節）、`src/lib/pdf/client-daily-report.tsx`、`src/lib/reports/client-daily-render.ts`（確認してもらう件を受け取る・サイン済みは記録から読む）、`src/lib/db/reports.ts`（件ごとの最新の確認の読み込み）
+- Test: `tests/report/issue-confirmations.test.ts`、`tests/reports/client-daily-sections.test.ts`
+
+**Interfaces:**
+- DB：新表 `gn_issue_client_confirmations(id, issue_id → gn_report_issues on delete cascade, report_id → gn_daily_reports, site_id, confirmed_on date［日報の日付］, confirmed_by text, signed_at timestamptz, created_by uuid, revoked_at timestamptz null, revoked_by uuid null, unique(issue_id, report_id))`。名前付きの制約は `<table>_<column>_check` と重ならない名前にする。RLS：現場メンバーが読める。書き込みは関数だけ（insert/update/delete のポリシーを作らない）。
+- `gn_save_client_signature` に `p_issue_ids uuid[] default '{}'` を足す（古い 7 引数版は drop してから作る）。件はすべてその日報の現場の件で、やり直しでないこと（違えば `invalid_issue`）。サインの列を入れるのと同じ処理で、件ごとに確認の行を入れる。`gn_revoke_client_signature` は、その日報の確認の行に revoked_at・revoked_by を入れる。
+- `saveClientSignature(reportId, { confirmedBy, note, signaturePath, issueIds: string[] }, expectedUpdatedAt?)`（issueIds は最大 50）。サインした時点の PDF にも件の一覧を載せる（`renderClientDailyPdf(reportId, { …, issueIds })`）。
+- `listIssueConfirmations(issueIds: string[]): Promise<Map<string, { confirmedOn: string; confirmedBy: string }>>`（取り消されていない最新）。
+- `clientDailyIssueList(issues, attachmentsByIssue, selectedIds): ClientIssueRow[]`（純関数。`ClientIssueRow = { number: string; kindLabel: string; body: string; statusLabel: 'お見積り中' | '対応中' | '完了'; hasEstimate: boolean; photoCount: number }`、並びは件の日付 → 番号）。PDF の「確認していただく件」の節（表：件・種別・内容・状態・見積書・写真）。サイン済みの日報の通常のお客様用 PDF は、記録された件（取り消しなし）を載せる。サインの無い日報は、その日報の件だけ（いまと同じ範囲）。
+
+- [ ] **Step 1: テスト**：`clientDailyIssueList` の表示名・並び・見積書あり・写真の数、やり直しの件は入らない。社内の言葉（所属・自社・協力会社・金額・提案額・日当）が出ない。入力の検証（issueIds が uuid、50 件まで、重複を除く）。
+- [ ] **Step 2: 失敗を確認** → **Step 3: SQL**（verify：件の確認が入る、他の現場の件は `invalid_issue`、直接 insert はできない、取り消しで revoked になる、協力会社も自分の現場なら読める）→ `npm run check:sql`
+- [ ] **Step 4: 実装** → **Step 5:** test・tsc・lint・build、見本 PDF（件 3 件・写真 2 枚・サインあり）を作って確かめる
+- [ ] **Step 6: コミット** `feat(report): 件ごとのお客様確認の記録と、PDF の確認していただく件`
+
+### Task 8: お客様用の確認画面・件の印とボタン・ガイド
+
+**Files:**
+- Create: `src/app/(app)/sites/[siteId]/reports/[date]/client/page.tsx`（お客様用の確認画面。社員・管理者・その現場の協力会社。完了現場でも開ける＝サインはどの状態でも）、`src/components/report/ClientConfirmView.tsx`（施工内容・人工の合計・件の選択・写真・確認者・メモ・サインの枠・保存）、`src/components/report/LongPressButton.tsx`
+- Modify: `src/components/report/ClientSignature.tsx`（「サインをもらう」で確認画面へ移る。いまのその場のサインの枠はやめる）、`src/components/report/IssueBanner.tsx` と件の一覧（件の印「お客様の確認：未／確認済み 11/06」と「この件の確認をもらう」）、`src/lib/report/form-props.ts`（件の確認の読み込み）、ガイド `approval.md`・`input.md`・`pdf.md`、README（SQL の順番）、記録文書
+- Test: 純関数（候補の件の作り方・初めの印・表示名、長押しの判定）
+
+**Interfaces:**
+- Consumes: Task 7 の `saveClientSignature`（issueIds）、`listIssueConfirmations`、`clientDailyIssueList`、既存の `SignaturePad`。
+- Produces: URL `/sites/[siteId]/reports/[date]/client?issue=<issueId>`（issue があればその件だけに印）。`clientConfirmCandidates(reportIssues, openIssues): Issue[]`（重複を除く・やり直しを除く・並び）、`initialSelection(candidates, focusIssueId?): Set<string>`。
+
+- [ ] **Step 1: テスト** → **Step 2: 失敗を確認** → **Step 3: 実装**（確認画面は画面全体を使い、下のタブバー・ヘッダーの社内の操作を出さない。保存したら元の日報画面へ。日報が未保存なら「先に下書き保存してください」で開けない。375px・44px。横向き可）→ **Step 4:** test・tsc・lint・build
+- [ ] **Step 5: コミット** `feat(report): お客様用の確認画面と件ごとの確認の印`
+
+### 第 4 段階の区切り
+- Task 7 → 8 の順。最終レビュー（Fable）→ SQL（`update_2026-11-13_…`）を利用者が実行 → push。
