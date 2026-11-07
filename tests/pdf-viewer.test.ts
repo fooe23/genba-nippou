@@ -129,3 +129,18 @@ describe('fileNameFromDisposition', () => {
     expect(fileNameFromDisposition("inline; filename*=UTF-8''%E0%A4", 'x.pdf')).toBe('x.pdf');
   });
 });
+
+describe('ドットでたたむと別のサイトになる形（2026-11-08 の見直し）', () => {
+  const tricky = ['/..//evil.example.com', '/.//evil.example.com', '/sites/..//evil.example.com', '/x/../..//evil.example.com'];
+  it('戻り先として通さない', () => {
+    for (const p of tricky) expect(validateBackPath(p), p).toBeNull();
+  });
+  it('PDF の src としても通さない', () => {
+    for (const p of tricky) expect(validatePdfSrc(p), p).toBeNull();
+  });
+  it('帳票の API は PDF だけ', () => {
+    expect(validatePdfSrc('/api/reports/daily?site=a&date=2026-11-08&format=csv')).toBeNull();
+    expect(validatePdfSrc('/api/reports/cost?site=a&period=all&format=xlsx')).toBeNull();
+    expect(validatePdfSrc('/api/reports/daily?site=a&date=2026-11-08&format=pdf')).not.toBeNull();
+  });
+});

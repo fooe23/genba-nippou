@@ -24,6 +24,8 @@ function parseLocalPath(p: unknown): URL | null {
     return null;
   }
   if (url.origin !== BASE) return null;
+  // "/..//evil.com" などは、"." ".." をたたむと "//evil.com"（別のサイト）になる。たたんだ後も "//" で始まるものは断る。
+  if (url.pathname.startsWith('//')) return null;
   return url;
 }
 
@@ -32,6 +34,9 @@ export function validatePdfSrc(src: unknown): string | null {
   const url = parseLocalPath(src);
   if (!url) return null;
   if (!PDF_SRC_PATHS.includes(url.pathname)) return null;
+  // 帳票の API は PDF だけ（CSV・Excel をビューアーで開かない）。サインした時点の PDF は format を持たない。
+  const format = url.searchParams.get('format');
+  if (url.pathname !== '/api/reports/signed' && format !== null && format !== 'pdf') return null;
   return `${url.pathname}${url.search}`;
 }
 
