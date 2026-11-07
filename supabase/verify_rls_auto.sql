@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし［update_2026-11-11］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -1740,6 +1740,141 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 16 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 17. 件の直し・削除（update_2026-11-11） =====
+  -- A（協力会社・現場 X の担当）が 12-16 の日報（下書き）と件 a〜d を、C（社員）が 12-17 の日報と件 e を作る。
+  declare
+    r17 uuid; r17c uuid; i17a uuid; i17b uuid; i17c uuid; i17d uuid; i17e uuid;
+  begin
+    perform pg_temp.as_user(v_a);
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-12-16', 'weather', '晴れ'), '[]'::jsonb) into r17;
+    insert into public.gn_report_issues (site_id, report_id, body) values (x, r17, '棚を 2 台') returning id into i17a;
+    insert into public.gn_report_issues (site_id, report_id, body) values (x, r17, '行が使う件') returning id into i17b;
+    insert into public.gn_report_issues (site_id, report_id, body) values (x, r17, '添付のある件') returning id into i17c;
+    insert into public.gn_report_issues (site_id, report_id, body) values (x, r17, '消す件') returning id into i17d;
+    perform pg_temp.as_user(v_c);
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-12-17', 'weather', '晴れ'), '[]'::jsonb) into r17c;
+    insert into public.gn_report_issues (site_id, report_id, body) values (x, r17c, '社員の日報の件') returning id into i17e;
+    perform pg_temp.as_editor();
+
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_issues set body = '棚を 3 台に', kind = 'increase', instructed_by = '施主', instruction_method = 'oral', amount_estimate = 30000 where id = i17a;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i17a and body = '棚を 3 台に' and kind = 'increase' and amount_estimate = 30000;
+      if n = 1 then rep := rep || E'PASS 17-1 下書きの日報の件は、内容・種別・指示・金額見込みを直せる（協力会社が自分の日報で）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-1 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 17-1 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      delete from public.gn_report_issues where id = i17d;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i17d;
+      if n = 0 then rep := rep || E'PASS 17-2 下書きの日報の件は消せる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-2 残った=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 17-2 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_report(
+        jsonb_build_object('site_id', x, 'report_date', '2026-12-16', 'weather', '晴れ'),
+        jsonb_build_array(jsonb_build_object('kind', 'work', 'sort_order', 0, 'trade', '大工', 'description', '棚', 'qty', 1, 'unit', '台',
+          'unit_price', 10000, 'man_days', 0.5, 'source', 'extra', 'change_kind', 'extra', 'issue_id', i17b)));
+      delete from public.gn_report_issues where id = i17b;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 17-3 作業内容の行が根拠の件にしている件の削除が通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_in_use%' then rep := rep || E'PASS 17-3 作業内容の行が根拠の件にしている件の削除は断る（issue_in_use）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-3 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_attachments (site_id, issue_id, kind, url, name, attached_on) values (x, i17c, 'link', 'https://example.com/a', '図面', '2026-12-16');
+      delete from public.gn_report_issues where id = i17c;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 17-4 写真・資料が付いている件の削除が通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_has_attachments%' then rep := rep || E'PASS 17-4 写真・資料が付いている件の削除は断る（issue_has_attachments）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-4 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_issues set body = '書き換え' where id = i17e;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 17-5 協力会社が、ほかの人が作った日報の件を直すのが通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_not_own%' then rep := rep || E'PASS 17-5 協力会社が、ほかの人が作った日報の件を直すのは断る（issue_not_own）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-5 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      delete from public.gn_report_issues where id = i17e;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 17-6 協力会社が、ほかの人が作った日報の件を消すのが通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_not_own%' then rep := rep || E'PASS 17-6 協力会社が、ほかの人が作った日報の件を消すのは断る（issue_not_own）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-6 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set body = '社員が直す' where id = i17e;
+      delete from public.gn_report_issues where id = i17e;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i17e;
+      if n = 0 then rep := rep || E'PASS 17-7 社員は、ほかの人が作った下書きの日報の件も直せる・消せる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-7 残った=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 17-7 エラー: %s\n', sqlerrm);
+    end;
+    perform pg_temp.as_user(v_a);
+    update public.gn_daily_reports set status = 'submitted' where id = r17;
+    perform pg_temp.as_editor();
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_issues set body = '提出後に書き換え' where id = i17a;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 17-8 提出済みの日報の件の内容の変更が通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_locked%' then rep := rep || E'PASS 17-8 提出済みの日報の件の内容の変更は断る（issue_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-8 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      delete from public.gn_report_issues where id = i17a;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 17-9 提出済みの日報の件の削除が通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_locked%' then rep := rep || E'PASS 17-9 提出済みの日報の件の削除は断る（issue_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-9 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_issues set status = 'estimating' where id = i17a;
+      perform pg_temp.as_editor();
+      select status into t from public.gn_report_issues where id = i17a;
+      if t = 'estimating' then rep := rep || E'PASS 17-10 提出済みの日報の件でも、状態は今までどおり変えられる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-10 status=%s\n', t); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 17-10 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_admin);
+      update public.gn_daily_reports set status = 'rejected', reviewed_by = v_admin, rejected_reason = '件を直して' where id = r17;
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_issues set body = '差戻し後に直す' where id = i17a;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i17a and body = '差戻し後に直す';
+      if n = 1 then rep := rep || E'PASS 17-11 差戻しの日報の件は、また直せる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 17-11 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 17-11 エラー: %s\n', sqlerrm);
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 17 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

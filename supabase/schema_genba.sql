@@ -824,10 +824,12 @@ create trigger gn_report_lines_compute before insert or update on public.gn_repo
 create or replace function public.gn_report_issues_guard()
 returns trigger language plpgsql security invoker set search_path = public as $$
 declare
-  v_site uuid;
+  v_site    uuid;
+  v_status  text;
+  v_creator uuid;
   v_settles boolean;
 begin
-  select r.site_id into v_site from public.gn_daily_reports r where r.id = new.report_id;
+  select r.site_id, r.status, r.created_by into v_site, v_status, v_creator from public.gn_daily_reports r where r.id = new.report_id;
   if v_site is null or not public.gn_is_site_member(v_site) then
     raise exception using message = 'report_not_found';
   end if;
@@ -856,6 +858,19 @@ begin
      ) then
     raise exception using message = 'not_employee';
   end if;
+  -- 件の中身（内容・種別・指示者・指示方法・金額見込み）を直せるのは、件の日報が下書きか差戻しのあいだだけ（管理者も同じ）。
+  -- それ以外は issue_locked。協力会社は自分が作った日報の件だけ（issue_not_own）。状態・精算の項目は今までどおりいつでも変えられる。
+  -- auth.uid() が無い呼び出し（SQL Editor・service role）は対象外。2026-11-11（update_2026-11-11_site_judgment.sql）。
+  if tg_op = 'UPDATE' and auth.uid() is not null
+     and (new.body, new.kind, new.instructed_by, new.instruction_method, new.amount_estimate)
+         is distinct from (old.body, old.kind, old.instructed_by, old.instruction_method, old.amount_estimate) then
+    if v_status not in ('draft','rejected') then
+      raise exception using message = 'issue_locked';
+    end if;
+    if not (public.gn_is_employee_or_admin() or v_creator = auth.uid()) then
+      raise exception using message = 'issue_not_own';
+    end if;
+  end if;
   new.site_id := v_site;
   return new;
 end;
@@ -864,6 +879,51 @@ $$;
 drop trigger if exists gn_report_issues_guard on public.gn_report_issues;
 create trigger gn_report_issues_guard before insert or update on public.gn_report_issues
   for each row execute function public.gn_report_issues_guard();
+
+-- 件の削除（2026-11-11）。件の日報が下書きか差戻しのあいだだけ消せる（管理者も同じ。issue_locked）。協力会社は自分が作った
+-- 日報の件だけ（issue_not_own）。作業内容の行が根拠の件にしている件（issue_in_use）と、写真・資料が付いている件
+-- （issue_has_attachments。協力会社に見えないファイルも数える）は消せない。security definer：行・添付の有無を RLS に関係なく見る。
+-- 親の日報がもう無い＝日報を消したときの連鎖削除は、日報の削除の権限で決まっているので通す。
+-- auth.uid() が無い呼び出し（SQL Editor・service role）も通す。
+create or replace function public.gn_report_issues_delete_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_site    uuid;
+  v_status  text;
+  v_creator uuid;
+begin
+  if auth.uid() is null then
+    return old;
+  end if;
+  select r.site_id, r.status, r.created_by into v_site, v_status, v_creator from public.gn_daily_reports r where r.id = old.report_id;
+  if not found then
+    return old;
+  end if;
+  if not public.gn_is_site_member(v_site) then
+    raise exception using message = 'report_not_found';
+  end if;
+  if public.gn_site_closed(v_site) then
+    raise exception using message = 'site_closed';
+  end if;
+  if v_status not in ('draft','rejected') then
+    raise exception using message = 'issue_locked';
+  end if;
+  if not (public.gn_is_employee_or_admin() or v_creator = auth.uid()) then
+    raise exception using message = 'issue_not_own';
+  end if;
+  if exists (select 1 from public.gn_report_lines l where l.issue_id = old.id) then
+    raise exception using message = 'issue_in_use';
+  end if;
+  if exists (select 1 from public.gn_attachments a where a.issue_id = old.id) then
+    raise exception using message = 'issue_has_attachments';
+  end if;
+  return old;
+end;
+$$;
+
+drop trigger if exists gn_report_issues_delete_guard on public.gn_report_issues;
+create trigger gn_report_issues_delete_guard before delete on public.gn_report_issues
+  for each row execute function public.gn_report_issues_delete_guard();
 
 -- ---------- 9. 日報の保存（upsert + 明細の置き換え + 合計の再計算） ----------
 -- security invoker：呼び出しユーザーの RLS とガードトリガーがそのまま効く。
@@ -1250,8 +1310,9 @@ drop policy if exists gn_report_issues_insert on public.gn_report_issues;
 create policy gn_report_issues_insert on public.gn_report_issues for insert to authenticated with check (public.gn_is_site_member(site_id));
 drop policy if exists gn_report_issues_update on public.gn_report_issues;
 create policy gn_report_issues_update on public.gn_report_issues for update to authenticated using (public.gn_is_site_member(site_id)) with check (public.gn_is_site_member(site_id));
+-- 件の削除は現場メンバー（2026-11-11。以前は管理者だけ）。消せる条件はトリガー gn_report_issues_delete_guard が見る。
 drop policy if exists gn_report_issues_delete on public.gn_report_issues;
-create policy gn_report_issues_delete on public.gn_report_issues for delete to authenticated using (public.is_admin());
+create policy gn_report_issues_delete on public.gn_report_issues for delete to authenticated using (public.gn_is_site_member(site_id));
 
 -- 日報明細：親日報の site_id で同じ条件
 drop policy if exists gn_report_lines_select on public.gn_report_lines;

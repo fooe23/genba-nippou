@@ -31,7 +31,7 @@ import {
 } from '@/lib/report/change-labels';
 import type { DailyClientConfirmation } from '@/lib/reports/types';
 import type { InstructionMethod, IssueKind, IssueStatus, LaborRule, TimeSpec } from '@/lib/types';
-import { issueDatesLine, issueStatusLabel } from '@/lib/report/issue-status';
+import { canEditIssueContent, issueDatesLine, issueStatusLabel } from '@/lib/report/issue-status';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
 import { ClientConfirmationButton, ClientConfirmationStatus } from './ClientConfirmation';
@@ -41,6 +41,7 @@ import { ImportDaySheet } from './ImportDaySheet';
 import { fieldClass, NumInput, Select, TextInput, TimeInput } from './inputs';
 import { FixRequestPanel } from './FixRequestPanel';
 import { IssueBanner, IssueKindTag } from './IssueBanner';
+import { IssueEditControls } from './IssueEditControls';
 import { IssueStatusChip } from './IssueStatusChip';
 import { ReopenApprovalButton, REOPENED_MESSAGE } from './ReopenApprovalButton';
 import { ReportSummary } from './ReportSummary';
@@ -168,10 +169,13 @@ function IssueList({
   locked = false,
   attachmentsByIssue,
   viewer,
+  editable = false,
 }: {
   reportId: string | null;
   issues: Issue[];
   onChanged: () => void;
+  /** 件の中身を直す・件を消すボタンを出す（日報が下書き・差戻しのあいだ。canEditIssueContent）。 */
+  editable?: boolean;
   /** 完了現場など、件を変更できないとき。一覧だけ表示する。 */
   locked?: boolean;
   attachmentsByIssue: Record<string, AttachmentView[]>;
@@ -231,6 +235,7 @@ function IssueList({
               </div>
               <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={locked} onChanged={onChanged} />
               <IssueAttachments issueId={i.id} status={i.status} attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS} viewer={viewer} />
+              {editable && !locked && <IssueEditControls issue={i} label={i.body.length > 20 ? `${i.body.slice(0, 20)}…` : i.body} onChanged={onChanged} />}
             </li>
           ))}
         </ul>
@@ -905,6 +910,16 @@ function ReportFormBody({
         locked={p.siteClosed}
         attachmentsByIssue={p.issueAttachments}
         viewer={attachmentViewer}
+        editable={
+          !p.review &&
+          canEditIssueContent({
+            status: p.status,
+            siteClosed: !!p.siteClosed,
+            isStaff: p.isStaff,
+            createdBy: p.createdBy,
+            currentUserId: p.currentUserId,
+          })
+        }
       />
 
       {!p.readOnly && !p.review && <Band tone="warn" title="確認してください（保存はできます）" items={warnings} />}

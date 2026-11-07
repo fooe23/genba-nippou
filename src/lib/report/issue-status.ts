@@ -65,6 +65,37 @@ export function canRequestReportFix(p: {
 }
 
 /**
+ * この日報の件を直す・消すボタンを出すか。日報が下書き・差戻し（保存済み）で、完了していない現場のとき。
+ * 社員・管理者はだれの日報でも、協力会社のアカウントは自分が作った日報だけ（最終判定は DB の gn_report_issues_guard /
+ * gn_report_issues_delete_guard）。
+ */
+export function canEditIssueContent(p: {
+  status: ReportStatus | 'none';
+  siteClosed: boolean;
+  isStaff: boolean;
+  createdBy: string | null;
+  currentUserId: string;
+}): boolean {
+  if (p.status !== 'draft' && p.status !== 'rejected') return false;
+  if (p.siteClosed) return false;
+  if (p.isStaff) return true;
+  return p.createdBy !== null && p.createdBy === p.currentUserId;
+}
+
+/** 件を直す・消すときの DB のエラー（gn_report_issues_guard / gn_report_issues_delete_guard）の文言。該当しなければ null。 */
+export function issueEditErrorMessage(dbMessage: string, op: 'update' | 'delete'): string | null {
+  if (dbMessage.includes('issue_locked')) {
+    return op === 'update'
+      ? '提出した日報の件は直せません（直すときは修正を申請してください）'
+      : '提出した日報の件は消せません（直すときは修正を申請してください）';
+  }
+  if (dbMessage.includes('issue_not_own')) return '協力会社のアカウントでは、自分が作った日報の件だけ直す・消すことができます';
+  if (dbMessage.includes('issue_in_use')) return 'この件を選んでいる作業内容の行があります。先に行の根拠の件を外してください';
+  if (dbMessage.includes('issue_has_attachments')) return '写真・資料が付いている件は消せません。先に添付を消してください';
+  return null;
+}
+
+/**
  * 件の日付の行（純関数）：「依頼 2026/11/3（施主様／口頭）」、完了していれば「・完了 2026/11/6」を続ける。
  * 依頼の日＝件を登録した日報の日付。完了しても依頼の日を残す（利用者 2026-11-07）。
  */

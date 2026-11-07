@@ -39,6 +39,7 @@ import {
   toReportRow,
 } from '@/lib/report/rows';
 import { usesFixedAmount } from '@/lib/report/change-labels';
+import { issueEditErrorMessage } from '@/lib/report/issue-status';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeMessage } from '@/lib/report/unlinked-change-lines';
 import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots, type StoredAffiliations } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
@@ -720,6 +721,72 @@ function issueErrorMessage(dbMessage: string | null | undefined): string {
   // 協力会社が精算の項目（精算の方法・確定額・常用単価・確定日）を変えようとした（gn_report_issues_guard）
   if (m.includes('not_employee')) return PARTNER_SETTLEMENT_MESSAGE;
   return m.includes('report_not_found') ? NOT_FOUND : GENERIC_ERROR;
+}
+
+/** 件を直す（内容・種別・指示者・指示方法・金額見込み）。件の日報が下書き・差戻しのあいだだけ（DB のガード）。 */
+export async function updateIssue(issueId: string, body: string, extra: IssueExtraInput): Promise<ReportStateResult> {
+  await requireProfile();
+  if (!z.guid().safeParse(issueId).success) return { ok: false, error: '件の指定が正しくありません' };
+  const b = issueBodySchema.safeParse(body);
+  if (!b.success) return { ok: false, error: b.error.issues[0].message };
+  const x = issueExtraSchema.safeParse(extra);
+  if (!x.success) return { ok: false, error: x.error.issues[0]?.message ?? '入力内容が正しくありません' };
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data, error } = await supabase
+      .from('gn_report_issues')
+      .update({
+        body: b.data,
+        kind: x.data.kind,
+        instructed_by: x.data.instructedBy,
+        instruction_method: x.data.instructionMethod,
+        amount_estimate: x.data.amountEstimate,
+      })
+      .eq('id', issueId)
+      .select('site_id');
+    if (error) {
+      console.error('[updateIssue]', error.message);
+      return { ok: false, error: issueEditErrorMessage(error.message, 'update') ?? issueErrorMessage(error.message) };
+    }
+    const row = (data ?? [])[0] as { site_id: string } | undefined;
+    if (!row) return { ok: false, error: '件が見つからないか、権限がありません' };
+    revalidatePath(`/sites/${row.site_id}`);
+    revalidatePath(`/sites/${row.site_id}/changes`);
+    // 件はほかの日報の上の枠・根拠の件の候補にも出るため、日報ページ全体を更新対象にする。
+    revalidatePath('/sites/[siteId]/reports/[date]', 'page');
+    return { ok: true };
+  } catch (e) {
+    console.error('[updateIssue]', e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
+}
+
+/**
+ * 件を消す。件の日報が下書き・差戻しのあいだだけ、作業内容の行が根拠にしていない・添付の無い件だけ（DB のガード）。
+ * 同じ日の後の件の番号（MM/DD-番号）は繰り上がる。
+ */
+export async function deleteIssue(issueId: string): Promise<ReportStateResult> {
+  await requireProfile();
+  if (!z.guid().safeParse(issueId).success) return { ok: false, error: '件の指定が正しくありません' };
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data, error } = await supabase.from('gn_report_issues').delete().eq('id', issueId).select('site_id');
+    if (error) {
+      console.error('[deleteIssue]', error.message);
+      return { ok: false, error: issueEditErrorMessage(error.message, 'delete') ?? issueErrorMessage(error.message) };
+    }
+    const row = (data ?? [])[0] as { site_id: string } | undefined;
+    if (!row) return { ok: false, error: '件が見つからないか、権限がありません' };
+    revalidatePath(`/sites/${row.site_id}`);
+    revalidatePath(`/sites/${row.site_id}/changes`);
+    revalidatePath('/sites/[siteId]/reports/[date]', 'page');
+    return { ok: true };
+  } catch (e) {
+    console.error('[deleteIssue]', e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
 }
 
 function revalidateIssuePages(siteId: string, reportDate: string) {

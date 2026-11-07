@@ -3,6 +3,7 @@ import { firstError } from '@/lib/db/masters-schemas';
 import { fixRequestReasonSchema, issueStatusPatch, newIssueStatusSchema } from '@/lib/db/issue-schemas';
 import { ISSUE_STATUS_LABELS, ISSUE_STATUSES, isIssueStatus, isUnfinishedIssue } from '@/lib/report/change-labels';
 import { FIX_REQUEST_DUPLICATE_MESSAGE, fixRequestErrorMessage, reopenErrorMessage, REOPEN_FORBIDDEN_MESSAGE, SITE_CLOSED_MESSAGE } from '@/lib/report/rows';
+import { canEditIssueContent, issueEditErrorMessage } from '@/lib/report/issue-status';
 
 // 件の状態（見積中・対応中・完了）、確認者・承認者の承認解除、日報の修正申請。
 
@@ -198,5 +199,35 @@ describe('requestReportFix', () => {
   it('未解決の申請がすでにある日報（一意索引 23505）は「すでに修正申請が出ています」', async () => {
     db.write = { data: null, error: { message: 'duplicate key value', code: '23505' } as { message: string } };
     expect(await requestReportFix(REPORT, '写真')).toEqual({ ok: false, error: FIX_REQUEST_DUPLICATE_MESSAGE });
+  });
+});
+
+describe('canEditIssueContent（この日報の件を直す・消すボタン）', () => {
+  const base = { status: 'draft' as const, siteClosed: false, isStaff: true, createdBy: 'u1', currentUserId: 'u2' };
+  it('下書き・差戻しの日報だけ。未保存・提出済み・承認済みは出さない', () => {
+    expect(canEditIssueContent(base)).toBe(true);
+    expect(canEditIssueContent({ ...base, status: 'rejected' })).toBe(true);
+    expect(canEditIssueContent({ ...base, status: 'none' })).toBe(false);
+    expect(canEditIssueContent({ ...base, status: 'submitted' })).toBe(false);
+    expect(canEditIssueContent({ ...base, status: 'approved' })).toBe(false);
+  });
+  it('完了した現場では出さない', () => {
+    expect(canEditIssueContent({ ...base, siteClosed: true })).toBe(false);
+  });
+  it('協力会社は自分が作った日報だけ', () => {
+    expect(canEditIssueContent({ ...base, isStaff: false })).toBe(false);
+    expect(canEditIssueContent({ ...base, isStaff: false, createdBy: 'u2' })).toBe(true);
+    expect(canEditIssueContent({ ...base, isStaff: false, createdBy: null })).toBe(false);
+  });
+});
+
+describe('issueEditErrorMessage（件を直す・消すときの DB のエラー）', () => {
+  it('ガードの理由ごとの文言。該当しなければ null', () => {
+    expect(issueEditErrorMessage('issue_locked', 'update')).toBe('提出した日報の件は直せません（直すときは修正を申請してください）');
+    expect(issueEditErrorMessage('issue_locked', 'delete')).toBe('提出した日報の件は消せません（直すときは修正を申請してください）');
+    expect(issueEditErrorMessage('issue_in_use', 'delete')).toBe('この件を選んでいる作業内容の行があります。先に行の根拠の件を外してください');
+    expect(issueEditErrorMessage('issue_has_attachments', 'delete')).toBe('写真・資料が付いている件は消せません。先に添付を消してください');
+    expect(issueEditErrorMessage('issue_not_own', 'update')).toContain('自分が作った日報の件だけ');
+    expect(issueEditErrorMessage('report_not_found', 'update')).toBeNull();
   });
 });
