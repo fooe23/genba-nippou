@@ -1,10 +1,10 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { jpDateTime } from '@/lib/calc/format';
 import { MAX_CONFIRM_ISSUES, signatureFormSchema } from '@/lib/report/client-signature';
-import type { ClientIssueRow } from '@/lib/reports/client-daily-sections';
+import { CLIENT_DAILY_ISSUES_TITLE, NO_ISSUES_TODAY, type ClientIssueRow } from '@/lib/reports/client-daily-sections';
 import { fieldClass, TextInput } from './inputs';
 import { LongPressButton } from './LongPressButton';
 import { SignaturePad, type SignaturePadHandle } from './SignaturePad';
@@ -60,6 +60,37 @@ function IssueMeta({ issue, showEstimate }: { issue: ClientIssueRow; showEstimat
   );
 }
 
+/** 写真を画面いっぱいに見せる（閉じる・背景を押す・Esc で閉じる）。 */
+function PhotoLightbox({ photo, onClose }: { photo: Props['photos'][number]; onClose: () => void }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    closeRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={photo.caption || '写真'}
+      onClick={onClose}
+      className="fixed inset-0 z-50 flex flex-col bg-black/90 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]"
+    >
+      <div className="flex justify-end">
+        <button ref={closeRef} type="button" onClick={onClose} className="min-h-11 rounded-lg bg-white px-4 text-base font-bold text-gray-900">
+          閉じる
+        </button>
+      </div>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={photo.url} alt={photo.caption || '写真'} className="min-h-0 w-full flex-1 object-contain" />
+      {photo.caption && <p className="mt-2 text-center break-words text-white">{photo.caption}</p>}
+    </div>
+  );
+}
+
 export function ClientConfirmView(p: Props) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(() => new Set(p.initialSelected));
@@ -68,6 +99,7 @@ export function ClientConfirmView(p: Props) {
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [zoomed, setZoomed] = useState<Props['photos'][number] | null>(null);
   const pad = useRef<SignaturePadHandle | null>(null);
   // 二度押しの防止（state の更新を待たずに、同期で止める）
   const inFlight = useRef(false);
@@ -201,9 +233,9 @@ export function ClientConfirmView(p: Props) {
       </Section>
 
       {p.signed ? (
-        <Section title="ご確認いただいた件">
+        <Section title={CLIENT_DAILY_ISSUES_TITLE}>
           {p.issues.length === 0 ? (
-            <p className="text-gray-600 dark:text-gray-400">記録された件はありません。</p>
+            <p className="text-gray-600 dark:text-gray-400">{NO_ISSUES_TODAY}</p>
           ) : (
             <ul className="divide-y divide-gray-200 rounded-lg border border-gray-300 dark:divide-gray-800 dark:border-gray-700">
               {p.issues.map((i) => (
@@ -220,7 +252,7 @@ export function ClientConfirmView(p: Props) {
           )}
         </Section>
       ) : (
-        <Section title="確認していただく件">
+        <Section title={CLIENT_DAILY_ISSUES_TITLE}>
           {p.issues.length === 0 ? (
             <p className="text-gray-600 dark:text-gray-400">確認していただく件はありません。</p>
           ) : (
@@ -260,11 +292,12 @@ export function ClientConfirmView(p: Props) {
             {p.photos.map((ph) => (
               <li key={ph.id} className="min-w-0">
                 {ph.url ? (
-                  <a href={ph.url} target="_blank" rel="noopener noreferrer" className="block">
+                  // 新しいタブは開かない（お客様が社内の画面に移らないよう、この画面の中で大きく見せる）
+                  <button type="button" onClick={() => setZoomed(ph)} className="block w-full" aria-label={`写真を大きく見る${ph.caption ? `：${ph.caption}` : ''}`}>
                     {/* 署名付き URL の画像（next/image の最適化は通さない） */}
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={ph.url} alt={ph.caption || '写真'} loading="lazy" className="aspect-[4/3] w-full rounded border border-gray-300 bg-gray-100 object-cover dark:border-gray-700" />
-                  </a>
+                  </button>
                 ) : (
                   <div className="flex aspect-[4/3] w-full items-center justify-center rounded border border-gray-300 text-xs text-gray-600 dark:border-gray-700 dark:text-gray-400">
                     写真を読み込めませんでした
@@ -276,6 +309,7 @@ export function ClientConfirmView(p: Props) {
           </ul>
         </Section>
       )}
+      {zoomed && <PhotoLightbox photo={zoomed} onClose={() => setZoomed(null)} />}
 
       {p.signed ? (
         <Section title="お客様のサイン">

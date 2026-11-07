@@ -571,14 +571,17 @@ export async function listIssueConfirmations(issueIds: string[]): Promise<Map<st
   return latestConfirmations(parts.flat());
 }
 
-/** その日報のサインで確認していただいた件の id（取り消されていないもの）。 */
-export async function listConfirmedIssueIdsForReport(reportId: string): Promise<string[]> {
+/**
+ * いまのサインで確認していただいた件の一覧（gn_report_signature_issue_sets。空の一覧もある）。
+ * 行が無ければ null（サインが無い、または件ごとの確認を記録する前＝第 4 段階より前にもらったサイン）。
+ */
+export async function getSignatureIssueSet(reportId: string): Promise<string[] | null> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
-    .from('gn_issue_client_confirmations')
-    .select('issue_id')
+    .from('gn_report_signature_issue_sets')
+    .select('issue_ids')
     .eq('report_id', reportId)
-    .is('revoked_at', null);
-  if (error) throw new Error(`[listConfirmedIssueIdsForReport] ${error.message}`);
-  return ((data ?? []) as { issue_id: string }[]).map((r) => r.issue_id);
+    .maybeSingle();
+  if (error) throw new Error(`[getSignatureIssueSet] ${error.message}`);
+  return data ? ((data as { issue_ids: string[] | null }).issue_ids ?? []) : null;
 }

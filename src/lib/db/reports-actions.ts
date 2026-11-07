@@ -49,6 +49,7 @@ import {
   clientSignatureSchema,
   INVALID_ISSUE_MESSAGE,
   isSignaturePathFor,
+  REPORT_CONFIRMED_ISSUE_DELETE_MESSAGE,
   REPORT_SIGNED_DELETE_MESSAGE,
   REVOKE_ADMIN_ONLY_MESSAGE,
   revokeReasonSchema,
@@ -453,6 +454,7 @@ export async function deleteReport(reportId: string): Promise<ReportStateResult>
     if (error) {
       console.error('[deleteReport]', error.message);
       if (error.message.includes('report_signed')) return { ok: false, error: REPORT_SIGNED_DELETE_MESSAGE };
+      if (error.message.includes('report_has_confirmed_issue')) return { ok: false, error: REPORT_CONFIRMED_ISSUE_DELETE_MESSAGE };
       return { ok: false, error: error.message.includes('site_closed') ? SITE_CLOSED_MESSAGE : GENERIC_ERROR };
     }
     if (!data || data.length === 0) return { ok: false, error: CANNOT };

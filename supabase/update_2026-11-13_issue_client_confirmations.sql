@@ -16,7 +16,13 @@
 -- 4. gn_report_issues_delete_guard：お客様の確認を受けた件（取り消されていない確認がある件）は消せない（issue_confirmed）。
 --    今までの確かめはすべてそのまま（関数を作り直し、トリガーも付け直す）。
 --
--- 拒否の理由（足したもの）：invalid_issue、issue_confirmed。
+-- 5. 表 gn_report_signature_issue_sets：いまのサインで確認していただいた件の一覧（日報ごとに 1 行。空でも入る）。
+--    gn_save_client_signature が入れ、gn_revoke_client_signature が消す。行が無いのにサインがある日報は、この SQL より前に
+--    もらったサイン（アプリはその日報の件を「確認していただく件」に載せる）。RLS：その日報の現場メンバーが読める。
+-- 6. gn_report_delete_guard：日報の件が（ほかの日報のサインで）お客様の確認を受けている（取り消されていない）なら、
+--    その日報は消せない（report_has_confirmed_issue。消すと件と一緒に確認の記録も消えるため）。今までの確かめはそのまま。
+--
+-- 拒否の理由（足したもの）：invalid_issue、issue_confirmed、report_has_confirmed_issue。
 
 begin;
 
@@ -50,6 +56,23 @@ alter table public.gn_issue_client_confirmations enable row level security;
 drop policy if exists gn_issue_client_confirmations_select on public.gn_issue_client_confirmations;
 create policy gn_issue_client_confirmations_select on public.gn_issue_client_confirmations
   for select to authenticated using (public.gn_is_site_member(site_id));
+
+-- サインで確認していただいた件の一覧（2026-11-13）。いまのサイン 1 つにつき 1 行（件を 1 つも選ばなかったときも空の配列で入る）。
+-- 行が無いのにサインがある日報は、件ごとの確認を記録する前（第 4 段階より前）にもらったサイン。
+-- 書くのは gn_save_client_signature（入れる・取り直しで上書き）と gn_revoke_client_signature（消す。取り消したサインの件は
+-- client_signature_history の issue_ids に残る）だけ（insert・update・delete のポリシーを作らない）。その日報の現場メンバーが読める。
+-- 制約は主キーと外部キーだけ（名前は自動の <表>_pkey・<表>_report_id_fkey）。
+create table if not exists public.gn_report_signature_issue_sets (
+  report_id uuid primary key references public.gn_daily_reports(id) on delete cascade,
+  issue_ids uuid[] not null,
+  signed_at timestamptz not null
+);
+alter table public.gn_report_signature_issue_sets enable row level security;
+drop policy if exists gn_report_signature_issue_sets_select on public.gn_report_signature_issue_sets;
+create policy gn_report_signature_issue_sets_select on public.gn_report_signature_issue_sets
+  for select to authenticated using (
+    exists (select 1 from public.gn_daily_reports r where r.id = report_id and public.gn_is_site_member(r.site_id))
+  );
 
 -- サインを保存する（現場メンバー。どの状態の日報でも・完了現場でも。1 回だけ）。
 --   p_signed_at：サインした日時（＝客先確認の日時。PDF に出した時刻と同じにするためアプリが送る）。今から 10 分前〜1 分後の範囲だけ。
@@ -196,6 +219,11 @@ begin
          revoked_at   = null,
          revoked_by   = null
    where c.revoked_at is not null;
+
+  -- このサインで確認していただいた件の一覧（空でも入れる。行があること＝第 4 段階の後のサイン）
+  insert into public.gn_report_signature_issue_sets (report_id, issue_ids, signed_at)
+  values (p_report_id, v_issues, v_at)
+  on conflict (report_id) do update set issue_ids = excluded.issue_ids, signed_at = excluded.signed_at;
   return v_updated;
 end;
 $$;
@@ -271,6 +299,8 @@ begin
   update public.gn_issue_client_confirmations
      set revoked_at = now(), revoked_by = v_uid
    where report_id = p_report_id and revoked_at is null;
+  -- いまのサインの件の一覧は消す（取り消したサインの件は client_signature_history の issue_ids に残している）
+  delete from public.gn_report_signature_issue_sets where report_id = p_report_id;
   return v_updated;
 end;
 $$;
@@ -326,5 +356,33 @@ $$;
 drop trigger if exists gn_report_issues_delete_guard on public.gn_report_issues;
 create trigger gn_report_issues_delete_guard before delete on public.gn_report_issues
   for each row execute function public.gn_report_issues_delete_guard();
+
+
+-- 日報の削除も完了・削除済みの現場では不可。サインがある日報は誰も消せない（管理者が取り消した後なら消せる。2026-11-10）
+-- 件がお客様の確認を受けている（取り消されていない確認がある）日報も消せない（report_has_confirmed_issue。2026-11-13）
+create or replace function public.gn_report_delete_guard()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if public.gn_site_closed(old.site_id) then
+    raise exception using message = 'site_closed';
+  end if;
+  if old.client_signature_path is not null then
+    raise exception using message = 'report_signed';
+  end if;
+  -- この日報の件が、ほかの日報のサインでお客様の確認を受けている（取り消されていない）なら消せない（2026-11-13）。
+  -- 消すと件と一緒に確認の記録も消えてしまうため。そのサインを管理者が取り消した後なら消せる。
+  if exists (
+    select 1 from public.gn_issue_client_confirmations c
+      join public.gn_report_issues i on i.id = c.issue_id
+     where i.report_id = old.id and c.revoked_at is null
+  ) then
+    raise exception using message = 'report_has_confirmed_issue';
+  end if;
+  return old;
+end;
+$$;
+drop trigger if exists gn_report_delete_guard on public.gn_daily_reports;
+create trigger gn_report_delete_guard before delete on public.gn_daily_reports
+  for each row execute function public.gn_report_delete_guard();
 
 commit;

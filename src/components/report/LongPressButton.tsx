@@ -25,9 +25,11 @@ export function LongPressButton({ onComplete, children, durationMs = LONG_PRESS_
     onCompleteRef.current = onComplete;
   }, [onComplete]);
 
-  // 押している間だけ、毎フレーム進み具合を更新する。離す（pressing が false）とループを止める。
+  // 押している間だけ、毎フレーム進み具合を更新する。離す（pressing が false）か、押している途中で disabled になると
+  // ループを止める（塗りも 0 に見せる。disabled が外れてもまだ押していれば、0 から数え直す）。
+  const active = pressing && !disabled;
   useEffect(() => {
-    if (!pressing) return;
+    if (!active) return;
     const startedAt = performance.now();
     let frame = 0;
     const tick = () => {
@@ -42,7 +44,7 @@ export function LongPressButton({ onComplete, children, durationMs = LONG_PRESS_
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [pressing, durationMs]);
+  }, [active, durationMs]);
 
   const begin = useCallback(() => {
     if (disabled) return;
@@ -66,7 +68,7 @@ export function LongPressButton({ onComplete, children, durationMs = LONG_PRESS_
         aria-describedby={descId}
         onPointerDown={(e) => {
           if (e.button !== 0) return;
-          // 指を動かしてもボタンの上にいる間は続ける（離したら pointerup で取り消し）
+          // 指が少しずれても続ける（pointer capture と touch-none。離したら pointerup で取り消し）
           e.currentTarget.setPointerCapture?.(e.pointerId);
           begin();
         }}
@@ -86,12 +88,12 @@ export function LongPressButton({ onComplete, children, durationMs = LONG_PRESS_
         onBlur={cancel}
         onContextMenu={(e) => e.preventDefault()}
         style={{ WebkitTouchCallout: 'none' }}
-        className={`relative min-h-11 overflow-hidden rounded-lg select-none touch-manipulation disabled:opacity-50 ${className}`}
+        className={`relative min-h-11 overflow-hidden rounded-lg select-none touch-none disabled:opacity-50 ${className}`}
       >
         <span
           aria-hidden
           className="absolute inset-y-0 left-0 bg-current opacity-20"
-          style={{ width: `${Math.round(progress * 100)}%` }}
+          style={{ width: `${Math.round((active ? progress : 0) * 100)}%` }}
         />
         <span className="relative">{children}</span>
       </button>

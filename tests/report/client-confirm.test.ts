@@ -8,7 +8,11 @@ import {
   longPressProgress,
   type ConfirmCandidateIssue,
 } from '@/lib/report/client-confirm';
-import { isSignatureBeforeIssueConfirmations } from '@/lib/report/client-signature';
+import {
+  clientIssueIdsForReport,
+  REPORT_CONFIRMED_ISSUE_DELETE_MESSAGE,
+  signatureErrorMessage,
+} from '@/lib/report/client-signature';
 import { ISSUE_CONFIRMED_DELETE_MESSAGE, issueEditErrorMessage } from '@/lib/report/issue-status';
 
 const issue = (id: string, reportDate: string, number: number, over: Partial<ConfirmCandidateIssue> = {}): ConfirmCandidateIssue => ({
@@ -91,11 +95,15 @@ describe('longPressProgress（社内の画面に戻る長押し）', () => {
 });
 
 describe('第 4 段階より前のサイン・件の削除の文言', () => {
-  it('確認の行も取り消した記録の件の一覧も無ければ前のサイン', () => {
-    expect(isSignatureBeforeIssueConfirmations({ confirmedIssueIds: [], history: [] })).toBe(true);
-    expect(isSignatureBeforeIssueConfirmations({ confirmedIssueIds: [], history: [{ recordsIssues: false }] })).toBe(true);
-    expect(isSignatureBeforeIssueConfirmations({ confirmedIssueIds: ['a'], history: [] })).toBe(false);
-    expect(isSignatureBeforeIssueConfirmations({ confirmedIssueIds: [], history: [{ recordsIssues: true }] })).toBe(false);
+  it('サインの件の一覧：記録があればそれ（空でも）、記録の無いサインとサインの無い日報はその日報の件', () => {
+    const reportIssueIds = ['r1', 'r2'];
+    expect(clientIssueIdsForReport({ signed: true, signedIssueSet: ['o1'], reportIssueIds })).toEqual(['o1']);
+    expect(clientIssueIdsForReport({ signed: true, signedIssueSet: [], reportIssueIds })).toEqual([]);
+    expect(clientIssueIdsForReport({ signed: true, signedIssueSet: null, reportIssueIds })).toEqual(['r1', 'r2']);
+    expect(clientIssueIdsForReport({ signed: false, signedIssueSet: null, reportIssueIds })).toEqual(['r1', 'r2']);
+  });
+  it('確認を受けた件のある日報は消せない', () => {
+    expect(signatureErrorMessage('report_has_confirmed_issue')).toBe(REPORT_CONFIRMED_ISSUE_DELETE_MESSAGE);
   });
   it('お客様の確認を受けた件は消せない', () => {
     expect(issueEditErrorMessage('issue_confirmed', 'delete')).toBe(ISSUE_CONFIRMED_DELETE_MESSAGE);

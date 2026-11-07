@@ -19,6 +19,8 @@ export const SIGNATURE_LOCKED_MESSAGE = 'お客様のサインがあるため、
 export const SIGNATURE_IMAGE_FAILED_MESSAGE = 'サインの画像を保存できませんでした。もう一度「サインを保存」を押してください。';
 export const SIGNATURE_TOO_LARGE_MESSAGE = 'サインの画像が大きすぎます（2MB まで）。書き直してください。';
 export const REVOKE_ADMIN_ONLY_MESSAGE = 'サインを取り消せるのは管理者だけです';
+export const REPORT_CONFIRMED_ISSUE_DELETE_MESSAGE =
+  'お客様の確認を受けた件がある日報は削除できません（管理者がそのサインを取り消した後なら削除できます）';
 export const REPORT_SIGNED_DELETE_MESSAGE = 'お客様のサインがある日報は削除できません（管理者がサインを取り消した後なら削除できます）';
 /** 画面に出す注意（モックアップの文言）。 */
 export const SIGNATURE_NOTE = '保存したサインは消せません（間違えたときは管理者が取り消します）';
@@ -131,6 +133,7 @@ export function signatureErrorMessage(dbMessage: string | null | undefined): str
   if (m.includes('signature_missing')) return '取り消すサインがありません。画面を再読み込みしてください。';
   if (m.includes('signature_locked')) return SIGNATURE_LOCKED_MESSAGE;
   if (m.includes('report_signed')) return REPORT_SIGNED_DELETE_MESSAGE;
+  if (m.includes('report_has_confirmed_issue')) return REPORT_CONFIRMED_ISSUE_DELETE_MESSAGE;
   if (m.includes('report_not_found')) return '日報が見つからないか、権限がありません';
   if (m.includes('invalid_issue')) return INVALID_ISSUE_MESSAGE;
   if (m.includes('invalid_signature_input')) return '確認者・メモ・日時の内容が正しくありません。入力を確かめてもう一度お試しください。';
@@ -161,8 +164,6 @@ export interface RevokedSignature {
   confirmedBy: string;
   revokedAt: string | null;
   reason: string;
-  /** 確認していただいた件の id（issue_ids）を記録した版のサインか（2026-11-13 より後に取り消したもの）。 */
-  recordsIssues: boolean;
 }
 
 /** 日報画面に渡すサインの表示用（imageUrl は署名付き URL。作れなければ ''）。 */
@@ -189,20 +190,21 @@ export function parseSignatureHistory(json: unknown): RevokedSignature[] {
       confirmedBy: str(o.confirmed_by) ?? '',
       revokedAt: str(o.revoked_at),
       reason: str(o.reason) ?? '',
-      recordsIssues: Array.isArray(o.issue_ids),
     });
   });
   return out;
 }
 
 /**
- * いまのサインが、件ごとのお客様確認を記録する前（第 4 段階より前）にもらったものか。
- * 取り消していない確認の行が 1 つも無く、取り消したサインの記録にも件の一覧（issue_ids）が無いときに前のものとみなす
- * （第 4 段階より後のサインで件を 1 つも選ばなかったときも同じに見えるが、そのときは件の候補が無かったか、お客様が全部
- * 外したときだけ）。前のサインの日報の通常のお客様用 PDF は、その日報の件を「確認していただく件」に載せる。
+ * お客様用日報（PDF・確認画面）の「確認していただく件」に載せる件の id。
+ * - サインの無い日報：その日報の件。
+ * - サインのある日報：そのサインで記録した件の一覧（gn_report_signature_issue_sets。空の一覧もそのまま＝「ありません」）。
+ * - 件の一覧の行が無いサイン（件ごとの確認を記録する前＝第 4 段階より前にもらったサイン）：その日報の件。
+ * signedIssueSet は行が無ければ null。
  */
-export function isSignatureBeforeIssueConfirmations(s: { confirmedIssueIds: readonly string[]; history: readonly Pick<RevokedSignature, 'recordsIssues'>[] }): boolean {
-  return s.confirmedIssueIds.length === 0 && !s.history.some((h) => h.recordsIssues);
+export function clientIssueIdsForReport(s: { signed: boolean; signedIssueSet: readonly string[] | null; reportIssueIds: readonly string[] }): string[] {
+  if (s.signed && s.signedIssueSet !== null) return [...s.signedIssueSet];
+  return [...s.reportIssueIds];
 }
 
 /** /api/reports/signed のクエリ：report=<uuid>（いまのサイン）か、&history=<番号>（取り消したサイン）。 */

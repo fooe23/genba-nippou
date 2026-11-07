@@ -5,7 +5,8 @@ import { dateSchema } from '@/lib/db/masters-schemas';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { listAttachmentsForIssues, listAttachmentsForReport, listClientIssuePhotosOn, signedUrls } from '@/lib/db/attachments';
 import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-signature';
-import { getReport, listConfirmedIssueIdsForReport, listIssuesByIds, listIssuesForReports, listOpenIssues } from '@/lib/db/reports';
+import { getReport, getSignatureIssueSet, listIssuesByIds, listIssuesForReports, listOpenIssues } from '@/lib/db/reports';
+import { clientIssueIdsForReport } from '@/lib/report/client-signature';
 import { loadDailyReportInput } from '@/lib/db/reports-data';
 import { getSite } from '@/lib/db/sites';
 import { CHANGE_KIND_LABELS } from '@/lib/report/change-labels';
@@ -62,7 +63,15 @@ export default async function ClientConfirmPage({ params, searchParams }: PagePr
     listClientIssuePhotosOn(siteId, date),
   ]);
   const signed = signature?.current ?? null;
-  const confirmedIds = signed ? await listConfirmedIssueIdsForReport(reportId) : [];
+  // サイン済みの日報の件：そのサインで記録した件の一覧。記録の無い（第 4 段階より前の）サインはその日報の件。
+  // お客様用日報 PDF（client-daily-render.ts）と同じ決め方（clientIssueIdsForReport）。
+  const confirmedIds = signed
+    ? clientIssueIdsForReport({
+        signed: true,
+        signedIssueSet: await getSignatureIssueSet(reportId),
+        reportIssueIds: input.issues.map((i) => i.id),
+      })
+    : [];
 
   // 件番号（その件を書いた日報の中での登録順）を付けるため、関係する件の日報の件をまとめて読む
   const known = new Map([...input.issues, ...openIssues].map((i) => [i.id, i]));
