@@ -61,6 +61,7 @@ async function loadClientIssues(siteId: string, issueIds: string[]): Promise<Cli
     kind: i.kind,
     body: i.body,
     status: i.status,
+    estimateSubmittedOn: i.estimateSubmittedOn,
     number: numbers.get(i.id) ?? 0,
   }));
 }

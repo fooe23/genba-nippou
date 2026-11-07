@@ -86,6 +86,7 @@ export default async function ClientConfirmPage({ params, searchParams }: PagePr
     kind: i.kind,
     body: i.body,
     status: i.status,
+    estimateSubmittedOn: i.estimateSubmittedOn,
     number: numbers.get(i.id) ?? 0,
   }));
   const byId = new Map(numbered.map((i) => [i.id, i]));

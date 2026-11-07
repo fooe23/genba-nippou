@@ -40,6 +40,7 @@ import {
 } from '@/lib/report/rows';
 import { usesFixedAmount } from '@/lib/report/change-labels';
 import { issueEditErrorMessage } from '@/lib/report/issue-status';
+import { ESTIMATE_SUBMITTED_STAFF_ONLY_MESSAGE, estimateSubmittedOnSchema } from '@/lib/report/estimate-submitted';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeMessage } from '@/lib/report/unlinked-change-lines';
 import { applyIssueInstructions } from '@/lib/report/issue-instructions';
 import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots, type StoredAffiliations } from '@/lib/report/snapshots';
@@ -949,6 +950,41 @@ export async function updateIssueSettlement(issueId: string, input: IssueSettlem
     return { ok: true };
   } catch (e) {
     console.error('[updateIssueSettlement]', e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
+}
+
+/**
+ * 件の見積提出を記録する（date＝提出日 YYYY-MM-DD）・取り消す（date＝null）。社員（管理者を含む）だけ。
+ * 日報の状態に関係なくいつでも（状態・精算と同じ）。完了現場は DB のガード（site_closed）、協力会社の直接の更新は
+ * DB のガード（not_employee）が止める。記録した人（estimate_submitted_by）は DB のトリガーが呼び出した本人にする。
+ */
+export async function setEstimateSubmitted(issueId: string, date: string | null): Promise<ReportStateResult> {
+  const profile = await requireProfile();
+  if (profile.accountType === 'partner') return { ok: false, error: ESTIMATE_SUBMITTED_STAFF_ONLY_MESSAGE };
+  if (!z.guid().safeParse(issueId).success) return { ok: false, error: '件の指定が正しくありません' };
+  const d = estimateSubmittedOnSchema.safeParse(date);
+  if (!d.success) return { ok: false, error: '見積提出の日の指定が正しくありません' };
+
+  try {
+    const supabase = await createServerSupabase();
+    const { data, error } = await supabase
+      .from('gn_report_issues')
+      .update({ estimate_submitted_on: d.data })
+      .eq('id', issueId)
+      .select('site_id');
+    if (error) {
+      console.error('[setEstimateSubmitted]', error.message);
+      if (error.message.includes('not_employee')) return { ok: false, error: ESTIMATE_SUBMITTED_STAFF_ONLY_MESSAGE };
+      return { ok: false, error: issueErrorMessage(error.message) };
+    }
+    const row = (data ?? [])[0] as { site_id: string } | undefined;
+    if (!row) return { ok: false, error: '件が見つからないか、権限がありません' };
+    // 件は日報の上の枠・件の一覧・お客様用の確認画面・帳票に出るため、その現場の下を全部更新する。
+    revalidatePath(`/sites/${row.site_id}`, 'layout');
+    return { ok: true };
+  } catch (e) {
+    console.error('[setEstimateSubmitted]', e);
     return { ok: false, error: GENERIC_ERROR };
   }
 }

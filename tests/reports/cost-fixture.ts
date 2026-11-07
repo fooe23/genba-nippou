@@ -97,7 +97,7 @@ export const changeInput = (): CostReportInput => ({
       id: 'i1', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02',
       body: '施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。', status: 'open', doneAt: null, kind: 'extra',
       instructedBy: '施主 〇〇様', instructionMethod: 'oral', amountEstimate: 40000,
-      settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null,
+      settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null,
     },
   ],
 });
@@ -122,7 +122,7 @@ export const settledInput = (): CostReportInput => {
   ];
   const issue = (o: Partial<Issue> & Pick<Issue, 'id' | 'body' | 'kind'>): Issue => ({
     siteId: 's1', reportId: 'r-2026-11-05', reportDate: '2026-11-05', status: 'open', doneAt: null,
-    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, ...o,
+    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, ...o,
   });
   return {
     ...base,

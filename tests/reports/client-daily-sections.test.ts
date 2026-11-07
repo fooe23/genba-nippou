@@ -9,6 +9,7 @@ import {
   clientDailyHeaderRows,
   clientDailyPhotos,
   clientDailyIssueList,
+  clientEstimateCell,
   clientDailyTables,
   clientIssueTable,
   clientPhotosNote,
@@ -251,9 +252,9 @@ describe('確認していただく件', () => {
   it('選んだ件だけ、件の日付 → 番号の順。種別・状態はお客様向けの表示名、見積書あり・写真はチェックした写真の数', () => {
     const rows = clientDailyIssueList(list, byIssue, ['c', 'a', 'b', 'r', 'a']);
     expect(rows).toEqual<ClientIssueRow[]>([
-      { number: '10/30-3', kindLabel: '追加指示', body: '棚を 2 台追加', statusLabel: 'お見積り中', hasEstimate: true, photoCount: 2 },
-      { number: '11/02-1', kindLabel: '現場の状況による追加（ご相談）', body: '下地の補修', statusLabel: '対応中', hasEstimate: false, photoCount: 0 },
-      { number: '11/02-2', kindLabel: '減', body: '照明を 3 台減', statusLabel: '完了', hasEstimate: false, photoCount: 1 },
+      { number: '10/30-3', kindLabel: '追加指示', body: '棚を 2 台追加', statusLabel: 'お見積り中', hasEstimate: true, estimateSubmitted: false, photoCount: 2 },
+      { number: '11/02-1', kindLabel: '現場の状況による追加（ご相談）', body: '下地の補修', statusLabel: '対応中', hasEstimate: false, estimateSubmitted: false, photoCount: 0 },
+      { number: '11/02-2', kindLabel: '減', body: '照明を 3 台減', statusLabel: '完了', hasEstimate: false, estimateSubmitted: false, photoCount: 1 },
     ]);
   });
 
@@ -275,6 +276,23 @@ describe('確認していただく件', () => {
     expect(heads(partner)).toEqual(['件', '種別', '内容', '状態', '写真']);
     expect(text(partner).flat().join('\n')).not.toMatch(/見積書|あり/);
     expect(staff.columns.reduce((a, c) => a + c.w, 0)).toBeCloseTo(partner.columns.reduce((a, c) => a + c.w, 0));
+  });
+
+  it('見積提出の記録（2026-11-14）：ファイルが無く記録がある件は「提出済み」。ファイルがあれば「あり」が優先。協力会社は列ごと出さない', () => {
+    const withSubmitted: ClientListIssue[] = [
+      listIssue({ id: 'a', number: 1, estimateSubmittedOn: '2026-11-01' }),
+      listIssue({ id: 'b', number: 2, estimateSubmittedOn: '2026-11-01' }),
+      listIssue({ id: 'c', number: 3, estimateSubmittedOn: null }),
+    ];
+    const rows = clientDailyIssueList(withSubmitted, new Map([['a', [att('file')]]]), ['a', 'b', 'c']);
+    expect(rows.map((r) => [r.hasEstimate, r.estimateSubmitted])).toEqual([
+      [true, true],
+      [false, true],
+      [false, false],
+    ]);
+    expect(rows.map(clientEstimateCell)).toEqual(['あり', '提出済み', 'なし']);
+    expect(text(clientIssueTable(rows, { showEstimate: true })).map((r) => r[4])).toEqual(['あり', '提出済み', 'なし']);
+    expect(text(clientIssueTable(rows, { showEstimate: false })).flat().join('\n')).not.toMatch(/提出|見積/);
   });
 
   it('件が無ければ行が無い（PDF は「ありません」の 1 行）', () => {

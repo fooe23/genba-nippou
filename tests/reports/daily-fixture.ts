@@ -69,8 +69,8 @@ export function report(date = '2026-11-02', over: Partial<DailyReportSource> = {
 }
 
 export const issues: Issue[] = [
-  { id: 'i1', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '棚の追加', status: 'open', doneAt: null, kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null },
-  { id: 'i2', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '窓の変更', status: 'done', doneAt: '2026-11-04T03:00:00Z', kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null },
+  { id: 'i1', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '棚の追加', status: 'open', doneAt: null, kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null },
+  { id: 'i2', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '窓の変更', status: 'done', doneAt: '2026-11-04T03:00:00Z', kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null },
 ];
 
 export function dailyInput(over: Partial<DailyReportInput> = {}): DailyReportInput {

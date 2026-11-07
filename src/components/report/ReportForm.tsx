@@ -44,6 +44,7 @@ import { IssueBanner, IssueClientConfirmBadge, IssueKindTag } from './IssueBanne
 import { clientConfirmHref } from '@/lib/report/client-confirm';
 import type { IssueConfirmation } from '@/lib/report/issue-confirmations';
 import { IssueEditControls } from './IssueEditControls';
+import { IssueEstimateSubmitted } from './IssueEstimateSubmitted';
 import { IssueStatusChip } from './IssueStatusChip';
 import { ReopenApprovalButton, REOPENED_MESSAGE } from './ReopenApprovalButton';
 import { ReportSummary } from './ReportSummary';
@@ -239,10 +240,16 @@ function IssueList({
                   {i.body}
                 </p>
                 <p className="text-sm text-gray-600 dark:text-gray-400">{issueDatesLine(i)}</p>
-                <IssueAttachmentBadges attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS} status={i.status} isStaff={viewer.isStaff} />
+                <IssueAttachmentBadges
+                  attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS}
+                  status={i.status}
+                  isStaff={viewer.isStaff}
+                  estimateSubmittedOn={i.estimateSubmittedOn}
+                />
                 <IssueClientConfirmBadge issue={i} confirmation={confirmations[i.id]} href={confirmHref ? confirmHref(i.id) : null} />
               </div>
               <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={locked} onChanged={onChanged} />
+              {!locked && <IssueEstimateSubmitted issue={i} viewer={viewer} onChanged={onChanged} />}
               <IssueAttachments issueId={i.id} status={i.status} attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS} viewer={viewer} />
               {editable && !locked && <IssueEditControls issue={i} label={i.body.length > 20 ? `${i.body.slice(0, 20)}…` : i.body} onChanged={onChanged} />}
             </li>

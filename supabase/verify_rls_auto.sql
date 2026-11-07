@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -2165,6 +2165,82 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 18 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 19. 件の見積提出の記録（update_2026-11-14） =====
+  -- A（現場 X の協力会社の担当）が 12-26 の日報と件を作って提出する。C（社員）が見積提出を記録・取り消す。
+  declare
+    r19 uuid; i19 uuid;
+  begin
+    perform pg_temp.as_user(v_a);
+    select public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-12-26', 'weather', '晴れ'), '[]'::jsonb) into r19;
+    insert into public.gn_report_issues (site_id, report_id, body, status) values (x, r19, '見積を出す件', 'estimating') returning id into i19;
+    update public.gn_daily_reports set status = 'submitted' where id = r19;
+    perform pg_temp.as_editor();
+
+    -- 19-1 社員は提出済みの日報の件にも見積提出を記録できる。記録した人は本人になる（ほかの人の名前は入らない）
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set estimate_submitted_on = '2026-12-26', estimate_submitted_by = v_admin where id = i19;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues
+       where id = i19 and estimate_submitted_on = '2026-12-26' and estimate_submitted_by = v_c;
+      if n = 1 then rep := rep || E'PASS 19-1 社員は提出済みの日報の件に見積提出を記録できる（記録した人は本人）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 19-1 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 19-1 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 19-2 協力会社は見積提出を変えられない（not_employee）
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_issues set estimate_submitted_on = '2026-12-27' where id = i19;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 19-2 協力会社の見積提出の変更が通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%not_employee%' then rep := rep || E'PASS 19-2 協力会社の見積提出の変更は断る（not_employee）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 19-2 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 19-3 協力会社は見積提出を付けて件を作れない（not_employee）
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_report(jsonb_build_object('site_id', x, 'report_date', '2026-12-27', 'weather', '晴れ'), '[]'::jsonb);
+      insert into public.gn_report_issues (site_id, report_id, body, estimate_submitted_on)
+        select x, r.id, '見積提出付きの件', '2026-12-27' from public.gn_daily_reports r where r.site_id = x and r.report_date = '2026-12-27';
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 19-3 協力会社が見積提出付きの件を作れた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%not_employee%' then rep := rep || E'PASS 19-3 協力会社は見積提出付きの件を作れない（not_employee）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 19-3 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 19-4 社員は取り消せる（提出日と記録した人が一緒に消える）。記録した人だけを入れても入らない
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set estimate_submitted_on = null where id = i19;
+      update public.gn_report_issues set estimate_submitted_by = v_c where id = i19;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues
+       where id = i19 and estimate_submitted_on is null and estimate_submitted_by is null;
+      if n = 1 then rep := rep || E'PASS 19-4 見積提出の取り消しで提出日と記録した人が一緒に消える\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 19-4 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 19-4 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 19-5 見積提出を変えても、件の中身の鍵（issue_locked）は今までどおり（提出済みの日報の件の内容は直せない）
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set estimate_submitted_on = '2026-12-26', body = '書き換え' where id = i19;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 19-5 見積提出と一緒に件の内容を直すのが通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_locked%' then rep := rep || E'PASS 19-5 見積提出と一緒でも、提出済みの日報の件の内容は直せない（issue_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 19-5 想定外: %s\n', sqlerrm); end if;
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 19 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

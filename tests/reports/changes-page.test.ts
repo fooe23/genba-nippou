@@ -9,7 +9,7 @@ import type { IssueKind } from '@/lib/types';
 const issue = (id: string, reportDate: string, kind: IssueKind = 'extra', o: Partial<Issue> = {}): Issue => ({
   id, siteId: 's1', reportId: `r-${reportDate}`, reportDate, body: `件${id}の本文`, status: 'open', doneAt: null, kind,
   instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null,
-  dailyRate: null, fixedOn: null, ...o,
+  dailyRate: null, fixedOn: null, estimateSubmittedOn: null, ...o,
 });
 
 const settled = (i: Issue, o: Partial<ChangeIssueSettlement> = {}): ChangeIssueSettlement => ({

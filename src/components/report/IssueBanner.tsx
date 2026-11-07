@@ -9,6 +9,7 @@ import type { IssueConfirmation } from '@/lib/report/issue-confirmations';
 import Link from 'next/link';
 import { IssueAttachmentBadges, IssueAttachments } from '@/components/attachments/IssueAttachments';
 import type { AttachmentView, AttachmentViewer } from '@/components/attachments/types';
+import { IssueEstimateSubmitted } from './IssueEstimateSubmitted';
 import { IssueStatusChip } from './IssueStatusChip';
 
 const NO_ATTACHMENTS: AttachmentView[] = [];
@@ -100,10 +101,11 @@ export function IssueBanner({
                   <span className="font-bold">{jpDate(i.reportDate)}</span>　<IssueKindTag issue={i} />
                   {i.body}
                 </p>
-                {viewer && <IssueAttachmentBadges attachments={atts} status={i.status} isStaff={viewer.isStaff} />}
+                {viewer && <IssueAttachmentBadges attachments={atts} status={i.status} isStaff={viewer.isStaff} estimateSubmittedOn={i.estimateSubmittedOn} />}
                 {confirmations && <IssueClientConfirmBadge issue={i} confirmation={confirmations[i.id]} href={confirmHref ? confirmHref(i.id) : null} />}
               </div>
               <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={readOnly} />
+              {viewer && !readOnly && <IssueEstimateSubmitted issue={i} viewer={viewer} />}
               {viewer && <IssueAttachments issueId={i.id} status={i.status} attachments={atts} viewer={viewer} />}
             </li>
           );

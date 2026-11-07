@@ -83,12 +83,18 @@ export interface ClientIssueRow {
   statusLabel: ClientIssueStatusLabel;
   /** 見積書（ファイル）が付いているか。協力会社のアカウントには file の添付が見えないので、そのときは表に出さない。 */
   hasEstimate: boolean;
+  /**
+   * 見積提出の記録がある（PDF を付けずにメール・紙で出した。2026-11-14）。協力会社のアカウントでは読み込みの段階で
+   * 記録が空になるので常に false（どのみち showEstimate=false で出さない）。見積書あり（hasEstimate）が優先。
+   */
+  estimateSubmitted: boolean;
   /** 件に付けた「お客様用 PDF に載せる」写真の数（チェックなしの写真は数えない）。 */
   photoCount: number;
 }
 
 /** 件番号付けのための件（件番号はその件を書いた日報の中での登録順。issueNumbers と同じ数え方）。 */
-export type ClientListIssue = Pick<Issue, 'id' | 'reportDate' | 'kind' | 'body' | 'status'> & { number: number };
+export type ClientListIssue = Pick<Issue, 'id' | 'reportDate' | 'kind' | 'body' | 'status'> &
+  Partial<Pick<Issue, 'estimateSubmittedOn'>> & { number: number };
 
 /**
  * 確認していただく件の一覧。issues のうち selectedIds に入っていて、やり直しでない件だけ（同じ件は 1 行）。
@@ -116,13 +122,20 @@ export function clientDailyIssueList(
         body: i.body,
         statusLabel: CLIENT_ISSUE_STATUS_LABELS[i.status],
         hasEstimate: atts.some((a) => a.kind === 'file'),
+        estimateSubmitted: Boolean(i.estimateSubmittedOn),
         photoCount: atts.filter((a) => a.kind === 'photo' && a.clientVisible).length,
       };
     });
 }
 
+/** 見積書の列・印の中身：見積書（ファイル）あり →「あり」、無いが見積提出の記録あり →「提出済み」、どちらも無し →「なし」。 */
+export function clientEstimateCell(r: Pick<ClientIssueRow, 'hasEstimate' | 'estimateSubmitted'>): 'あり' | '提出済み' | 'なし' {
+  if (r.hasEstimate) return 'あり';
+  return r.estimateSubmitted ? '提出済み' : 'なし';
+}
+
 /**
- * 確認していただく件の表：件／種別／内容／状態／見積書（あり・なし）／写真（N 枚）。showEstimate が false（協力会社の
+ * 確認していただく件の表：件／種別／内容／状態／見積書（あり・提出済み・なし）／写真（N 枚）。showEstimate が false（協力会社の
  * アカウントで作るとき）は見積書の列を出さない。件が無ければ rows は空（PDF は「ありません」の 1 行）。
  */
 export function clientIssueTable(rows: readonly ClientIssueRow[], opts: { showEstimate: boolean }): SectionTable {
@@ -131,9 +144,9 @@ export function clientIssueTable(rows: readonly ClientIssueRow[], opts: { showEs
     columns: [
       col.text('件', 1.3),
       col.text('種別', 2.3),
-      col.text('内容', showEstimate ? 5.0 : 6.1),
+      col.text('内容', showEstimate ? 4.7 : 6.1),
       col.text('状態', 1.4),
-      ...(showEstimate ? [col.text('見積書', 1.1)] : []),
+      ...(showEstimate ? [col.text('見積書', 1.4)] : []),
       col.text('写真', 1.0),
     ],
     rows: rows.map((r): Cell[] => [
@@ -141,7 +154,7 @@ export function clientIssueTable(rows: readonly ClientIssueRow[], opts: { showEs
       r.kindLabel,
       r.body,
       r.statusLabel,
-      ...(showEstimate ? [r.hasEstimate ? 'あり' : 'なし'] : []),
+      ...(showEstimate ? [clientEstimateCell(r)] : []),
       r.photoCount > 0 ? `${r.photoCount} 枚` : 'なし',
     ]),
   };

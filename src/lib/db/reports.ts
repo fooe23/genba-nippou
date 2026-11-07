@@ -1,6 +1,6 @@
 import 'server-only';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
-import { requireProfile, type Profile } from '@/lib/db/profile';
+import { getCurrentProfile, isEmployeeOrAdmin, requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
 import { isInstructionMethod, isIssueKind, isIssueStatus, isSettlementMethod, UNFINISHED_ISSUE_STATUSES } from '@/lib/report/change-labels';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
@@ -343,6 +343,11 @@ export interface Issue {
   dailyRate: number | null;
   /** 確定日（YYYY-MM-DD。未入力は null）。 */
   fixedOn: string | null;
+  /**
+   * 見積提出の日（YYYY-MM-DD。記録なしは null。2026-11-14）。見積書の PDF を付けずにメール・紙で出したときの記録。
+   * 協力会社のアカウントで読んだときは常に null（見積書の印と同じく協力会社には見せない。hideEstimateFromPartner）。
+   */
+  estimateSubmittedOn: string | null;
 }
 
 interface IssueRow {
@@ -360,11 +365,12 @@ interface IssueRow {
   fixed_amount: number | string | null;
   daily_rate: number | string | null;
   fixed_on: string | null;
+  estimate_submitted_on: string | null;
   gn_daily_reports: { report_date: string } | { report_date: string }[] | null;
 }
 
 const ISSUE_COLUMNS =
-  'id, site_id, report_id, body, status, done_at, kind, instructed_by, instruction_method, amount_estimate, settlement_method, fixed_amount, daily_rate, fixed_on, gn_daily_reports(report_date)';
+  'id, site_id, report_id, body, status, done_at, kind, instructed_by, instruction_method, amount_estimate, settlement_method, fixed_amount, daily_rate, fixed_on, estimate_submitted_on, gn_daily_reports(report_date)';
 
 function amountOrNull(v: number | string | null): number | null {
   if (v === null || v === '') return null;
@@ -390,7 +396,18 @@ function toIssue(r: IssueRow): Issue {
     fixedAmount: amountOrNull(r.fixed_amount),
     dailyRate: amountOrNull(r.daily_rate),
     fixedOn: r.fixed_on || null,
+    estimateSubmittedOn: r.estimate_submitted_on || null,
   };
+}
+
+/**
+ * 協力会社のアカウント（と、プロフィールが読めないとき）には見積提出の日を渡さない（null にする）。列は RLS で
+ * 現場メンバーが読めるが、出るのは日付だけ。画面・お客様用の画面・PDF に出さないため、件を読むところで必ず通す。
+ */
+async function hideEstimateFromPartner(list: Issue[]): Promise<Issue[]> {
+  const profile = await getCurrentProfile();
+  if (profile && isEmployeeOrAdmin(profile)) return list;
+  return list.map((i) => (i.estimateSubmittedOn === null ? i : { ...i, estimateSubmittedOn: null }));
 }
 
 /** 現場の完了していない件（見積中・対応中）。日報の日付の昇順（同日は登録順）。 */
@@ -403,7 +420,7 @@ export async function listOpenIssues(siteId: string): Promise<Issue[]> {
     .in('status', [...UNFINISHED_ISSUE_STATUSES])
     .order('created_at', { ascending: true });
   if (error) throw new Error(error.message);
-  const list = ((data ?? []) as unknown as IssueRow[]).map(toIssue);
+  const list = await hideEstimateFromPartner(((data ?? []) as unknown as IssueRow[]).map(toIssue));
   // 埋め込み先の列では並べ替えない（件数は少ないのでここで日付順にする。安定ソートで同日は登録順）。
   return list.sort((a, b) => a.reportDate.localeCompare(b.reportDate));
 }
@@ -417,7 +434,7 @@ export async function listIssuesForReport(reportId: string): Promise<Issue[]> {
     .eq('report_id', reportId)
     .order('created_at', { ascending: true });
   if (error) throw new Error(error.message);
-  return ((data ?? []) as unknown as IssueRow[]).map(toIssue);
+  return hideEstimateFromPartner(((data ?? []) as unknown as IssueRow[]).map(toIssue));
 }
 
 /** 1 回の問い合わせに入れる日報 id の数（URL の長さの上限に収める）。 */
@@ -435,7 +452,7 @@ export async function listIssuesByIds(ids: string[]): Promise<Issue[]> {
       return ((data ?? []) as unknown as IssueRow[]).map(toIssue);
     }),
   );
-  return parts.flat();
+  return hideEstimateFromPartner(parts.flat());
 }
 
 /** 日報の id から現場と日付だけを読む。RLS で見えなければ null。 */
@@ -470,7 +487,7 @@ export async function listIssuesForReports(reportIds: string[]): Promise<Issue[]
       }),
     ),
   );
-  return pages.flat().map(toIssue);
+  return hideEstimateFromPartner(pages.flat().map(toIssue));
 }
 
 // ─── 日報の修正申請（承認待ち一覧用）。出すのは reports-actions.ts の requestReportFix ───

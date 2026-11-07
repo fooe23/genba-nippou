@@ -56,7 +56,7 @@ const report = (date: string, lines: SavedReportLine[], o: Partial<ReportWithLin
 
 const issue = (id: string, reportDate: string, body: string, o: Partial<Issue> = {}): Issue => ({
   id, siteId: 's1', reportId: `r-${reportDate}`, reportDate, body, status: 'open', doneAt: null, kind: 'extra',
-  instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, ...o,
+  instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, ...o,
 });
 
 const input = (reports: ReportWithLines[], o: Partial<ChangeLedgerInput> = {}): ChangeLedgerInput => ({ site: site(), reports, issues: [], ...o });

@@ -31,7 +31,7 @@ interface Props {
   /** 確認していただく件の候補（サイン済みなら、そのサインで確認していただいた件）。 */
   issues: ClientConfirmIssue[];
   initialSelected: string[];
-  /** 「見積書あり」を出すか（社員・管理者のアカウントだけ）。 */
+  /** 「見積書あり」「見積書：提出済み」を出すか（社員・管理者のアカウントだけ）。 */
   showEstimate: boolean;
   photos: { id: string; url: string; caption: string }[];
   defaultConfirmedBy: string;
@@ -55,6 +55,7 @@ function IssueMeta({ issue, showEstimate }: { issue: ClientIssueRow; showEstimat
     <span className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-sm text-gray-700 dark:text-gray-300">
       <span className="rounded border border-current px-1.5 font-bold">{issue.statusLabel}</span>
       {showEstimate && issue.hasEstimate && <span>見積書あり</span>}
+      {showEstimate && !issue.hasEstimate && issue.estimateSubmitted && <span>見積書：提出済み</span>}
       <span>写真 {issue.photoCount > 0 ? `${issue.photoCount} 枚` : 'なし'}</span>
     </span>
   );

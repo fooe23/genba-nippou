@@ -461,7 +461,7 @@ describe('② 採算の基準（契約未確定の現場）と追加・増・変
   /** 精算の項目を持つ件（既定は未定の追加）。 */
   const issue = (id: string, reportDate: string, o: Partial<Issue> = {}): Issue => ({
     id, siteId: 's1', reportId: `r-${reportDate}`, reportDate, body: `${id} の件`, status: 'open', doneAt: null, kind: 'extra',
-    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, ...o,
+    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, ...o,
   });
   const linkTo = (l: SavedReportLine, issueId: string): SavedReportLine => ({ ...l, issueId }) as SavedReportLine;
   /** 10/20 の追加の行を一式の件 iL（確定額 100,000）に紐づけ、12/01 に行の無い一式の件 iX（70,000）を登録したもの。 */

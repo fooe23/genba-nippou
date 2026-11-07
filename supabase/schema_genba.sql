@@ -311,6 +311,11 @@ alter table public.gn_report_issues add column if not exists fixed_amount numeri
 alter table public.gn_report_issues add column if not exists daily_rate numeric
   check (daily_rate is null or daily_rate >= 0);
 alter table public.gn_report_issues add column if not exists fixed_on date;
+-- 既存環境向け（2026-11-14 追加列。update_2026-11-14_estimate_submitted.sql）：見積提出の記録（PDF を付けなくても見積を出した日を残す）
+-- 提出日・記録した人。入れる・変えるのは社員か管理者だけ（gn_report_issues_guard の not_employee）。記録した人はトリガーが
+-- auth.uid() にし、提出日が null なら記録した人も null にする。協力会社のアカウントにはアプリが提出日を渡さない（画面に出さない）。
+alter table public.gn_report_issues add column if not exists estimate_submitted_on date;
+alter table public.gn_report_issues add column if not exists estimate_submitted_by uuid references public.profiles(id);
 -- 労務の行の常用・請負と、その日の所属の写し（2026-11-07。update_2026-11-07_worker_affiliation.sql）。労務の行だけ使う。
 --   * labor_contract：'jouyou'（常用）・'ukeoi'（請負）。null は常用扱い。所属が協力会社の作業員の行だけ値を持つ。
 --   * affiliation・supplier_id：保存時に作業員マスターから写した所属（名前・日当の写しと同じ扱い）。
@@ -831,13 +836,16 @@ create trigger gn_report_lines_compute before insert or update on public.gn_repo
 -- BEFORE トリガーは RLS の with check より先に走るので、強制後の site_id が検査される。
 -- 精算の項目（settlement_method・fixed_amount・daily_rate・fixed_on）を入れる（insert で既定以外）・変える（update）のは
 -- 社員か管理者だけ。協力会社・profiles の行が無いユーザーは not_employee（同じ内容の単独ファイル：update_2026-11-05b_issue_settlement_guard.sql）。
+-- 見積提出（estimate_submitted_on・estimate_submitted_by）も同じく社員か管理者だけ、日報の状態に関係なくいつでも（2026-11-14。
+-- update_2026-11-14_estimate_submitted.sql）。
 create or replace function public.gn_report_issues_guard()
 returns trigger language plpgsql security invoker set search_path = public as $$
 declare
-  v_site    uuid;
-  v_status  text;
-  v_creator uuid;
-  v_settles boolean;
+  v_site     uuid;
+  v_status   text;
+  v_creator  uuid;
+  v_settles  boolean;
+  v_estimate boolean;
 begin
   -- 件の日報（report_id）は、アプリの利用者からは変えられない（提出済みの日報の件を自分の下書きの日報に付け替えて
   -- 中身の鍵を外すことを防ぐ）。2026-11-12（update_2026-11-12_issue_report_fixed.sql）。SQL Editor・service role は対象外。
@@ -853,6 +861,7 @@ begin
   end if;
   -- 精算の項目（精算の方法・確定額・常用単価・確定日）を入れる（insert で既定［未定・空］以外の値）・変える（update）のは
   -- 社員（account_type = 'employee'）か管理者だけ。それ以外（協力会社・profiles の行が無いユーザー）は not_employee。
+  -- 見積提出（提出日・記録した人）も同じ（2026-11-14。update_2026-11-14_estimate_submitted.sql）。
   -- auth.uid() が無い呼び出し（SQL Editor・service role。RLS の外）は対象外。
   -- （insert では old を参照しないよう、insert と update を分けて判定する）
   if tg_op = 'INSERT' then
@@ -860,22 +869,32 @@ begin
       or new.fixed_amount is not null
       or new.daily_rate is not null
       or new.fixed_on is not null;
+    v_estimate := new.estimate_submitted_on is not null or new.estimate_submitted_by is not null;
   else
     v_settles := new.settlement_method is distinct from old.settlement_method
       or new.fixed_amount is distinct from old.fixed_amount
       or new.daily_rate is distinct from old.daily_rate
       or new.fixed_on is distinct from old.fixed_on;
+    v_estimate := new.estimate_submitted_on is distinct from old.estimate_submitted_on
+      or new.estimate_submitted_by is distinct from old.estimate_submitted_by;
   end if;
-  if v_settles and auth.uid() is not null
+  if (v_settles or v_estimate) and auth.uid() is not null
      and not exists (
        select 1 from public.profiles p
         where p.id = auth.uid() and (p.account_type = 'employee' or public.is_admin())
      ) then
     raise exception using message = 'not_employee';
   end if;
+  -- 見積提出：提出日が無ければ記録した人も無し（2 つ一緒に消す）。アプリの利用者が入れた・変えたときは、記録した人を
+  -- その利用者にする（ほかの人の名前で記録させない）。状態・精算と同じく、件の日報の状態に関係なくいつでも変えられる。
+  if new.estimate_submitted_on is null then
+    new.estimate_submitted_by := null;
+  elsif v_estimate and auth.uid() is not null then
+    new.estimate_submitted_by := auth.uid();
+  end if;
   -- 件の中身（内容・種別・指示者・指示方法・金額見込み）を直せるのは、件の日報が下書きか差戻しのあいだだけ（管理者も同じ）。
-  -- それ以外は issue_locked。協力会社は自分が作った日報の件だけ（issue_not_own）。状態・精算の項目は今までどおりいつでも変えられる。
-  -- auth.uid() が無い呼び出し（SQL Editor・service role）は対象外。2026-11-11（update_2026-11-11_site_judgment.sql）。
+  -- それ以外は issue_locked。協力会社は自分が作った日報の件だけ（issue_not_own）。状態・精算・見積提出の項目は今までどおり
+  -- いつでも変えられる。auth.uid() が無い呼び出し（SQL Editor・service role）は対象外。2026-11-11（update_2026-11-11_site_judgment.sql）。
   if tg_op = 'UPDATE' and auth.uid() is not null
      and (new.body, new.kind, new.instructed_by, new.instruction_method, new.amount_estimate)
          is distinct from (old.body, old.kind, old.instructed_by, old.instruction_method, old.amount_estimate) then
