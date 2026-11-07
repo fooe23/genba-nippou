@@ -149,8 +149,9 @@ export function ClientConfirmView(p: Props) {
         return;
       }
       setSaved(true);
-      // 保存したら社内の日報の画面へ（戻るボタンでこの画面に戻らないよう置き換える）
-      router.replace(p.backHref);
+      // 保存してもお客様用の画面のまま（スマホがお客様の手にあるうちに社内の画面を出さない。2026-11-08）。
+      // サイン済みの表示（ありがとうございました）に読み直し、社内の画面へは長押しで戻る。
+      router.refresh();
     } catch (e) {
       console.error('[client confirm]', e);
       setError(SIGN_FAILED_MESSAGE);
@@ -174,8 +175,8 @@ export function ClientConfirmView(p: Props) {
           </p>
         </div>
         <LongPressButton
-          onComplete={() => router.push(p.backHref)}
-          disabled={busy}
+          onComplete={() => router.replace(p.backHref)}
+          disabled={sending}
           description="社内の画面に戻るには、このボタンを 1.5 秒押し続けます"
           className="shrink-0 border border-gray-400 px-3 text-sm font-medium text-gray-700 dark:border-gray-600 dark:text-gray-300"
         >
