@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { changesTotal, joinChangesRows, possibleDuplicates } from '@/lib/reports/changes-page';
+import { changesTotal, joinChangesRows, possibleDuplicates, unlinkedDates } from '@/lib/reports/changes-page';
 import { buildChangeLedger } from '@/lib/reports/change-model';
 import { changeInput, RATES, spanningChangeModel } from './cost-fixture';
 import type { Issue } from '@/lib/db/reports';
@@ -82,8 +82,31 @@ describe('joinChangesRows', () => {
     const rows = joinChangesRows([a], { issues: [], unlinked: { lineCount: 3, manDays: 2, actualCost: 60_000, proposal: 75_900, affiliationManDays: [] } });
     expect(rows).toHaveLength(2);
     expect(rows[1]).toEqual({
-      unlinked: true, lineCount: 3, manDays: 2, actualCost: 60_000, proposal: 75_900, settled: 75_900, countsToward: true, affiliationManDays: [],
+      unlinked: true, lineCount: 3, manDays: 2, actualCost: 60_000, proposal: 75_900, settled: 75_900, countsToward: true, affiliationManDays: [], dates: [],
     });
+  });
+
+  it('「件なし」の行に、その行のある日報の日付（昇順・重ならない）を付ける', () => {
+    const ref = { id: 'a' } as unknown as NonNullable<ChangeLedgerRow['issue']>;
+    const rows = joinChangesRows([], {
+      issues: [],
+      unlinked: { lineCount: 3, manDays: 0, actualCost: 0, proposal: 0, affiliationManDays: [] },
+      rows: [
+        { date: '2026-11-06', issue: null },
+        { date: '2026-11-03', issue: null },
+        { date: '2026-11-04', issue: ref },
+        { date: '2026-11-06', issue: null },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0].unlinked && rows[0].dates).toEqual(['2026-11-03', '2026-11-06']);
+  });
+});
+
+describe('unlinkedDates', () => {
+  it('件の無い行の日付だけを昇順・重ならずに返す', () => {
+    expect(unlinkedDates([])).toEqual([]);
+    expect(unlinkedDates([{ date: '2026-12-01', issue: null }, { date: '2026-11-30', issue: null }])).toEqual(['2026-11-30', '2026-12-01']);
   });
 });
 

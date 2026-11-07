@@ -28,6 +28,8 @@ export function LineTable<L>({
   emptyText,
   hint,
   rowExtra,
+  rowId,
+  rowClass,
 }: {
   title: string;
   rows: Row<L>[];
@@ -43,6 +45,10 @@ export function LineTable<L>({
   hint?: string;
   /** 行の下に横幅いっぱいで出す追加の欄（null なら出さない）。作業内容の区分の指示など。 */
   rowExtra?: (line: L, index: number, row: Row<L>) => ReactNode;
+  /** 行の id（スクロール先にする）。 */
+  rowId?: (index: number) => string;
+  /** 行に足すクラス（強調の枠など）。 */
+  rowClass?: (line: L, index: number) => string;
 }) {
   return (
     <section aria-label={title} className="mb-8">
@@ -71,7 +77,8 @@ export function LineTable<L>({
                 return (
                   <li
                     key={row.key}
-                    className={`grid grid-cols-2 items-start gap-2 rounded-lg border border-gray-300 p-3 md:items-center md:rounded-none md:border-0 md:border-b md:px-0 md:py-2 dark:border-gray-700 ${gridClass}`}
+                    id={rowId?.(i)}
+                    className={`${rowClass?.(row.line, i) ?? ''} grid grid-cols-2 items-start gap-2 rounded-lg border border-gray-300 p-3 md:items-center md:rounded-none md:border-0 md:border-b md:px-0 md:py-2 dark:border-gray-700 ${gridClass}`}
                   >
                     <p className="col-span-2 text-sm font-bold text-gray-600 md:hidden dark:text-gray-400">
                       {i + 1}行目

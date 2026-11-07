@@ -36,6 +36,8 @@ export interface ChangesUnlinkedRow {
   countsToward: true;
   /** 投入人工の所属別の内訳（社内用。台帳の unlinked.affiliationManDays）。 */
   affiliationManDays: AffiliationManDays[];
+  /** その行がある日報の日付（'YYYY-MM-DD'、昇順、重ならない）。一覧から日報へ飛んで件を選ぶ。 */
+  dates: string[];
 }
 
 export type ChangesRow = ChangesIssueRow | ChangesUnlinkedRow;
@@ -46,11 +48,20 @@ export interface ChangesTotal {
   actualCost: number;
 }
 
+/** 件に紐づかない行（issue が null）のある日報の日付（昇順、重ならない）。 */
+export function unlinkedDates(rows: readonly Pick<ChangeLedgerRow, 'date' | 'issue'>[]): string[] {
+  return [...new Set(rows.filter((r) => r.issue === null).map((r) => r.date))].sort();
+}
+
 /**
  * 現場の全部の件（issues）に台帳の件（ledger.issues）を id で合わせる。並びは件の日報日の昇順、同じ日は入力の並び
- * （登録順）。件に紐づかない行が 1 行以上あれば、末尾に「件なし」の行を足す。
+ * （登録順）。件に紐づかない行が 1 行以上あれば、末尾に「件なし」の行を足す（その行のある日報の日付は ledger.rows から。
+ * 台帳は工期全体（period 'all'）を渡す）。
  */
-export function joinChangesRows(issues: Issue[], ledger: Pick<ChangeLedgerModel, 'issues' | 'unlinked'>): ChangesRow[] {
+export function joinChangesRows(
+  issues: Issue[],
+  ledger: Pick<ChangeLedgerModel, 'issues' | 'unlinked'> & { rows?: readonly Pick<ChangeLedgerRow, 'date' | 'issue'>[] },
+): ChangesRow[] {
   const byId = new Map(ledger.issues.map((i) => [i.id, i]));
   const numbers = issueNumbers(issues);
   const rows: ChangesRow[] = [...issues]
@@ -93,6 +104,7 @@ export function joinChangesRows(issues: Issue[], ledger: Pick<ChangeLedgerModel,
       settled: u.proposal,
       countsToward: true,
       affiliationManDays: u.affiliationManDays,
+      dates: unlinkedDates(ledger.rows ?? []),
     });
   }
   return rows;

@@ -24,6 +24,11 @@ function issueOptions(issues: Issue[]): SelectOption[] {
   return out;
 }
 
+/** 作業内容の行の id（提出を断られたときのスクロール先）。 */
+export function workRowId(index: number): string {
+  return `work-row-${index}`;
+}
+
 function SubField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block min-w-0">
@@ -42,12 +47,15 @@ export function WorkTable({
   onChange,
   units,
   issues,
+  flagged,
 }: {
   rows: Row<WorkLine>[];
   onChange: (update: (rows: Row<WorkLine>[]) => Row<WorkLine>[]) => void;
   units: string[];
   /** 根拠の件の候補（この日報の件と、現場の対応中の件）。 */
   issues: Issue[];
+  /** 赤枠で示す行（作業内容の行の添字）。提出を断られた、件を選んでいない追加・増・変更・減の行。 */
+  flagged?: ReadonlySet<number>;
 }) {
   const set = (i: number, patch: Partial<WorkLine>) => onChange((rs) => patchRow(rs, i, patch));
   const unitOptions = units.map((u) => ({ value: u, label: u }));
@@ -88,6 +96,8 @@ export function WorkTable({
       columns={columns}
       gridClass="md:grid-cols-[minmax(7rem,1fr)_5.5rem_minmax(9rem,2fr)_6rem_5rem_5.5rem_6.5rem_4.5rem_6.5rem_4.5rem]"
       minWidthClass="md:min-w-[65rem]"
+      rowId={workRowId}
+      rowClass={(_, i) => (flagged?.has(i) ? 'outline-2 -outline-offset-2 outline-red-600 md:rounded-lg md:px-2 dark:outline-red-500' : '')}
       rowExtra={(l, i) =>
         l.changeKind === 'contract' ? null : (
           <div role="group" aria-label={`${i + 1}行目の${CHANGE_KIND_LABELS[l.changeKind]}の指示`} className="grid grid-cols-2 gap-2 md:grid-cols-4">
@@ -118,6 +128,7 @@ export function WorkTable({
                 missingLabel="（一覧に無い件）"
                 onChange={(v) => set(i, { issueId: v === '' ? null : v })}
               />
+              {flagged?.has(i) && <span className="mt-0.5 block text-sm font-bold text-red-700 dark:text-red-400">件を選んでください</span>}
             </SubField>
           </div>
         )

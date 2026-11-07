@@ -1,18 +1,46 @@
+import Link from 'next/link';
 import { money } from '@/components/report/form-state';
+import { jpDate } from '@/lib/calc/format';
 import type { ChangesRow, ChangesTotal, ChangesUnlinkedRow, PossibleDuplicate } from '@/lib/reports/changes-page';
 import { AffiliationNote, CHANGES_COLUMNS, CHANGES_GRID, CHANGES_MIN_WIDTH, CHANGES_ROW, Cell, ComputedCells, KindTag } from '@/components/changes/cells';
 import { IssueSettlementRow } from '@/components/changes/IssueSettlementRow';
 
-/** 件に紐づかない追加・増・変更・減の行の合計（入力は無い。精算額は提案額）。 */
-function UnlinkedRow({ row }: { row: ChangesUnlinkedRow }) {
+/** 'YYYY-MM-DD' → 「11/03」（年が違う日が混ざるときは「2026/11/03」）。 */
+function shortDate(date: string, withYear: boolean): string {
+  return withYear ? date.replaceAll('-', '/') : date.slice(5).replace('-', '/');
+}
+
+/**
+ * 件に紐づかない追加・増・変更・減の行の合計（入力は無い。精算額は提案額）。
+ * その行のある日報の日付を本文の欄に並べる（日報へのリンク。折り返すので見切れない）。日付の欄は日数だけ。
+ */
+function UnlinkedRow({ row, siteId }: { row: ChangesUnlinkedRow; siteId: string }) {
+  const withYear = new Set(row.dates.map((d) => d.slice(0, 4))).size > 1;
   return (
     <li className={`${CHANGES_ROW} ${CHANGES_GRID}`}>
-      <Cell label="日付">—</Cell>
+      <Cell label="日付">{row.dates.length > 0 ? `${row.dates.length}日分` : '—'}</Cell>
       <Cell label="種別">
         <KindTag muted>件なし</KindTag>
       </Cell>
       <Cell label="本文" wide>
         <p>件を選んでいない追加・増・変更・減の行（提案額で数えます）</p>
+        {row.dates.length > 0 && (
+          <div className="mt-1 flex flex-wrap items-center gap-x-1 text-sm">
+            <span className="text-gray-700 dark:text-gray-300">日報で件を選ぶ：</span>
+            {row.dates.map((d, i) => (
+              <span key={d} className="inline-flex items-center">
+                {i > 0 && <span aria-hidden="true">・</span>}
+                <Link
+                  href={`/sites/${siteId}/reports/${d}`}
+                  aria-label={`${jpDate(d)} の日報`}
+                  className="inline-flex min-h-11 min-w-11 items-center justify-center font-medium text-blue-700 underline dark:text-blue-400"
+                >
+                  {shortDate(d, withYear)}
+                </Link>
+              </span>
+            ))}
+          </div>
+        )}
       </Cell>
       <Cell label="指示者／方法">—</Cell>
       <Cell label="見込み額" num>
@@ -86,7 +114,7 @@ export function ChangesTable({
         <ul className="space-y-3 2xl:space-y-0">
           {rows.map((row) =>
             row.unlinked ? (
-              <UnlinkedRow key="unlinked" row={row} />
+              <UnlinkedRow key="unlinked" row={row} siteId={siteId} />
             ) : (
               <IssueSettlementRow
                 key={row.id}

@@ -28,6 +28,8 @@ import {
   copyableLines,
   FIX_REQUEST_DUPLICATE_MESSAGE,
   fixRequestErrorMessage,
+  fromLineRow,
+  type LineRowRead,
   reopenErrorMessage,
   saveErrorMessage,
   SITE_CLOSED_MESSAGE,
@@ -37,6 +39,7 @@ import {
   toReportRow,
 } from '@/lib/report/rows';
 import { usesFixedAmount } from '@/lib/report/change-labels';
+import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeMessage } from '@/lib/report/unlinked-change-lines';
 import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots, type StoredAffiliations } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -216,7 +219,8 @@ export async function copyPreviousReport(siteId: string, date: string): Promise<
 // いずれも { ok } を返す（throw しない）。権限は DB のガードトリガー（gn_report_guard）が最終判定する。
 
 /** updatedAt は状態を変えたあとの日報の updated_at（日報画面の楽観ロック用。変更が無かったときは無し）。 */
-export type ReportStateResult = { ok: true; updatedAt?: string | null } | { ok: false; error: string };
+/** code は理由の区別（UNLINKED_CHANGE_LINES＝件を選んでいない追加・増・変更・減の行があって提出できない）。 */
+export type ReportStateResult = { ok: true; updatedAt?: string | null } | { ok: false; error: string; code?: typeof UNLINKED_CHANGE_LINES };
 
 const GENERIC_ERROR = '処理に失敗しました。もう一度お試しください。';
 const reportIdSchema = z.guid();
@@ -243,7 +247,12 @@ async function changeState(
   from: string[],
   badState: string,
   patch: (userId: string) => Record<string, string | null>,
-  options?: { noopFrom?: string; errorMessage?: (dbMessage: string) => string | null },
+  options?: {
+    noopFrom?: string;
+    errorMessage?: (dbMessage: string) => string | null;
+    /** 状態を変える前の確認（変えてよければ null、だめなら返す結果）。 */
+    precheck?: (supabase: Awaited<ReturnType<typeof createServerSupabase>>, reportId: string) => Promise<ReportStateResult | null>;
+  },
 ): Promise<ReportStateResult> {
   const profile = await requireProfile();
   if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
@@ -264,6 +273,10 @@ async function changeState(
     // すでに目的の状態（提出済みの再提出）なら何も変えずに成功とする。
     if (options?.noopFrom && h.status === options.noopFrom) return { ok: true };
     if (!from.includes(h.status)) return { ok: false, error: badState };
+    if (options?.precheck) {
+      const refused = await options.precheck(supabase, reportId);
+      if (refused) return refused;
+    }
 
     const { data, error } = await supabase
       .from('gn_daily_reports')
@@ -289,10 +302,37 @@ async function changeState(
   }
 }
 
-/** draft / rejected → submitted。担当者は rejected_reason に触れない（ガードトリガーで拒否されるため）。 */
+/**
+ * 提出の条件：保存済みの作業内容の行に、根拠の件を選んでいない追加・増・変更・減の行が無いこと（画面は保存してから提出する）。
+ * あれば code: UNLINKED_CHANGE_LINES で断る。
+ */
+async function checkUnlinkedChangeLines(
+  supabase: Awaited<ReturnType<typeof createServerSupabase>>,
+  reportId: string,
+): Promise<ReportStateResult | null> {
+  const { data, error } = await supabase
+    .from('gn_report_lines')
+    .select('*')
+    .eq('report_id', reportId)
+    .eq('kind', 'work')
+    .order('sort_order', { ascending: true });
+  if (error) {
+    console.error('[submitReport:lines]', error.message);
+    return { ok: false, error: GENERIC_ERROR };
+  }
+  const lines = ((data ?? []) as LineRowRead[]).flatMap((r) => fromLineRow(r) ?? []);
+  const unlinked = unlinkedChangeLines(lines);
+  return unlinked.length > 0 ? { ok: false, error: unlinkedChangeMessage(unlinked.length), code: UNLINKED_CHANGE_LINES } : null;
+}
+
+/**
+ * draft / rejected → submitted（差戻し後の再提出も同じ）。担当者は rejected_reason に触れない（ガードトリガーで拒否されるため）。
+ * 件を選んでいない追加・増・変更・減の行があれば提出しない（checkUnlinkedChangeLines）。すでに提出済みなら何もしない。
+ */
 export async function submitReport(reportId: string): Promise<ReportStateResult> {
   return changeState(reportId, ['draft', 'rejected'], '提出できる状態ではありません', () => ({ status: 'submitted' }), {
     noopFrom: 'submitted',
+    precheck: checkUnlinkedChangeLines,
   });
 }
 

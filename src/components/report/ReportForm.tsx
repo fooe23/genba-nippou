@@ -19,6 +19,7 @@ import {
 import type { Issue, ReportFixRequest } from '@/lib/db/reports';
 import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
+import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeWarning } from '@/lib/report/unlinked-change-lines';
 import {
   INSTRUCTION_METHODS,
   INSTRUCTION_METHOD_LABELS,
@@ -47,7 +48,7 @@ import { FuelTable } from './tables/FuelTable';
 import { LaborTable } from './tables/LaborTable';
 import { LeaseTable } from './tables/LeaseTable';
 import { CashTable, CreditTable } from './tables/PurchaseTable';
-import { WorkTable } from './tables/WorkTable';
+import { WorkTable, workRowId } from './tables/WorkTable';
 import { useReportDraft } from './useReportDraft';
 import { AttachmentPanel } from '@/components/attachments/AttachmentPanel';
 import { IssueAttachmentBadges, IssueAttachments } from '@/components/attachments/IssueAttachments';
@@ -373,10 +374,17 @@ function ReportFormBody({
         : reportTotals(calcLines(input.lines), input.common, p.rule),
     [input, state.rows.labor, p.readOnly, p.rule],
   );
-  const warnings = useMemo(
-    () => reportWarnings(input, { siteStartDate: p.siteStartDate, today: p.today }),
-    [input, p.siteStartDate, p.today],
-  );
+  // 件を選んでいない追加・増・変更・減の作業内容の行（提出できない。下書き保存はできる）。
+  const unlinked = useMemo(() => unlinkedChangeLines(state.rows.work.map((r) => r.line)), [state.rows.work]);
+  // 提出を断られたら、まだ件の無い行を赤枠で示す（件を選ぶと枠が消える）。
+  const [flagUnlinked, setFlagUnlinked] = useState(false);
+  const flaggedWorkRows = useMemo(() => (flagUnlinked ? new Set(unlinked.map((u) => u.index)) : undefined), [flagUnlinked, unlinked]);
+  const submittable = p.status === 'none' || p.status === 'draft' || p.status === 'rejected';
+  const warnings = useMemo(() => {
+    const w = reportWarnings(input, { siteStartDate: p.siteStartDate, today: p.today });
+    const u = submittable ? unlinkedChangeWarning(unlinked) : null;
+    return u ? [...w, u] : w;
+  }, [input, p.siteStartDate, p.today, submittable, unlinked]);
   const dirty = json !== baseline;
   const changes = useMemo(() => changeTotals(state.rows.work.map((r) => r.line)), [state.rows.work]);
   // 作業内容の根拠の件の候補：この日報の件と、現場の対応中の件（重複は WorkTable で除く）。
@@ -514,6 +522,7 @@ function ReportFormBody({
     setErrors([]);
     setStale(false);
     const sent = json;
+    const unlinkedAtSubmit = unlinked;
     startTransition(async () => {
       // 提出内容が最新になるよう、先に保存してから提出する。
       let saved: SaveReportResult;
@@ -536,7 +545,19 @@ function ReportFormBody({
         res = { ok: false, error: SUBMIT_FAILED };
       }
       if (!res.ok) {
-        showErrors([`保存しましたが提出できませんでした：${res.error}`]);
+        if (res.code === UNLINKED_CHANGE_LINES) {
+          // 件の無い行を赤枠で示し、最初の行へ移る（エラーの帯も出す）。
+          setFlagUnlinked(true);
+          setErrors([`保存しましたが提出できませんでした：${res.error}`]);
+          const first = unlinkedAtSubmit[0];
+          window.requestAnimationFrame(() =>
+            document
+              .getElementById(first ? workRowId(first.index) : 'report-errors')
+              ?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+          );
+        } else {
+          showErrors([`保存しましたが提出できませんでした：${res.error}`]);
+        }
         router.refresh();
         return;
       }
@@ -826,7 +847,7 @@ function ReportFormBody({
         <LeaseTable rows={state.rows.lease} onChange={setRows('lease')} date={p.date} items={p.masters.leaseItems} units={p.masters.units} />
         <CashTable rows={state.rows.cash} onChange={setRows('cash')} units={p.masters.units} />
         <CreditTable rows={state.rows.credit} onChange={setRows('credit')} units={p.masters.units} suppliers={p.masters.suppliers} />
-        <WorkTable rows={state.rows.work} onChange={setRows('work')} units={p.masters.units} issues={issueCandidates} />
+        <WorkTable rows={state.rows.work} onChange={setRows('work')} units={p.masters.units} issues={issueCandidates} flagged={flaggedWorkRows} />
 
         <ReportSummary
           totals={totals}
