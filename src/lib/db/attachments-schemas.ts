@@ -65,7 +65,7 @@ export interface Attachment {
 
 const MSG_TARGET = '添付先（日報か件）の指定が正しくありません';
 const MSG_URL = 'リンクは http:// か https:// で始まる URL を入力してください';
-const MSG_SIZE = '1 つ 10MB までです';
+const MSG_SIZE = '1 つ 10MB までです'; // TOO_LARGE_MESSAGE と同じ
 const MSG_EMPTY_FILE = '空のファイルは付けられません';
 const MSG_PHOTO_MIME = '写真は画像のファイルを選んでください';
 export const MSG_FILE_TYPE = '付けられるファイルは PDF・Excel・Word・JPEG・PNG です';
@@ -180,6 +180,9 @@ export function defaultClientVisible(p: { kind: AttachmentKind; issueId?: string
 export const REPORT_LOCKED_MESSAGE = '提出した日報には添付を足せません（忘れたときは修正を申請してください）';
 export const ISSUE_DONE_MESSAGE = '完了した件には添付を足せません';
 export const FILE_NOT_ALLOWED_MESSAGE = '協力会社のアカウントではファイルを付けられません';
+export const OBJECT_MISSING_MESSAGE = '写真・ファイルが保存されていません。通信状況を確かめて、もう一度付けてください';
+export const TOO_LARGE_MESSAGE = '1 つ 10MB までです';
+export const ATTACHMENT_EXISTS_MESSAGE = 'この添付はすでに保存されています';
 
 /**
  * gn_attachments のガード（gn_attachments_guard）の理由を利用者向けの文言にする。知らない理由は null（呼び出し側で汎用の文言）。
@@ -197,6 +200,10 @@ export function attachmentErrorMessage(dbMessage: string | null | undefined, op:
   if (m.includes('not_allowed_to_update')) return 'お客様用に載せるかは、社員・管理者と付けた本人だけが変えられます';
   if (m.includes('attachment_readonly')) return '添付はお客様用に載せるかだけ変えられます';
   if (m.includes('report_not_found') || m.includes('issue_not_found')) return '日報または件が見つからないか、権限がありません';
+  if (m.includes('storage_object_missing')) return OBJECT_MISSING_MESSAGE;
+  if (m.includes('storage_object_too_large')) return TOO_LARGE_MESSAGE;
+  if (m.includes('storage_object_not_owned')) return '自分で付けた写真・ファイルではありません。もう一度付け直してください';
+  if (m.includes('attachment_exists')) return ATTACHMENT_EXISTS_MESSAGE;
   if (m.includes('invalid_storage_path')) return '保存場所の指定が正しくありません。もう一度付け直してください';
   if (m.includes('row-level security')) return '添付を付ける権限がありません';
   return null;

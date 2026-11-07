@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  ATTACHMENT_EXISTS_MESSAGE,
   attachmentErrorMessage,
   attachmentStorage,
   commitInputSchema,
@@ -12,7 +13,9 @@ import {
   ISSUE_DONE_MESSAGE,
   linkInputSchema,
   MAX_ATTACHMENT_BYTES,
+  OBJECT_MISSING_MESSAGE,
   REPORT_LOCKED_MESSAGE,
+  TOO_LARGE_MESSAGE,
   uploadInputSchema,
   type LinkInput,
   type UploadInput,
@@ -32,7 +35,8 @@ import { createServerSupabase } from '@/lib/supabase/server';
 //      Storage のポリシー（現場メンバー、gn-estimates は社員・管理者だけ、バケットの上限 10MB）が効く。
 //   3. commitAttachment：サーバーが実体があること・10MB 以下であることを確かめてから台帳の行を作る。
 //      DB のガード（gn_attachments_guard）も、パスの規約・実体の有無・大きさ・日報と件の状態をもう一度確かめる。
-//      行を作れなかったときは置いた実体を消す（すでに同じ id の行があるときは消さない）。
+//      行を作れなかったときは置いた実体を消す。ただし同じ id の行がもうある（二度押し・再送。DB は attachment_exists）
+//      ときは、その行の実体なので決して消さず、行が見えれば成功として返す。
 // 署名付きアップロード URL（createSignedUploadUrl）は使わない：ブラウザの通常のアップロードで本人の権限がそのまま効き、
 // トークンの受け渡しが要らないため。
 
@@ -45,8 +49,6 @@ export type CommitAttachmentResult = { ok: true; id: string } | { ok: false; err
 const GENERIC_ERROR = '処理に失敗しました。もう一度お試しください。';
 const TARGET_NOT_FOUND = '日報または件が見つからないか、権限がありません';
 const ATTACHMENT_NOT_FOUND = '添付が見つからないか、権限がありません';
-const OBJECT_MISSING = '写真・ファイルが保存されていません。通信状況を確かめて、もう一度付けてください';
-const TOO_LARGE = '1 つ 10MB までです';
 const idSchema = z.guid();
 
 interface Target {
@@ -160,12 +162,12 @@ export async function commitAttachment(
     const { data: info, error: infoError } = await storage.info(path);
     if (infoError || !info) {
       console.error('[commitAttachment:info]', infoError?.message);
-      return { ok: false, error: OBJECT_MISSING };
+      return { ok: false, error: OBJECT_MISSING_MESSAGE };
     }
     const size = Number(info.size ?? 0);
     if (!Number.isFinite(size) || size > MAX_ATTACHMENT_BYTES) {
-      await removeObject(supabase, bucket, path);
-      return { ok: false, error: TOO_LARGE };
+      if (!(await attachmentRowExists(supabase, attachmentId))) await removeObject(supabase, bucket, path);
+      return { ok: false, error: TOO_LARGE_MESSAGE };
     }
 
     const { error } = await supabase.from('gn_attachments').insert({
@@ -186,8 +188,12 @@ export async function commitAttachment(
     });
     if (error) {
       console.error('[commitAttachment]', error.message);
-      // 同じ id の行がすでにある（二度押し）ときは、その行の実体なので消さない
-      if (error.code === '23505') return { ok: false, error: 'この添付はもう付いています。画面を再読み込みしてください' };
+      // 同じ id の行がすでにある（二度押し・再送）ときは、その行の実体なので消さない。見えれば成功として返す
+      if (await attachmentRowExists(supabase, attachmentId)) {
+        revalidateAttachmentPages(v.siteId);
+        return { ok: true, id: attachmentId };
+      }
+      if (error.code === '23505' || error.message.includes('attachment_exists')) return { ok: false, error: ATTACHMENT_EXISTS_MESSAGE };
       await removeObject(supabase, bucket, path);
       return { ok: false, error: attachmentErrorMessage(error.message) ?? GENERIC_ERROR };
     }
@@ -288,6 +294,16 @@ export async function deleteAttachment(id: string): Promise<AttachmentResult> {
     console.error('[deleteAttachment]', e);
     return { ok: false, error: GENERIC_ERROR };
   }
+}
+
+/** その id の添付の行があるか（RLS で見える範囲。読めなければ「ある」として扱い、実体を消さない）。 */
+async function attachmentRowExists(supabase: SupabaseClient, id: string): Promise<boolean> {
+  const { data, error } = await supabase.from('gn_attachments').select('id').eq('id', id).maybeSingle();
+  if (error) {
+    console.error('[attachments:exists]', error.message);
+    return true;
+  }
+  return data !== null;
 }
 
 /** Storage の実体を消す。失敗（権限が無く 0 件を含む）はログに残すだけ。 */

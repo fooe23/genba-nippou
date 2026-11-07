@@ -147,6 +147,10 @@ describe('attachmentErrorMessage', () => {
     expect(attachmentErrorMessage('file_not_allowed')).toBe('協力会社のアカウントではファイルを付けられません');
     expect(attachmentErrorMessage('site_closed')).toContain('完了（または削除）');
     expect(attachmentErrorMessage('not_attachment_owner')).toBe('付けた本人か管理者だけが消せます');
+    expect(attachmentErrorMessage('storage_object_missing')).toBe('写真・ファイルが保存されていません。通信状況を確かめて、もう一度付けてください');
+    expect(attachmentErrorMessage('storage_object_too_large')).toBe('1 つ 10MB までです');
+    expect(attachmentErrorMessage('storage_object_not_owned')).toBe('自分で付けた写真・ファイルではありません。もう一度付け直してください');
+    expect(attachmentErrorMessage('attachment_exists')).toBe('この添付はすでに保存されています');
     expect(attachmentErrorMessage('something else')).toBeNull();
   });
   it('消すときは「消せません」の文言にする', () => {
