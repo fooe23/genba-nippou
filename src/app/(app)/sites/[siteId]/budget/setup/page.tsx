@@ -10,6 +10,7 @@ import { AliasMapper } from '@/components/budget/AliasMapper';
 import { BudgetLinesEditor } from '@/components/budget/BudgetLinesEditor';
 import { ContractItemsEditor } from '@/components/budget/ContractItemsEditor';
 import { ImportDialog } from '@/components/budget/ImportDialog';
+import { PdfImport } from '@/components/budget/PdfImport';
 import { TradesEditor } from '@/components/budget/TradesEditor';
 
 export const metadata = { title: '実行予算・元請けの内訳' };
@@ -75,6 +76,8 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
         dailyRate={dailyRate}
         readOnly={readOnly}
       />
+      {/* 元請けの内訳だけを文字 PDF から読み取る（完了現場では出さない） */}
+      <PdfImport siteId={siteId} trades={data.trades} readOnly={readOnly} />
       <TradesEditor key={tradesKey} siteId={siteId} trades={data.trades} readOnly={readOnly} />
       <BudgetLinesEditor
         key={linesKey}
