@@ -140,8 +140,8 @@ describe('進み具合の上書き（%）と読み替え表', () => {
 
 describe('budgetErrorMessage', () => {
   it('DB の拒否の理由を日本語にする', () => {
-    expect(budgetErrorMessage('trade_in_use', '鉄骨工')).toBe('工種「鉄骨工」は日報・読み替え表・実行予算で使われているため消せません');
-    expect(budgetErrorMessage('trade_in_use')).toBe('日報・読み替え表・実行予算で使われている工種は消せません');
+    expect(budgetErrorMessage('trade_in_use', '鉄骨工')).toBe('工種「鉄骨工」は日報・読み替え表・実行予算・元請けの内訳・進み具合で使われているため消せません');
+    expect(budgetErrorMessage('trade_in_use')).toBe('日報・読み替え表・実行予算・元請けの内訳・進み具合で使われている工種は消せません');
     expect(budgetErrorMessage('site_closed')).toContain('完了');
     expect(budgetErrorMessage('not_employee')).toContain('社員・管理者だけ');
     expect(budgetErrorMessage('not_partner')).toContain('協力会社の印');
@@ -149,5 +149,25 @@ describe('budgetErrorMessage', () => {
     expect(budgetErrorMessage('duplicate key value violates unique constraint "gn_site_trades_site_id_name_key"')).toBe('同じ名前の工種がすでにあります');
     expect(budgetErrorMessage('violates check constraint "gn_budget_lines_combo_ck"')).toContain('組み合わせ');
     expect(budgetErrorMessage('something else')).toBeNull();
+  });
+});
+
+describe('数量・単価の小数は 3 桁まで（画面の金額と DB の round を合わせる）', () => {
+  const base = { performer: 'own', supplierId: null, item: 'labor', tradeId: '11111111-1111-4111-8111-111111111111', note: '', unit: '人工' } as const;
+  it('3 桁までは通り、4 桁は誤り', async () => {
+    const { budgetLineInputSchema, contractItemInputSchema, hasAtMostDecimals } = await import('@/lib/budget/schemas');
+    expect(hasAtMostDecimals(1.125)).toBe(true);
+    expect(hasAtMostDecimals(0.1 + 0.2)).toBe(true);
+    expect(hasAtMostDecimals(1.1255)).toBe(false);
+    expect(budgetLineInputSchema.safeParse({ ...base, qty: 2.125, unitPrice: 20000 }).success).toBe(true);
+    const bad = budgetLineInputSchema.safeParse({ ...base, qty: 2.1255, unitPrice: 20000 });
+    expect(bad.success).toBe(false);
+    expect(bad.error?.issues[0]?.message).toBe('数量の小数は3桁までにしてください');
+    expect(
+      contractItemInputSchema.safeParse({ name: 'x', qty: 1, unitPrice: 100.0001, spec: '', unit: '' }).success,
+    ).toBe(false);
+  });
+  it('重複の文言は工種の名前の一意の制約のときだけ', () => {
+    expect(budgetErrorMessage('duplicate key value violates unique constraint "gn_other_key"')).toBeNull();
   });
 });

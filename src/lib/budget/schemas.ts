@@ -54,15 +54,36 @@ function requiredTextSchema(label: string, max: number) {
     .min(1, `${label}を入力してください`)
     .max(max, `${label}は${max}文字以内で入力してください`);
 }
-/** 有限の数（負も可）。 */
+/**
+ * 数量・単価の小数は 3 桁まで。画面の金額（lineAmount の浮動小数）と DB の round(numeric) が、
+ * 小数の桁が多いときに 1 円ずれるのを防ぐ（DB には桁の制約を置かず、アプリの検証で止める）。
+ */
+export const QTY_PRICE_DECIMALS = 3;
+/** 小数が QTY_PRICE_DECIMALS 桁以内か。 */
+export function hasAtMostDecimals(v: number, digits = QTY_PRICE_DECIMALS): boolean {
+  if (!Number.isFinite(v)) return false;
+  const scaled = v * 10 ** digits;
+  return Math.abs(scaled - Math.round(scaled)) < 1e-7 + 1e-12 * Math.abs(scaled); // 浮動小数の誤差だけ許す
+}
+function decimalsMessage(label: string): string {
+  return `${label}の小数は${QTY_PRICE_DECIMALS}桁までにしてください`;
+}
+/** 有限の数（負も可。小数は 3 桁まで）。 */
 function finiteSchema(label: string) {
   const msg = `${label}は数値で入力してください`;
-  return z.number({ error: msg }).refine((v) => Number.isFinite(v), msg);
+  return z
+    .number({ error: msg })
+    .refine((v) => Number.isFinite(v), msg)
+    .refine((v) => hasAtMostDecimals(v), decimalsMessage(label));
 }
-/** 0 以上の有限の数。 */
+/** 0 以上の有限の数（小数は 3 桁まで）。 */
 function nonNegativeSchema(label: string) {
   const msg = `${label}は0以上の数値で入力してください`;
-  return z.number({ error: msg }).min(0, msg).refine((v) => Number.isFinite(v), msg);
+  return z
+    .number({ error: msg })
+    .min(0, msg)
+    .refine((v) => Number.isFinite(v), msg)
+    .refine((v) => hasAtMostDecimals(v), decimalsMessage(label));
 }
 
 // ─── 工種 ───
@@ -215,8 +236,8 @@ export function budgetErrorMessage(dbMessage: string | null | undefined, detail?
   if (m.includes('trade_in_use')) {
     const name = detail?.trim();
     return name
-      ? `工種「${name}」は日報・読み替え表・実行予算で使われているため消せません`
-      : '日報・読み替え表・実行予算で使われている工種は消せません';
+      ? `工種「${name}」は日報・読み替え表・実行予算・元請けの内訳・進み具合で使われているため消せません`
+      : '日報・読み替え表・実行予算・元請けの内訳・進み具合で使われている工種は消せません';
   }
   if (m.includes('site_closed')) return BUDGET_CLOSED_MESSAGE;
   if (m.includes('not_employee') || m.includes('not_member')) return BUDGET_FORBIDDEN_MESSAGE;
@@ -224,7 +245,7 @@ export function budgetErrorMessage(dbMessage: string | null | undefined, detail?
     return '工種が見つかりません（他の端末で変更された可能性があります）。画面を再読み込みしてください';
   }
   if (m.includes('not_partner')) return '請負・常用の施工者は、協力会社の印のある会社を選んでください';
-  if (m.includes('gn_site_trades_site_id_name_key') || m.includes('duplicate key')) return '同じ名前の工種がすでにあります';
+  if (m.includes('gn_site_trades_site_id_name_key')) return '同じ名前の工種がすでにあります';
   if (m.includes('gn_budget_lines_combo_ck')) return '実行予算の項目と施工者の組み合わせが正しくありません';
   if (m.includes('gn_contract_items_trade_ck')) return '経費・減分の行には工種を付けません';
   if (m.includes('gn_trade_progress_percent_check')) return MSG_PERCENT;

@@ -2493,7 +2493,7 @@ create table if not exists public.gn_site_trades (
 -- 元請けの内訳の行。区分（当初・変更）・名称・規格・数量・単位・単価・金額・識別（工種・経費・減分）。
 -- 金額は トリガーが round(数量 × 単価)（1 円単位・四捨五入）で入れ直す（クライアントの値は使わない）。
 -- 工種（trade_id）を持てるのは識別が工種（'trade'）の行だけ（工種の行でも null＝まだ識別していない、は可）。
--- 工種を消すと null に戻る（on delete set null）。読めるのも書けるのも社員・管理者だけ。
+-- 識別に使われている工種は消せない（trade_in_use。on delete set null は念のため）。読めるのも書けるのも社員・管理者だけ。
 create table if not exists public.gn_contract_items (
   id         uuid primary key default gen_random_uuid(),
   site_id    uuid not null references public.gn_sites(id),
@@ -2556,7 +2556,7 @@ create index if not exists gn_trade_aliases_trade_idx on public.gn_trade_aliases
 
 -- 進み具合の上書き（履歴。工種ごとに set_at の最新の行が有効。percent が null の行は「上書きを消した」）。
 -- 入れた人（set_by）・日時（set_at）はトリガーが auth.uid()・now() にする。変更・削除はしない（ポリシーを作らない）。
--- 工種を消すと一緒に消える（on delete cascade）。読めるのは社員・管理者、入れられるのは社員・管理者のうち、
+-- 履歴のある工種は消せない（trade_in_use。on delete cascade は念のため）。読めるのは社員・管理者、入れられるのは社員・管理者のうち、
 -- 管理者か、その現場の確認・承認の人（gn_site_role が reviewer・approver）だけ。
 create table if not exists public.gn_trade_progress (
   id       uuid primary key default gen_random_uuid(),
@@ -2581,17 +2581,21 @@ returns boolean language sql stable security definer set search_path = public as
   select p_trade is null
          or exists (select 1 from public.gn_site_trades t where t.id = p_trade and t.site_id = p_site);
 $$;
+revoke all on function public.gn_trade_in_site(uuid, uuid) from public, anon;
+grant execute on function public.gn_trade_in_site(uuid, uuid) to authenticated;
 
 -- 工種のガード：名前の前後の空白を落とす・現場は付け替えられない（trade_site_fixed）・
--- 日報の作業内容の行・読み替え表・実行予算から使われている工種は消せない（trade_in_use。detail に工種の名前）。
--- 使われているかは RLS に関係なく見る（security definer）。拒否の文字列はアプリが文言に変えるので変えないこと。
+-- 日報の作業内容の行・読み替え表・実行予算・元請けの内訳・進み具合の上書き（履歴）から使われている工種は消せない
+-- （trade_in_use。detail に工種の名前。内訳の識別と % の履歴を黙って失わないため）。使われているかは RLS に関係なく見る（security definer）。拒否の文字列はアプリが文言に変えるので変えないこと。
 create or replace function public.gn_site_trades_guard()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
   if tg_op = 'DELETE' then
     if exists (select 1 from public.gn_report_lines l where l.site_trade_id = old.id)
        or exists (select 1 from public.gn_trade_aliases a where a.trade_id = old.id)
-       or exists (select 1 from public.gn_budget_lines b where b.trade_id = old.id) then
+       or exists (select 1 from public.gn_budget_lines b where b.trade_id = old.id)
+       or exists (select 1 from public.gn_contract_items c where c.trade_id = old.id)
+       or exists (select 1 from public.gn_trade_progress p where p.trade_id = old.id) then
       raise exception using message = 'trade_in_use', detail = old.name;
     end if;
     return old;
@@ -2672,7 +2676,7 @@ begin
     raise exception using message = 'trade_not_in_site';
   end if;
   new.set_by := coalesce(auth.uid(), new.set_by);
-  new.set_at := now();
+  new.set_at := clock_timestamp();  -- 同じトランザクションで 2 回入れても順が付くよう now() ではなく
   return new;
 end;
 $$;
@@ -2731,6 +2735,9 @@ begin
   if jsonb_typeof(v_trades) <> 'array' then
     raise exception using message = 'invalid_input';
   end if;
+  -- 同じ現場の入れ替え・工種の保存を同時に走らせない（行が二重にならないよう、トランザクションの終わりまで順番待ち）
+  perform pg_advisory_xact_lock(hashtextextended('gn_budget:' || p_site::text, 0));
+
   if exists (
     select 1 from jsonb_array_elements(v_trades) e(elem)
      where nullif(e.elem->>'id', '') is not null
@@ -2757,6 +2764,9 @@ begin
     from jsonb_array_elements(v_trades) with ordinality e(elem, ord)
    where nullif(e.elem->>'id', '') is null
    order by e.ord;
+
+  -- 名前の重複はここで断る（遅延の一意をコミットまで待たず、この関数の中で 23505 にする）
+  set constraints public.gn_site_trades_site_id_name_key immediate;
 
   select coalesce(jsonb_agg(jsonb_build_object('id', s.id, 'name', s.name, 'sort_order', s.sort_order)
                             order by s.sort_order, s.name), '[]'::jsonb)
@@ -2790,6 +2800,9 @@ begin
   if jsonb_typeof(v_lines) <> 'array' then
     raise exception using message = 'invalid_input';
   end if;
+
+  -- 同じ現場の入れ替え・工種の保存を同時に走らせない（行が二重にならないよう、トランザクションの終わりまで順番待ち）
+  perform pg_advisory_xact_lock(hashtextextended('gn_budget:' || p_site::text, 0));
 
   delete from public.gn_budget_lines where site_id = p_site;
 
@@ -2828,6 +2841,9 @@ begin
   if jsonb_typeof(v_items) <> 'array' or p_mode is null or p_mode not in ('replace', 'appendChange') then
     raise exception using message = 'invalid_input';
   end if;
+
+  -- 同じ現場の入れ替え・工種の保存を同時に走らせない（行が二重にならないよう、トランザクションの終わりまで順番待ち）
+  perform pg_advisory_xact_lock(hashtextextended('gn_budget:' || p_site::text, 0));
 
   if p_mode = 'replace' then
     delete from public.gn_contract_items where site_id = p_site;

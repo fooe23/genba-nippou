@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { TRADE_NAME_MAX, budgetComboError } from '@/lib/budget/schemas';
+import { QTY_PRICE_DECIMALS, TRADE_NAME_MAX, budgetComboError, hasAtMostDecimals } from '@/lib/budget/schemas';
 import {
   CHOICE_LAST_ROW,
   EXPENSE_LABEL,
@@ -161,6 +161,12 @@ function lengthError(label: string, v: string, max: number): string | null {
   return v.length > max ? `${label}は${max}文字以内にしてください` : null;
 }
 
+function decimalsError(qty: number, unitPrice: number): string | null {
+  if (!hasAtMostDecimals(qty)) return `数量の小数は${QTY_PRICE_DECIMALS}桁までにしてください`;
+  if (!hasAtMostDecimals(unitPrice)) return `単価の小数は${QTY_PRICE_DECIMALS}桁までにしてください`;
+  return null;
+}
+
 /** 選択肢のシートの A 列（3 行目から）の工種。 */
 function choiceTrades(grid: Grid | null, errors: ParseError[]): string[] {
   if (!grid) return [];
@@ -260,6 +266,11 @@ function parseBudgetSheet(grid: Grid, opts: ParseOptions, errors: ParseError[]):
       fail('単価は0以上の数値で入力してください');
       continue;
     }
+    const dec = decimalsError(qty, unitPrice);
+    if (dec) {
+      fail(dec);
+      continue;
+    }
     const len = lengthError('内容・メモ', note, 200) ?? lengthError('単位', unit, 20);
     if (len) {
       fail(len);
@@ -328,6 +339,11 @@ function parseContractSheet(grid: Grid, errors: ParseError[]): ParsedContractIte
     }
     if (unitPrice === null || Number.isNaN(unitPrice)) {
       fail(unitPrice === null ? '単価を入力してください' : '単価は数値で入力してください');
+      continue;
+    }
+    const dec = decimalsError(qty, unitPrice);
+    if (dec) {
+      fail(dec);
       continue;
     }
     const len = lengthError('名称', name, 200) ?? lengthError('規格・仕様', spec, 200) ?? lengthError('単位', unit, 20);

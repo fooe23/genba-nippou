@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import {
+  BUDGET_CLOSED_MESSAGE,
   BUDGET_FORBIDDEN_MESSAGE,
   BUDGET_SAVE_FAILED,
   budgetErrorMessage,
@@ -175,12 +176,28 @@ export async function setTradeAlias(siteId: string, tradeText: string, tradeId: 
   const v = parsed.data;
   try {
     const supabase = await createServerSupabase();
-    const { error } =
-      v.tradeId === null
-        ? await supabase.from('gn_trade_aliases').delete().eq('site_id', site.data).eq('trade_text', v.tradeText)
-        : await supabase
-            .from('gn_trade_aliases')
-            .upsert({ site_id: site.data, trade_text: v.tradeText, trade_id: v.tradeId }, { onConflict: 'site_id,trade_text' });
+    if (v.tradeId === null) {
+      // RLS で消せない行（完了現場など）は黙って 0 行になるので、0 行なら現場が閉じていないか確かめる
+      const del = await supabase
+        .from('gn_trade_aliases')
+        .delete()
+        .eq('site_id', site.data)
+        .eq('trade_text', v.tradeText)
+        .select('trade_text');
+      if (del.error) return { ok: false, error: dbErrorMessage('setTradeAlias', del.error) };
+      if ((del.data ?? []).length === 0) {
+        const s = await supabase.from('gn_sites').select('status, deleted_at').eq('id', site.data).maybeSingle();
+        if (s.error) return { ok: false, error: dbErrorMessage('setTradeAlias', s.error) };
+        const row = s.data as { status: string | null; deleted_at: string | null } | null;
+        if (!row || row.status !== 'active' || row.deleted_at !== null) return { ok: false, error: BUDGET_CLOSED_MESSAGE };
+        // 割り当てがもともと無かった（何もしなくてよい）
+      }
+      revalidateBudget(site.data);
+      return { ok: true };
+    }
+    const { error } = await supabase
+      .from('gn_trade_aliases')
+      .upsert({ site_id: site.data, trade_text: v.tradeText, trade_id: v.tradeId }, { onConflict: 'site_id,trade_text' });
     if (error) {
       // RLS の一般の拒否（完了現場・権限なし）は理由が分からないので、権限か完了の文言にする
       if (error.message.includes('row-level security')) return { ok: false, error: `${BUDGET_FORBIDDEN_MESSAGE}（完了した現場は変更できません）` };

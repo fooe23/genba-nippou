@@ -2251,7 +2251,7 @@ begin
     d20  uuid := '00000000-0000-0000-0000-000000002002';
     p20  uuid := '00000000-0000-0000-0000-000000002011';
     v20  uuid := '00000000-0000-0000-0000-000000002012';
-    tr1 uuid; tr2 uuid; tr3 uuid; trd uuid; r20 uuid; j jsonb; k int; m int;
+    tr1 uuid; tr2 uuid; tr3 uuid; tr4 uuid; tr5 uuid; trd uuid; r20 uuid; j jsonb; k int; m int;
   begin
     insert into public.gn_sites (id, name, status) values (s20, '検証現場S20', 'active'), (d20, '検証現場D20', 'done');
     insert into public.gn_site_members (site_id, user_id, role) values (s20, v_a, 'staff'), (s20, v_b, 'reviewer'), (d20, v_a, 'staff');
@@ -2482,6 +2482,46 @@ begin
       else fails := fails + 1; rep := rep || format(E'FAIL 20-8c 消えた?=%s 直った?=%s\n', n, n2); end if;
     exception when others then
       perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 20-8c エラー: %s\n', sqlerrm);
+    end;
+
+    -- 20-8d 元請けの内訳の識別・進み具合の履歴で使っている工種も消せない（trade_in_use）
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_site_trades (site_id, name, sort_order) values (s20, '内訳だけの工種', 10) returning id into tr4;
+      insert into public.gn_site_trades (site_id, name, sort_order) values (s20, '履歴だけの工種', 11) returning id into tr5;
+      perform public.gn_replace_contract_items(s20, jsonb_build_array(
+        jsonb_build_object('section', 'change', 'name', '識別の行', 'qty', 1, 'unit', '式', 'unit_price', 1, 'trade_id', tr4, 'category', 'trade')), 'appendChange');
+      perform pg_temp.as_user(v_admin);
+      insert into public.gn_trade_progress (site_id, trade_id, percent) values (s20, tr5, null);
+      perform pg_temp.as_user(v_c);
+      begin
+        delete from public.gn_site_trades where id = tr4;
+        fails := fails + 1; rep := rep || E'FAIL 20-8d 内訳の識別で使っている工種を消せた\n';
+      exception when others then
+        if sqlerrm like '%trade_in_use%' then rep := rep || E'PASS 20-8d 内訳の識別で使っている工種は消せない（trade_in_use）\n';
+        else fails := fails + 1; rep := rep || format(E'FAIL 20-8d 想定外: %s\n', sqlerrm); end if;
+      end;
+      begin
+        delete from public.gn_site_trades where id = tr5;
+        fails := fails + 1; rep := rep || E'FAIL 20-8e 進み具合の履歴がある工種を消せた\n';
+      exception when others then
+        if sqlerrm like '%trade_in_use%' then rep := rep || E'PASS 20-8e 進み具合の履歴がある工種は消せない（trade_in_use）\n';
+        else fails := fails + 1; rep := rep || format(E'FAIL 20-8e 想定外: %s\n', sqlerrm); end if;
+      end;
+      perform pg_temp.as_editor();
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 20-8d エラー: %s\n', sqlerrm);
+    end;
+    -- 20-8f 同じ名前の工種は関数の中で断る（遅延の一意をその場で確かめる）
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_site_trades(s20, jsonb_build_array(
+        jsonb_build_object('id', null, 'name', '同じ名前'), jsonb_build_object('id', null, 'name', '同じ名前')));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-8f 同じ名前の工種を保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%gn_site_trades_site_id_name_key%' then rep := rep || E'PASS 20-8f 同じ名前の工種は関数の中で断る（gn_site_trades_site_id_name_key）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-8f 想定外: %s\n', sqlerrm); end if;
     end;
 
     -- 20-9 完了現場には書けない（関数は site_closed・直接は RLS）
