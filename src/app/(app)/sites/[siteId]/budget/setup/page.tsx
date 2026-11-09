@@ -4,6 +4,7 @@ import { isUuid } from '@/lib/uuid';
 import { loadBudgetData, loadUsedTradeIds } from '@/lib/db/budget';
 import { listSuppliers } from '@/lib/db/masters';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
+import { getSettings } from '@/lib/db/settings';
 import { getSite } from '@/lib/db/sites';
 import { BudgetLinesEditor } from '@/components/budget/BudgetLinesEditor';
 import { ContractItemsEditor } from '@/components/budget/ContractItemsEditor';
@@ -25,7 +26,9 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
   if (!site || site.deletedAt !== null) notFound();
   const readOnly = site.status === 'done';
 
-  const [data, suppliers] = await Promise.all([loadBudgetData(siteId), listSuppliers()]);
+  const [data, suppliers, settings] = await Promise.all([loadBudgetData(siteId), listSuppliers(), getSettings()]);
+  // 自社の労務の単価の初期値は全社の設定「予算の標準日当」（現場の常用単価の既定は客先への請求の単価なので使わない）
+  const dailyRate = settings.budgetDailyRate;
   const usedTradeIds = await loadUsedTradeIds(data.trades.map((t) => t.id));
   const allPartners = suppliers.filter((s) => s.isPartner);
   const usedSuppliers = new Set(data.budgetLines.map((l) => l.supplierId).filter((v): v is string => v !== null));
@@ -59,7 +62,7 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
         current={data}
         usedTradeIds={usedTradeIds}
         partners={partners}
-        dailyRate={site.defaultDailyRate}
+        dailyRate={dailyRate}
         readOnly={readOnly}
       />
       <TradesEditor key={tradesKey} siteId={siteId} trades={data.trades} readOnly={readOnly} />
@@ -69,7 +72,7 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
         trades={data.trades}
         lines={data.budgetLines}
         partners={choosable}
-        dailyRate={site.defaultDailyRate}
+        dailyRate={dailyRate}
         readOnly={readOnly}
       />
       <ContractItemsEditor key={itemsKey} siteId={siteId} trades={data.trades} items={data.contractItems} readOnly={readOnly} />

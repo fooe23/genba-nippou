@@ -16,6 +16,7 @@
 --    工種はその現場のもの（trade_not_in_site）。請負・常用の会社は協力会社の印のある会社（not_partner）。
 --    内訳・予算の金額はトリガーが round(数量 × 単価)（1 円単位・四捨五入）で入れ直す。
 -- 5. まとめて書く関数（途中で失敗すれば全部戻る）：gn_save_site_trades・gn_replace_budget_lines・gn_replace_contract_items。
+-- 6. 全社の設定（gn_settings）に「予算の標準日当」（budget_daily_rate。実行予算の自社の労務の単価の初期値、既定 20000）。
 --
 -- 制約の名前：列の check は名前を付けない（Postgres の自動の名前 <表>_<列>_check）。表の check だけ
 -- gn_contract_items_trade_ck・gn_budget_lines_combo_ck と名前を付ける（自動の名前と重ならない _ck）。
@@ -24,6 +25,10 @@
 --   trade_not_found・not_employee・not_member・site_closed・invalid_input。
 
 begin;
+
+-- 予算の標準日当（実行予算の自社の労務［人工］の単価の初期値。円／人工。行ごとに書き換えられる）。管理者が 労務の設定 で変える。
+-- 列の check は名前を付けない（自動の名前 gn_settings_budget_daily_rate_check）。
+alter table public.gn_settings add column if not exists budget_daily_rate numeric not null default 20000 check (budget_daily_rate >= 0);
 
 -- 現場の工種（実行予算の工種）。名前は現場の中で一意（前後の空白はトリガーが落とす）。日報の作業内容の行・読み替え表・
 -- 実行予算・元請けの内訳・進み具合の上書きがこの id を指す。読めるのは現場メンバー（協力会社も。日報で選ぶため）。

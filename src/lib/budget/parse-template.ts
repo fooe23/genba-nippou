@@ -77,7 +77,7 @@ export interface ParsedBudgetWorkbook {
 export interface ParseOptions {
   /** 協力会社の印のある会社（施工者の名前の突き合わせ）。 */
   partners: { id: string; name: string }[];
-  /** 自社の労務の単価が空欄のときに入れる単価（現場の設定。無ければ null＝空欄は誤り）。 */
+  /** 自社の労務の単価が空欄のときに入れる単価（全社の設定「予算の標準日当」。null なら空欄は誤り）。 */
   dailyRate: number | null;
 }
 

@@ -88,7 +88,7 @@ export function BudgetLinesEditor({
   lines: BudgetLine[];
   /** 施工者に選べる協力会社（協力会社の印のある会社）。 */
   partners: { id: string; name: string }[];
-  /** 自社の労務の単価の既定（現場の設定）。 */
+  /** 自社の労務の単価の初期値（全社の設定「予算の標準日当」）。 */
   dailyRate: number | null;
   readOnly: boolean;
 }) {

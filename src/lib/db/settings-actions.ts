@@ -36,6 +36,7 @@ export async function updateSettings(input: SettingsInput): Promise<SettingsResu
         ...(v.profitRate !== undefined ? { profit_rate: v.profitRate } : {}),
         ...(v.companyName !== undefined ? { company_name: v.companyName } : {}),
         ...(v.companyContact !== undefined ? { company_contact: v.companyContact } : {}),
+        ...(v.budgetDailyRate !== undefined ? { budget_daily_rate: v.budgetDailyRate } : {}),
       })
       .eq('id', 1)
       .select('id');

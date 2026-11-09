@@ -15,6 +15,8 @@ export interface Settings {
   rates: { overheadRate: number; profitRate: number };
   /** 提案書などに出す自社の名前・連絡先（未設定は null）。 */
   company: { name: string | null; contact: string | null };
+  /** 予算の標準日当（実行予算の自社の労務の単価の初期値。円／人工）。 */
+  budgetDailyRate: number;
   updatedAt: string | null;
   /** 最後に更新した人（profiles.id）。DB のトリガーが入れる。 */
   updatedBy: string | null;
@@ -26,11 +28,15 @@ export const DEFAULT_COMMON: TimeSpec = { start: '08:00', end: '17:30', breakMin
 /** gn_settings の overhead_rate・profit_rate の既定と同じ。 */
 export const DEFAULT_RATES: Settings['rates'] = { overheadRate: 0.15, profitRate: 0.1 };
 
+/** gn_settings.budget_daily_rate の既定と同じ（update_2026-11-15_budget.sql）。 */
+export const DEFAULT_BUDGET_DAILY_RATE = 20000;
+
 export const DEFAULT_SETTINGS: Settings = {
   rule: { ...DEFAULT_LABOR_RULE },
   defaultCommon: { ...DEFAULT_COMMON },
   rates: { ...DEFAULT_RATES },
   company: { name: null, contact: null },
+  budgetDailyRate: DEFAULT_BUDGET_DAILY_RATE,
   updatedAt: null,
   updatedBy: null,
 };
@@ -50,6 +56,7 @@ interface SettingsRow {
   profit_rate?: number | string | null;
   company_name?: string | null;
   company_contact?: string | null;
+  budget_daily_rate?: number | string | null;
 }
 
 const LEGACY_COLUMNS =
@@ -57,8 +64,10 @@ const LEGACY_COLUMNS =
 // updated_by は update_2026-11-03c_master_import.sql、率と会社名は update_2026-11-04_change_tracking.sql で追加。
 // 未適用（列が無い＝42703）なら、列の少ない方で順に読み直す（無い列は既定値）。
 const COLUMNS_V2 = `${LEGACY_COLUMNS}, updated_by`;
-const COLUMNS = `${COLUMNS_V2}, overhead_rate, profit_rate, company_name, company_contact`;
-const COLUMN_SETS = [COLUMNS, COLUMNS_V2, LEGACY_COLUMNS];
+const COLUMNS_V3 = `${COLUMNS_V2}, overhead_rate, profit_rate, company_name, company_contact`;
+// budget_daily_rate は update_2026-11-15_budget.sql で追加。
+const COLUMNS = `${COLUMNS_V3}, budget_daily_rate`;
+const COLUMN_SETS = [COLUMNS, COLUMNS_V3, COLUMNS_V2, LEGACY_COLUMNS];
 
 function numOr(v: number | string | null | undefined, fallback: number): number {
   if (v === null || v === undefined || v === '') return fallback;
@@ -92,6 +101,7 @@ function toSettings(r: SettingsRow): Settings {
       profitRate: numOr(r.profit_rate, DEFAULT_RATES.profitRate),
     },
     company: { name: r.company_name || null, contact: r.company_contact || null },
+    budgetDailyRate: numOr(r.budget_daily_rate, DEFAULT_BUDGET_DAILY_RATE),
     updatedAt: r.updated_at ?? null,
     updatedBy: r.updated_by ?? null,
   };

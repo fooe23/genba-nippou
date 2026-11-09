@@ -736,6 +736,8 @@ alter table public.gn_settings add column if not exists overhead_rate numeric no
 alter table public.gn_settings add column if not exists profit_rate   numeric not null default 0.10 check (profit_rate >= 0);
 alter table public.gn_settings add column if not exists company_name    text;
 alter table public.gn_settings add column if not exists company_contact text;
+-- 予算の標準日当（実行予算の自社の労務の単価の初期値。円／人工。update_2026-11-15_budget.sql）。列の check は名前を付けない（自動の名前）
+alter table public.gn_settings add column if not exists budget_daily_rate numeric not null default 20000 check (budget_daily_rate >= 0);
 
 drop trigger if exists gn_settings_touch on public.gn_settings;
 create trigger gn_settings_touch before update on public.gn_settings

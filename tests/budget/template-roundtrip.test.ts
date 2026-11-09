@@ -162,7 +162,7 @@ describe('実行予算・元請けの内訳の雛形：書き出し → 取り�
     expect(wb.worksheets.map((w) => w.name)).toEqual(['実行予算', '元請けの内訳', '選択肢']);
     const b = wb.getWorksheet('実行予算')!;
     expect(String(b.getCell('A1').value)).toContain('中野橋');
-    expect(String(b.getCell('A1').value)).toContain('20,000');
+    expect(String(b.getCell('A1').value)).toContain('予算の標準日当 20,000');
     expect([1, 2, 3, 4, 5, 6, 7, 8].map((c) => b.getRow(2).getCell(c).value)).toEqual([
       '工種', '施工者', '項目', '内容・メモ', '数量', '単位', '単価', '金額',
     ]);

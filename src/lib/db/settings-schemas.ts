@@ -47,5 +47,7 @@ export const settingsInputSchema = z.object({
   profitRate: rangeSchema('利益率', 0, 1).optional(),
   companyName: optionalTextSchema('会社名', 100).optional(),
   companyContact: optionalTextSchema('会社の連絡先', 200).optional(),
+  // 予算の標準日当（実行予算の自社の労務の単価の初期値）。省略時は変更しない。
+  budgetDailyRate: rangeSchema('予算の標準日当', 0, 1_000_000).optional(),
 });
 export type SettingsInput = z.input<typeof settingsInputSchema>;

@@ -62,6 +62,7 @@ describe('ガイド', () => {
     expect(html).toContain('使用中のため残します');
     expect(html).toContain('変更の行として足す');
     expect(html).toContain('空の雛形');
+    expect(html).toContain('予算の標準日当');
   });
 
   it('前月繰越の章に必須の3点が入っている', async () => {

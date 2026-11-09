@@ -33,7 +33,7 @@ export interface BudgetTemplateSite {
   name: string;
   /** 工事番号（無ければ null）。 */
   code: string | null;
-  /** 自社の労務の単価の既定（現場の設定。無ければ null）。 */
+  /** 自社の労務の単価の初期値（全社の設定「予算の標準日当」。無ければ null）。 */
   dailyRate: number | null;
 }
 
@@ -159,7 +159,7 @@ export async function buildBudgetWorkbook(
 
   // ─── 実行予算 ───
   const wsB = wb.addWorksheet(SHEET_BUDGET, { properties: { tabColor: { argb: 'FF1D4ED8' } } });
-  const rate = site.dailyRate !== null ? `　設定日当 ${yen(site.dailyRate)} 円（自社の労務の単価が空欄なら、この金額で取り込みます）` : '';
+  const rate = site.dailyRate !== null ? `　予算の標準日当 ${yen(site.dailyRate)} 円（自社の労務の単価が空欄なら、この金額で取り込みます）` : '';
   writeHeader(wsB, `${siteBanner(site, '実行予算')}${rate}`, BUDGET_HEADERS, [16, 18, 10, 28, 10, 8, 12, 14]);
   const lines = [...data.budgetLines].sort((a, b) => a.sortOrder - b.sortOrder);
   const budgetAmounts = new Map<number, number>();

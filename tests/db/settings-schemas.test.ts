@@ -86,3 +86,12 @@ describe('settingsInputSchema（経費率・利益率・会社名）', () => {
     expect(firstError(settingsInputSchema, { ...ok, companyContact: 'あ'.repeat(201) })).toBe('会社の連絡先は200文字以内で入力してください');
   });
 });
+
+describe('settingsInputSchema（予算の標準日当）', () => {
+  it('省略は変更しない、0 以上は通る、負・数でないものは弾く', () => {
+    expect(settingsInputSchema.parse(ok).budgetDailyRate).toBeUndefined();
+    expect(settingsInputSchema.parse({ ...ok, budgetDailyRate: 20000 }).budgetDailyRate).toBe(20000);
+    expect(firstError(settingsInputSchema, { ...ok, budgetDailyRate: -1 })).toBe('予算の標準日当は0〜1000000の数値で入力してください');
+    expect(settingsInputSchema.safeParse({ ...ok, budgetDailyRate: NaN }).success).toBe(false);
+  });
+});

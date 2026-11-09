@@ -5,6 +5,7 @@ import { emptyBudgetData, type BudgetData } from '@/lib/budget/types';
 import { loadBudgetData } from '@/lib/db/budget';
 import { listSuppliers } from '@/lib/db/masters';
 import { getCurrentProfile, isEmployeeOrAdmin } from '@/lib/db/profile';
+import { getSettings } from '@/lib/db/settings';
 import { getSite } from '@/lib/db/sites';
 import { contentDisposition } from '@/lib/export/query';
 import { isUuid } from '@/lib/uuid';
@@ -37,8 +38,10 @@ export async function GET(request: Request): Promise<Response> {
 
   let data: BudgetData;
   let partners: { id: string; name: string }[];
+  let dailyRate: number;
   try {
-    const [loaded, suppliers] = await Promise.all([loadBudgetData(siteId), listSuppliers()]);
+    const [loaded, suppliers, settings] = await Promise.all([loadBudgetData(siteId), listSuppliers(), getSettings()]);
+    dailyRate = settings.budgetDailyRate;
     data = mode === 'current' ? loaded : { ...emptyBudgetData(), trades: loaded.trades };
     partners = suppliers.filter((s) => s.isPartner).map((s) => ({ id: s.id, name: s.name }));
   } catch (e) {
@@ -48,7 +51,7 @@ export async function GET(request: Request): Promise<Response> {
 
   let buf: Buffer;
   try {
-    buf = await buildBudgetWorkbook(data, { name: site.name, code: site.projectNo, dailyRate: site.defaultDailyRate }, partners);
+    buf = await buildBudgetWorkbook(data, { name: site.name, code: site.projectNo, dailyRate }, partners);
   } catch (e) {
     console.error('[budget/template] build', e);
     return fail(500, 'Excel の作成に失敗しました');

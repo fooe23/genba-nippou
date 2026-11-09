@@ -53,6 +53,7 @@ export function SettingsPanel({ settings, updaters }: { settings: Settings; upda
       profitRate,
       companyName: str(fd, 'companyName'),
       companyContact: str(fd, 'companyContact'),
+      budgetDailyRate: required('budgetDailyRate'),
     };
     const message = firstError(settingsInputSchema, input);
     if (message) {
@@ -113,6 +114,23 @@ export function SettingsPanel({ settings, updaters }: { settings: Settings; upda
               <input name="defaultCommonGapMin" type="number" inputMode="numeric" min={0} max={600} step={1} defaultValue={c.gapMin ?? ''} className={decimalInput} />
             </Field>
           </div>
+        </div>
+
+        <div className="space-y-3 rounded-lg bg-gray-100 p-3 dark:bg-gray-900">
+          <p className="text-sm font-bold">実行予算</p>
+          <Field label="予算の標準日当（円／人工）">
+            <input
+              name="budgetDailyRate"
+              type="number"
+              inputMode="numeric"
+              step="any"
+              min={0}
+              max={1000000}
+              defaultValue={settings.budgetDailyRate}
+              className={decimalInput}
+            />
+          </Field>
+          <p className="text-sm text-gray-600 dark:text-gray-400">実行予算の自社の労務（人工）の単価の初期値。行ごとに書き換えられます</p>
         </div>
 
         <div className="space-y-3 rounded-lg bg-gray-100 p-3 dark:bg-gray-900">
