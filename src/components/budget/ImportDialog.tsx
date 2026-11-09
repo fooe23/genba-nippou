@@ -236,6 +236,11 @@ export function ImportDialog({
               </fieldset>
             )}
           </div>
+          {mode === 'appendChange' && diff.contractItemsCount > 0 && parsed.contractItems.some((i) => i.section === 'initial') && (
+            <p role="alert" className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              Excel の元請けの内訳に区分「当初」の行が {parsed.contractItems.filter((i) => i.section === 'initial').length} 行あります。「変更の行として足す」では、それらも「変更」として足されます。「いまの予算・内訳を書き出す」で出した Excel なら、当初の行が二重になります。変更の行だけを残すか、「全部入れ替える」を選んでください。
+            </p>
+          )}
           {nothing && <p className="text-sm font-medium">取り込む行がありません。</p>}
           <div className="flex flex-col gap-2 sm:flex-row">
             <button

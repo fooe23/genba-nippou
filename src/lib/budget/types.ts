@@ -90,8 +90,10 @@ export interface BudgetData {
   budgetLines: BudgetLine[];
   aliases: TradeAlias[];
   progress: TradeProgress[];
+  /** 進み具合の履歴が 1 行でもある工種の id（% が null の行も含む。DB のガードと同じく、この工種は消せない）。 */
+  progressTradeIds: string[];
 }
 
 export function emptyBudgetData(): BudgetData {
-  return { trades: [], contractItems: [], budgetLines: [], aliases: [], progress: [] };
+  return { trades: [], contractItems: [], budgetLines: [], aliases: [], progress: [], progressTradeIds: [] };
 }

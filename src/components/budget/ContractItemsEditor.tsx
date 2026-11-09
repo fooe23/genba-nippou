@@ -90,6 +90,9 @@ export function ContractItemsEditor({
   const [saved, setSaved] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const sortedTrades = [...trades].sort((a, b) => a.sortOrder - b.sortOrder);
+  const tradeIds = new Set(trades.map((t) => t.id));
+  /** 工種が一覧から消えた行は「未識別」として扱う（画面にも保存にも、消えた工種の id を残さない）。 */
+  const tagOf = (r: Row): string => (r.tag === '' || r.tag === EXPENSE || r.tag === REDUCTION || tradeIds.has(r.tag) ? r.tag : '');
 
   function change(next: Row[]) {
     setRows(next);
@@ -106,7 +109,7 @@ export function ContractItemsEditor({
 
   function save() {
     for (let i = 0; i < rows.length; i++) {
-      const res = contractItemInputSchema.safeParse(toInput(rows[i]));
+      const res = contractItemInputSchema.safeParse(toInput({ ...rows[i], tag: tagOf(rows[i]) }));
       if (!res.success) {
         setLocalError(`元請けの内訳の${i + 1}行目：${res.error.issues[0]?.message ?? '入力が正しくありません'}`);
         return;
@@ -114,7 +117,7 @@ export function ContractItemsEditor({
     }
     setLocalError(null);
     run(
-      () => replaceContractItems(siteId, rows.map(toInput), 'replace'),
+      () => replaceContractItems(siteId, rows.map((r) => toInput({ ...r, tag: tagOf(r) })), 'replace'),
       () => {
         setDirty(false);
         setSaved(true);
@@ -124,7 +127,7 @@ export function ContractItemsEditor({
   }
 
   const total = rows.reduce((s, r) => s + (rowAmount(r) ?? 0), 0);
-  const untagged = rows.filter((r) => r.tag === '').length;
+  const untagged = rows.filter((r) => tagOf(r) === '').length;
 
   return (
     <section aria-labelledby="contract-items" className="space-y-3">
@@ -159,10 +162,10 @@ export function ContractItemsEditor({
                   </select>
                   <select
                     aria-label={`${label}の工種（識別）`}
-                    value={r.tag}
+                    value={tagOf(r)}
                     disabled={readOnly || pending}
                     onChange={(e) => update(r.key, { tag: e.target.value })}
-                    className={`${inputClass} min-w-0 flex-1 ${r.tag === '' ? 'border-amber-600 dark:border-amber-400' : ''}`}
+                    className={`${inputClass} min-w-0 flex-1 ${tagOf(r) === '' ? 'border-amber-600 dark:border-amber-400' : ''}`}
                   >
                     <option value="">（工種を選ぶ）</option>
                     {sortedTrades.map((t) => (

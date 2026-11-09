@@ -147,22 +147,36 @@ export async function loadBudgetData(siteId: string): Promise<BudgetData> {
     budgetLines,
     aliases,
     progress: latestProgress((progress.data ?? []) as Record<string, unknown>[]),
+    progressTradeIds: [...new Set(((progress.data ?? []) as Record<string, unknown>[]).map((r) => str(r.trade_id)))],
   };
 }
 
+const USED_CHUNK = 100;
+const USED_PAGE = 1000;
+
 /**
  * 日報の作業内容の行から使われている工種の id（取り込みで消さない工種を決めるため）。社員・管理者だけが呼ぶ。
- * 工種ごとに 1 行だけ読む（工種は現場のものなので、現場で絞らなくてよい）。
+ * 工種 100 件ずつ .in で読み、見つかった工種を外して読み直す（1 回の上限 1000 行に 1 つの工種の行が並んでも、
+ * 次の回でほかの工種を探せる）。工種は現場のものなので、現場で絞らなくてよい。
  */
 export async function loadUsedTradeIds(tradeIds: string[]): Promise<string[]> {
+  const found = new Set<string>();
   if (tradeIds.length === 0) return [];
   const supabase = await createServerSupabase();
-  const results = await Promise.all(
-    tradeIds.map((id) => supabase.from('gn_report_lines').select('id').eq('site_trade_id', id).limit(1)),
-  );
-  return tradeIds.filter((id, i) => {
-    const r = results[i];
-    if (r.error) throw new Error(r.error.message);
-    return (r.data ?? []).length > 0;
-  });
+  for (let i = 0; i < tradeIds.length; i += USED_CHUNK) {
+    let remaining = tradeIds.slice(i, i + USED_CHUNK);
+    while (remaining.length > 0) {
+      const { data, error } = await supabase
+        .from('gn_report_lines')
+        .select('site_trade_id')
+        .in('site_trade_id', remaining)
+        .limit(USED_PAGE);
+      if (error) throw new Error(error.message);
+      const rows = (data ?? []) as { site_trade_id: string | null }[];
+      for (const r of rows) if (r.site_trade_id) found.add(r.site_trade_id);
+      if (rows.length < USED_PAGE) break;
+      remaining = remaining.filter((id) => !found.has(id));
+    }
+  }
+  return tradeIds.filter((id) => found.has(id));
 }

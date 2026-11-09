@@ -36,10 +36,11 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
   const choosable = allPartners.filter((s) => s.active || usedSuppliers.has(s.id)).map((s) => ({ id: s.id, name: s.name }));
   const partners = allPartners.map((s) => ({ id: s.id, name: s.name }));
 
-  // 保存・取り込みで中身が変わったら、編集中の状態を作り直す（key を変えて作り直す）
+  // 保存・取り込みで中身が変わったら、その欄の編集中の状態を作り直す（key を変えて作り直す）。
+  // 工種だけを保存したときは予算・内訳の欄を作り直さない（保存していない編集を消さない。まとまりは props の工種から作る）
   const tradesKey = data.trades.map((t) => `${t.id}:${t.name}:${t.sortOrder}`).join('|');
-  const linesKey = `${tradesKey}#${data.budgetLines.map((l) => l.id).join('|')}`;
-  const itemsKey = `${tradesKey}#${data.contractItems.map((i) => i.id).join('|')}`;
+  const linesKey = data.budgetLines.map((l) => l.id).join('|');
+  const itemsKey = data.contractItems.map((i) => i.id).join('|');
 
   return (
     <main className="mx-auto w-full max-w-3xl space-y-8 p-4">

@@ -25,7 +25,7 @@ type Parsed = Pick<ParsedBudgetWorkbook, 'trades' | 'budgetLines' | 'contractIte
 function usedIds(current: BudgetData, parsed: Parsed, mode: ContractMode, usedTradeIds: ReadonlySet<string>): Set<string> {
   const used = new Set(usedTradeIds);
   for (const a of current.aliases) used.add(a.tradeId);
-  for (const p of current.progress) used.add(p.tradeId);
+  for (const id of current.progressTradeIds) used.add(id);
   if (parsed.budgetLines.length === 0) {
     for (const l of current.budgetLines) if (l.tradeId) used.add(l.tradeId);
   }

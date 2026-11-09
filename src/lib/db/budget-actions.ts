@@ -62,6 +62,29 @@ async function notPartnerLine(supabase: SupabaseClient, supplierIds: (string | n
 }
 
 /**
+ * 実行予算の行の呼び名を、画面と同じ数え方（工種のまとまりの中の何行目）にする：「工種「塗装」の2行目」「現場全体の1行目」。
+ * 工種の名前は読めなければ「工種」とだけ出す。
+ */
+async function budgetLineLabel(siteId: string, lines: readonly unknown[], index: number): Promise<string> {
+  const tradeOf = (l: unknown): string | null => {
+    const t = (l as { tradeId?: unknown } | null)?.tradeId;
+    return typeof t === 'string' && t !== '' ? t : null;
+  };
+  const tradeId = tradeOf(lines[index]);
+  const n = lines.slice(0, index + 1).filter((l) => tradeOf(l) === tradeId).length;
+  if (tradeId === null) return `実行予算の現場全体の${n}行目`;
+  let name = '';
+  try {
+    const supabase = await createServerSupabase();
+    const { data } = await supabase.from('gn_site_trades').select('name').eq('id', tradeId).eq('site_id', siteId).maybeSingle();
+    name = (data as { name?: string } | null)?.name ?? '';
+  } catch {
+    // 名前が読めなくても文言は出す
+  }
+  return name ? `実行予算の工種「${name}」の${n}行目` : `実行予算の工種の${n}行目`;
+}
+
+/**
  * 現場の工種の一覧をまとめて保存する（trades は今の一覧の全部・並びの順。id が null の行は新しい工種）。
  * 一覧に無い工種は消す。日報・読み替え表・実行予算で使われている工種を消そうとすると全部やめて文言を返す。
  * 成功すれば保存後の一覧（id 付き）を返す。
@@ -96,11 +119,17 @@ export async function replaceBudgetLines(siteId: string, lines: BudgetLineInput[
   const site = siteIdSchema.safeParse(siteId);
   if (!site.success) return { ok: false, error: firstIssueMessage(site.error) };
   const parsed = budgetLinesInputSchema.safeParse(lines);
-  if (!parsed.success) return { ok: false, error: firstIssueMessage(parsed.error, '実行予算の') };
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    const index = issue?.path[0];
+    if (typeof index !== 'number' || !Array.isArray(lines)) return { ok: false, error: firstIssueMessage(parsed.error, '実行予算の') };
+    const label = await budgetLineLabel(site.data, lines, index);
+    return { ok: false, error: `${label}：${issue?.message ?? '入力内容が正しくありません'}` };
+  }
   try {
     const supabase = await createServerSupabase();
     const bad = await notPartnerLine(supabase, parsed.data.map((l) => l.supplierId));
-    if (bad !== null) return { ok: false, error: `実行予算の${bad + 1}行目：${MSG_NOT_PARTNER}` };
+    if (bad !== null) return { ok: false, error: `${await budgetLineLabel(site.data, parsed.data, bad)}：${MSG_NOT_PARTNER}` };
     const { error } = await supabase.rpc('gn_replace_budget_lines', {
       p_site: site.data,
       p_lines: parsed.data.map((l) => ({

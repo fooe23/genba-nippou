@@ -67,9 +67,13 @@ function rowAmount(r: Row): number | null {
 }
 
 interface Group {
+  /** 工種の id・null＝現場全体・ORPHAN＝消えた工種（保存の前に付け替える行）。 */
   tradeId: string | null;
   label: string;
 }
+
+/** 消えた工種のまとまりの印（工種の id と重ならない）。 */
+const ORPHAN = '__orphan__';
 
 /**
  * 実行予算：工種ごとのまとまりの下に施工者（自社・協力会社）の行を何行でも足す・消す。材料・リース・その他は「現場全体」。
@@ -99,12 +103,17 @@ export function BudgetLinesEditor({
   const [saved, setSaved] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
 
+  const tradeIds = useMemo(() => new Set(trades.map((t) => t.id)), [trades]);
+  /** 行のまとまり：工種が一覧から消えた行は ORPHAN（黙って落とさず、付け替えるまで保存させない）。 */
+  const groupOf = (r: Row): string | null => (r.tradeId === null || tradeIds.has(r.tradeId) ? r.tradeId : ORPHAN);
+  const hasOrphans = rows.some((r) => groupOf(r) === ORPHAN);
   const groups: Group[] = useMemo(
     () => [
       ...[...trades].sort((a, b) => a.sortOrder - b.sortOrder).map((t) => ({ tradeId: t.id, label: t.name })),
       { tradeId: null, label: '現場全体（材料・リース・その他）' },
+      ...(hasOrphans ? [{ tradeId: ORPHAN, label: '（消えた工種）' }] : []),
     ],
-    [trades],
+    [trades, hasOrphans],
   );
   const partnerName = useMemo(() => new Map(partners.map((p) => [p.id, p.name])), [partners]);
 
@@ -131,10 +140,14 @@ export function BudgetLinesEditor({
   }
 
   function ordered(): Row[] {
-    return groups.flatMap((g) => rows.filter((r) => r.tradeId === g.tradeId));
+    return groups.flatMap((g) => rows.filter((r) => groupOf(r) === g.tradeId));
   }
 
   function save() {
+    if (hasOrphans) {
+      setLocalError('「（消えた工種）」の行を、ほかの工種に付け替えるか消してから保存してください');
+      return;
+    }
     const list = ordered();
     for (const g of groups) {
       const inGroup = list.filter((r) => r.tradeId === g.tradeId);
@@ -172,14 +185,23 @@ export function BudgetLinesEditor({
         <p className="text-sm font-medium text-amber-800 dark:text-amber-300">先に上の「工種」を足して保存すると、工種ごとの行を入れられます。</p>
       )}
       {groups.map((g) => {
-        const inGroup = rows.filter((r) => r.tradeId === g.tradeId);
+        const orphan = g.tradeId === ORPHAN;
+        const inGroup = rows.filter((r) => groupOf(r) === g.tradeId);
         const subtotal = inGroup.reduce((s, r) => s + (rowAmount(r) ?? 0), 0);
         return (
-          <div key={g.tradeId ?? 'site'} className="space-y-2 rounded-lg border-2 border-gray-300 p-2 dark:border-gray-700">
+          <div
+            key={g.tradeId ?? 'site'}
+            className={`space-y-2 rounded-lg border-2 p-2 ${orphan ? 'border-amber-600 dark:border-amber-400' : 'border-gray-300 dark:border-gray-700'}`}
+          >
             <div className="flex items-baseline justify-between gap-2 px-1">
               <h3 className="min-w-0 text-base font-bold">{g.label}</h3>
               <span className="shrink-0 text-sm tabular-nums">{yen(subtotal)}</span>
             </div>
+            {orphan && (
+              <p role="status" className="px-1 text-sm font-medium text-amber-800 dark:text-amber-300">
+                工種を消したため、どの工種にも入っていない行です。保存の前に、下の「工種」でほかの工種に付け替えるか、行を消してください。
+              </p>
+            )}
             {inGroup.map((r, i) => {
               const siteWide = SITE_WIDE_ITEMS.includes(r.item);
               const partner = r.performer !== OWN;
@@ -188,6 +210,30 @@ export function BudgetLinesEditor({
               const label = `${g.tradeId === null ? '現場全体' : g.label}の${i + 1}行目`;
               return (
                 <div key={r.key} className={`${cardClass} space-y-2`}>
+                  {orphan && (
+                    <select
+                      aria-label={`${label}の工種`}
+                      value=""
+                      disabled={readOnly || pending}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        if (v === '') return;
+                        const tradeId = v === 'site' ? null : v;
+                        // 現場全体に移すのは材料・リース・その他だけ（労務などは工種の中に）
+                        update(r.key, tradeId === null && !SITE_WIDE_ITEMS.includes(r.item) ? { tradeId, performer: OWN, item: 'material' } : { tradeId });
+                      }}
+                      className={inputClass}
+                    >
+                      <option value="">工種を選んで付け替える</option>
+                      {groups
+                        .filter((x) => x.tradeId !== ORPHAN)
+                        .map((x) => (
+                          <option key={x.tradeId ?? 'site'} value={x.tradeId ?? 'site'}>
+                            {x.tradeId === null ? '現場全体' : x.label}
+                          </option>
+                        ))}
+                    </select>
+                  )}
                   <div className="flex gap-2">
                     {!siteWide && (
                       <select
@@ -273,7 +319,7 @@ export function BudgetLinesEditor({
                 </div>
               );
             })}
-            {!readOnly && (
+            {!readOnly && !orphan && (
               <button type="button" onClick={() => add(g.tradeId)} disabled={pending} className={`${secondaryButtonClass} w-full`}>
                 ＋ {g.tradeId === null ? '現場全体の行' : `「${g.label}」に行`}を足す
               </button>

@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import { QTY_PRICE_DECIMALS, TRADE_NAME_MAX, budgetComboError, hasAtMostDecimals } from '@/lib/budget/schemas';
+import { QTY_PRICE_DECIMALS, TRADE_NAME_MAX, budgetComboError, hasAtMostDecimals, reservedTradeNameError } from '@/lib/budget/schemas';
 import {
   CHOICE_LAST_ROW,
   EXPENSE_LABEL,
@@ -101,7 +101,11 @@ function text(v: unknown): string {
 function number(v: unknown): number | null {
   if (v === null || v === undefined) return null;
   if (typeof v === 'number') return Number.isFinite(v) ? v : Number.NaN;
-  const s = String(v).normalize('NFKC').replace(/[,\s¥￥円]/g, '');
+  // 「△1,200」「▲1,200」（会計の書き方の負）・「−1,200」（全角のマイナス記号）も負の数として読む
+  const s = String(v)
+    .normalize('NFKC')
+    .replace(/[,\s¥￥円]/g, '')
+    .replace(/^[△▲−‐ー―]/, '-');
   if (s === '') return null;
   const n = Number(s);
   return Number.isFinite(n) ? n : Number.NaN;
@@ -153,8 +157,10 @@ const SECTION_BY_LABEL = new Map<string, ContractSection>(CONTRACT_SECTIONS.map(
 const SITE_WIDE_NAMES = new Set([normalizeName(SITE_WIDE_LABEL), normalizeName('現場全体')]);
 const NO_PERFORMER_NAMES = new Set([normalizeName(NO_PERFORMER_LABEL), '-', 'ー', '―', '‐']);
 
+/** 工種の名前の誤り（長すぎる・経費や減分など使えない名前）。 */
 function tradeTooLong(name: string): string | null {
-  return name.length > TRADE_NAME_MAX ? `工種の名前は${TRADE_NAME_MAX}文字以内にしてください（「${name.slice(0, 20)}…」）` : null;
+  if (name.length > TRADE_NAME_MAX) return `工種の名前は${TRADE_NAME_MAX}文字以内にしてください（「${name.slice(0, 20)}…」）`;
+  return reservedTradeNameError(name);
 }
 
 function lengthError(label: string, v: string, max: number): string | null {

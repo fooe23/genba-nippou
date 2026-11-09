@@ -71,7 +71,7 @@ export function TradesEditor({ siteId, trades, readOnly }: { siteId: string; tra
         工種（{rows.length}）
       </h2>
       <p className="text-sm text-gray-700 dark:text-gray-300">
-        実行予算と元請けの内訳を分ける工種です。日報の作業内容の行でもこの工種から選びます（協力会社のアカウントにも名前だけ見えます）。日報などで使っている工種は消せません。
+        実行予算と元請けの内訳を分ける工種です（協力会社のアカウントにも名前だけ見えます）。日報の作業内容の行でこの工種から選ぶ機能は次の段階で追加します。実行予算・内訳などで使っている工種は消せません。
       </p>
       {rows.length === 0 ? (
         <EmptyText>工種はまだありません。</EmptyText>

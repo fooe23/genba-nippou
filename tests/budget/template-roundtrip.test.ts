@@ -258,6 +258,25 @@ describe('取り込みの誤り（行番号つき）', () => {
     ]);
   });
 
+  it('内訳：△・▲・全角のマイナスの負の数を読む、工種の名前に「経費」などは使えない', async () => {
+    const buf = await buildBudgetWorkbook(emptyBudgetData(), site, partners);
+    const ab = await edit(buf, (wb) => {
+      const ws = wb.getWorksheet('元請けの内訳')!;
+      const rows: (string | number | null)[][] = [
+        ['変更', '減工分', '', 1, '式', '△1,819,800', null, '減分'],
+        ['変更', '減工分2', '', 1, '式', '▲500', null, '減分'],
+        ['変更', '減工分3', '', 1, '式', '−20', null, '減分'],
+      ];
+      rows.forEach((r, i) => r.forEach((v, j) => (ws.getRow(3 + i).getCell(j + 1).value = v)));
+      const b = wb.getWorksheet('実行予算')!;
+      ['経費', '自社', '労務', '', 1, '人工', 20000].forEach((v, j) => (b.getRow(3).getCell(j + 1).value = v));
+    });
+    const parsed = parseBudgetWorkbook(ab, { partners, dailyRate: null });
+    expect(parsed.contractItems.map((i) => i.unitPrice)).toEqual([-1819800, -500, -20]);
+    expect(parsed.errors).toEqual([{ sheet: '実行予算', row: 3, message: expect.stringContaining('工種の名前に使えません') }]);
+    expect(parsed.trades).toEqual([]);
+  });
+
   it('雛形でないファイル → errors', async () => {
     const wb = new ExcelJS.Workbook();
     wb.addWorksheet('Sheet1').getCell('A1').value = 'x';

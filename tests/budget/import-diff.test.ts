@@ -39,10 +39,12 @@ describe('取り込み前の差分', () => {
     expect(diff.contractItemsCount).toBe(0);
   });
 
-  it('読み替え表・進み具合の上書きで使っている工種も残す', () => {
+  it('読み替え表・進み具合の履歴（% を消した行も）で使っている工種も残す', () => {
     const data = current({
       aliases: [{ tradeText: 'ブラスト工', tradeId: B }],
-      progress: [{ tradeId: C, percent: 40, setBy: null, setAt: '2026-11-09T00:00:00Z' }],
+      // 上書きを消した（% が null の最新の行）工種は progress に出ないが、履歴があるので消せない
+      progress: [],
+      progressTradeIds: [C],
     });
     const diff = diffImport(data, { trades: ['剥離'], budgetLines: [labor('剥離')], contractItems: [contract('剥離')] }, 'replace');
     expect(diff.keptMissingTrades).toEqual(['ブラスト', '塗装']);

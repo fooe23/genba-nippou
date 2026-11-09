@@ -88,7 +88,19 @@ function nonNegativeSchema(label: string) {
 
 // ─── 工種 ───
 
-export const tradeNameSchema = requiredTextSchema('工種名', TRADE_NAME_MAX);
+/** 工種の名前に使えない名前（Excel の雛形で「現場全体」「経費」「減分」の印に使う）。 */
+export const RESERVED_TRADE_NAMES: readonly string[] = ['経費', '減分', '（現場全体）', '現場全体'];
+/** 使えない名前なら文言（比べるときは全角・半角と空白の違いを無視する）。 */
+export function reservedTradeNameError(name: string): string | null {
+  const key = name.normalize('NFKC').replace(/\s+/g, '');
+  const hit = RESERVED_TRADE_NAMES.find((r) => r.normalize('NFKC').replace(/\s+/g, '') === key);
+  return hit ? `「${hit}」は工種の名前に使えません（Excel の雛形で経費・減分・現場全体の印に使うため）` : null;
+}
+
+export const tradeNameSchema = requiredTextSchema('工種名', TRADE_NAME_MAX).superRefine((v, ctx) => {
+  const err = reservedTradeNameError(v);
+  if (err) ctx.addIssue({ code: 'custom', message: err });
+});
 
 /** 工種の一覧の 1 行（id が null なら新しい工種）。 */
 export const tradeInputSchema = z.object({

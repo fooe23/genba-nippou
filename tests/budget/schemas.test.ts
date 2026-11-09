@@ -171,3 +171,14 @@ describe('数量・単価の小数は 3 桁まで（画面の金額と DB の ro
     expect(budgetErrorMessage('duplicate key value violates unique constraint "gn_other_key"')).toBeNull();
   });
 });
+
+describe('工種の名前に使えない名前', () => {
+  it('経費・減分・現場全体は断る（全角・半角の違いも）', () => {
+    for (const name of ['経費', '減分', '（現場全体）', '(現場全体)', '現場全体', ' 経 費 ']) {
+      const r = tradesInputSchema.safeParse([{ id: null, name }]);
+      expect(r.success, name).toBe(false);
+      expect(r.error?.issues[0]?.message).toContain('工種の名前に使えません');
+    }
+    expect(tradesInputSchema.safeParse([{ id: null, name: '経費調整工' }]).success).toBe(true);
+  });
+});
