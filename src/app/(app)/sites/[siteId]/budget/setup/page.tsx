@@ -1,0 +1,78 @@
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { isUuid } from '@/lib/uuid';
+import { loadBudgetData, loadUsedTradeIds } from '@/lib/db/budget';
+import { listSuppliers } from '@/lib/db/masters';
+import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
+import { getSite } from '@/lib/db/sites';
+import { BudgetLinesEditor } from '@/components/budget/BudgetLinesEditor';
+import { ContractItemsEditor } from '@/components/budget/ContractItemsEditor';
+import { ImportDialog } from '@/components/budget/ImportDialog';
+import { TradesEditor } from '@/components/budget/TradesEditor';
+
+export const metadata = { title: '実行予算・元請けの内訳' };
+
+/**
+ * 現場の「実行予算・元請けの内訳」：工種、実行予算（工種 × 施工者）、元請けの内訳を画面で入れる・Excel で取り込む・書き出す。
+ * 社員・管理者だけ（協力会社は notFound。金額の表は RLS でも読めない）。完了現場は閲覧と書き出しだけ。
+ */
+export default async function BudgetSetupPage({ params }: PageProps<'/sites/[siteId]/budget/setup'>) {
+  const profile = await requireProfile();
+  if (!isEmployeeOrAdmin(profile)) notFound();
+  const { siteId } = await params;
+  if (!isUuid(siteId)) notFound();
+  const site = await getSite(siteId);
+  if (!site || site.deletedAt !== null) notFound();
+  const readOnly = site.status === 'done';
+
+  const [data, suppliers] = await Promise.all([loadBudgetData(siteId), listSuppliers()]);
+  const usedTradeIds = await loadUsedTradeIds(data.trades.map((t) => t.id));
+  const allPartners = suppliers.filter((s) => s.isPartner);
+  const usedSuppliers = new Set(data.budgetLines.map((l) => l.supplierId).filter((v): v is string => v !== null));
+  // 選べるのは有効な協力会社と、いまの予算で使っている会社（無効にした会社も行が消えないように）
+  const choosable = allPartners.filter((s) => s.active || usedSuppliers.has(s.id)).map((s) => ({ id: s.id, name: s.name }));
+  const partners = allPartners.map((s) => ({ id: s.id, name: s.name }));
+
+  // 保存・取り込みで中身が変わったら、編集中の状態を作り直す（key を変えて作り直す）
+  const tradesKey = data.trades.map((t) => `${t.id}:${t.name}:${t.sortOrder}`).join('|');
+  const linesKey = `${tradesKey}#${data.budgetLines.map((l) => l.id).join('|')}`;
+  const itemsKey = `${tradesKey}#${data.contractItems.map((i) => i.id).join('|')}`;
+
+  return (
+    <main className="mx-auto w-full max-w-3xl space-y-8 p-4">
+      <div>
+        <Link href={`/sites/${siteId}`} className="mb-2 inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400">
+          ← {site.name}
+        </Link>
+        <h1 className="mb-2 text-xl font-bold">実行予算・元請けの内訳</h1>
+        <p className="text-sm text-gray-700 dark:text-gray-300">
+          社内用です（協力会社のアカウントには見えません）。画面で直接入れても、Excel の雛形から取り込んでも同じ中身になります。
+        </p>
+        {readOnly && (
+          <p role="status" className="mt-3 rounded-lg border border-blue-500 bg-blue-50 p-3 font-bold text-blue-900 dark:bg-blue-950 dark:text-blue-50">
+            この現場は完了しているため閲覧のみです（Excel の書き出しはできます）。
+          </p>
+        )}
+      </div>
+      <ImportDialog
+        siteId={siteId}
+        current={data}
+        usedTradeIds={usedTradeIds}
+        partners={partners}
+        dailyRate={site.defaultDailyRate}
+        readOnly={readOnly}
+      />
+      <TradesEditor key={tradesKey} siteId={siteId} trades={data.trades} readOnly={readOnly} />
+      <BudgetLinesEditor
+        key={linesKey}
+        siteId={siteId}
+        trades={data.trades}
+        lines={data.budgetLines}
+        partners={choosable}
+        dailyRate={site.defaultDailyRate}
+        readOnly={readOnly}
+      />
+      <ContractItemsEditor key={itemsKey} siteId={siteId} trades={data.trades} items={data.contractItems} readOnly={readOnly} />
+    </main>
+  );
+}

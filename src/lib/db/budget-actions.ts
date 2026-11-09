@@ -44,6 +44,7 @@ function dbErrorMessage(where: string, error: DbError): string {
 function revalidateBudget(siteId: string): void {
   revalidatePath(`/sites/${siteId}`);
   revalidatePath(`/sites/${siteId}/budget`);
+  revalidatePath(`/sites/${siteId}/budget/setup`);
 }
 
 /** 社員・管理者でなければ文言を返す。 */

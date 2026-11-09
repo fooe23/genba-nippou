@@ -22,6 +22,7 @@ describe('ガイド', () => {
       'pdf',
       'changes',
       'estimate',
+      'budget',
       'photos',
     ]);
     expect(GUIDE_CHAPTERS[0].title).toBe('ガイドの使い方');
@@ -50,6 +51,17 @@ describe('ガイド', () => {
     expect(html).toContain('精算額（累計）');
     expect(html).toContain('実績原価は出ません');
     expect(html).toContain('プレビュー');
+  });
+
+  it('実行予算と元請けの内訳の章が、工種・経費と減分・Excel の取り込み直しに触れている', async () => {
+    expect(GUIDE_CHAPTERS.find((c) => c.slug === 'budget')?.title).toBe('実行予算と元請けの内訳');
+    const html = await loadChapter('budget');
+    expect(html).toContain('工種（識別）');
+    expect(html).toContain('経費');
+    expect(html).toContain('減分');
+    expect(html).toContain('使用中のため残します');
+    expect(html).toContain('変更の行として足す');
+    expect(html).toContain('空の雛形');
   });
 
   it('前月繰越の章に必須の3点が入っている', async () => {

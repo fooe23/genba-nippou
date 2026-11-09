@@ -149,3 +149,20 @@ export async function loadBudgetData(siteId: string): Promise<BudgetData> {
     progress: latestProgress((progress.data ?? []) as Record<string, unknown>[]),
   };
 }
+
+/**
+ * 日報の作業内容の行から使われている工種の id（取り込みで消さない工種を決めるため）。社員・管理者だけが呼ぶ。
+ * 工種ごとに 1 行だけ読む（工種は現場のものなので、現場で絞らなくてよい）。
+ */
+export async function loadUsedTradeIds(tradeIds: string[]): Promise<string[]> {
+  if (tradeIds.length === 0) return [];
+  const supabase = await createServerSupabase();
+  const results = await Promise.all(
+    tradeIds.map((id) => supabase.from('gn_report_lines').select('id').eq('site_trade_id', id).limit(1)),
+  );
+  return tradeIds.filter((id, i) => {
+    const r = results[i];
+    if (r.error) throw new Error(r.error.message);
+    return (r.data ?? []).length > 0;
+  });
+}
