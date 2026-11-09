@@ -75,7 +75,7 @@ export function budgetSummaryTable(model: BudgetModel): SectionTable {
   ]);
   const outTag = outsideTag(outside.amount);
   rows.push([
-    '予算外の作業（常用・契約外・現場判断の件）',
+    '予算外の作業',
     null,
     outside.budget.amount !== 0 ? yen(outside.budget.amount) : null,
     outside.budget.manDays !== 0 ? qty(outside.budget.manDays) : null,
@@ -88,10 +88,10 @@ export function budgetSummaryTable(model: BudgetModel): SectionTable {
     outTag ? outTag.label : '',
   ]);
   if (outside.carryover) {
-    rows.push(['繰越（工種なし。Excel から移したときの初期値）', '', '', '', yen(outside.carryover.amount), qty(outside.carryover.manDays), '', '', '', '', '']);
+    rows.push(['繰越（工種なし）', '', '', '', yen(outside.carryover.amount), qty(outside.carryover.manDays), '', '', '', '', '']);
   }
   rows.push([
-    '現場全体（材料・リース・燃料・その他）※内訳の金額は経費',
+    '現場全体（内訳は経費）',
     yen(siteWide.contractExpense),
     yen(siteWide.budget.amount),
     '',
@@ -104,9 +104,9 @@ export function budgetSummaryTable(model: BudgetModel): SectionTable {
     '',
   ]);
   const after: Cell[][] = [];
-  if (total.contractReduction !== 0) after.push(['うち減分（内訳の金額の合計に含む）', yen(total.contractReduction), '', '', '', '', '', '', '', '', '']);
+  if (total.contractReduction !== 0) after.push(['うち減分', yen(total.contractReduction), '', '', '', '', '', '', '', '', '']);
   if (total.contractUnassigned !== 0) {
-    after.push(['うち工種を付けていない内訳の行（合計に含む）', yen(total.contractUnassigned), '', '', '', '', '', '', '', '', '']);
+    after.push(['うち工種なしの内訳', yen(total.contractUnassigned), '', '', '', '', '', '', '', '', '']);
   }
   return {
     columns: SUMMARY_COLUMNS,
@@ -172,7 +172,7 @@ export function budgetPerformerTable(model: BudgetModel): SectionTable {
     rows,
     boldRows,
     total: [
-      '合計（工種＋予算外。繰越・現場全体を除く）',
+      '合計（繰越・現場全体を除く）',
       '',
       qty(Math.round(budgetManDays * 100) / 100),
       yen(budgetAmount),

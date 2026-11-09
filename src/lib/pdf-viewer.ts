@@ -1,10 +1,19 @@
 // アプリの中の PDF ビューアー（/pdf）の入口まわりの純関数（Next・ブラウザに依存しない）。
 // /pdf?src=<同じサイトの PDF の API>&title=<見出し>&back=<戻り先のパス>
-// src は帳票の API（下の 4 つ）だけを通す。ほかのパス・別のサイトの URL・"//" で始まるものは受け付けない
+// src は帳票の API（PDF_SRC_PATHS）だけを通す。ほかのパス・別のサイトの URL・"//" で始まるものは受け付けない
 // （ビューアーが読みに行く先を、外から好きに変えられないようにする）。
 
 /** ビューアーで開ける PDF の API（パスが完全に一致するものだけ）。 */
-export const PDF_SRC_PATHS: readonly string[] = ['/api/reports/daily', '/api/reports/cost', '/api/reports/changes', '/api/reports/signed'];
+export const PDF_SRC_PATHS: readonly string[] = [
+  '/api/reports/daily',
+  '/api/reports/cost',
+  '/api/reports/changes',
+  '/api/reports/signed',
+  '/api/budget/pdf',
+];
+
+/** format（pdf・xlsx・csv）を持つ帳票の API。ビューアーでは format が無いか pdf のものだけ開く。 */
+const FORMAT_PATHS: ReadonlySet<string> = new Set(['/api/reports/daily', '/api/reports/cost', '/api/reports/changes']);
 
 export const PDF_VIEWER_PATH = '/pdf';
 
@@ -34,9 +43,10 @@ export function validatePdfSrc(src: unknown): string | null {
   const url = parseLocalPath(src);
   if (!url) return null;
   if (!PDF_SRC_PATHS.includes(url.pathname)) return null;
-  // 帳票の API は PDF だけ（CSV・Excel をビューアーで開かない）。サインした時点の PDF は format を持たない。
+  // 帳票の API は PDF だけ（CSV・Excel をビューアーで開かない）。サインした時点の PDF・予算の PDF（/api/budget/pdf）は
+  // format を持たない（PDF しか返さない）ので見ない。
   const format = url.searchParams.get('format');
-  if (url.pathname !== '/api/reports/signed' && format !== null && format !== 'pdf') return null;
+  if (FORMAT_PATHS.has(url.pathname) && format !== null && format !== 'pdf') return null;
   return `${url.pathname}${url.search}`;
 }
 

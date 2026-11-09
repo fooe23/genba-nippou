@@ -9,6 +9,7 @@ import { requireProfile } from '@/lib/db/profile';
 import { getMySiteRole } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
 import { AliasMapper } from '@/components/budget/AliasMapper';
+import { BudgetPdfLinks } from '@/components/budget/PdfLinks';
 import { BudgetView } from '@/components/budget/BudgetCards';
 
 export const metadata = { title: '予算と実績' };
@@ -56,7 +57,7 @@ export default async function BudgetPage({ params }: PageProps<'/sites/[siteId]/
           </Link>
         </div>
         <div className="my-2 flex flex-wrap gap-2">
-          {/* 集計 Excel（7 シート。社内用）。ダウンロード */}
+          {/* 集計 Excel（7 シート。社内用）と PDF（アプリのビューアーで開く・保存） */}
           <a
             href={`/api/budget/report?site=${encodeURIComponent(siteId)}`}
             download
@@ -64,6 +65,7 @@ export default async function BudgetPage({ params }: PageProps<'/sites/[siteId]/
           >
             Excel に書き出す
           </a>
+          <BudgetPdfLinks siteId={siteId} kind="report" title={`予算と実績 ${site.name}`} back={`/sites/${siteId}/budget`} />
         </div>
         <p className="text-sm text-gray-700 dark:text-gray-300">
           工期全体・{jpDate(asOf)} 時点（{jpDate(asOf)} までの日報）。社内用です（協力会社のアカウントには見えません）。

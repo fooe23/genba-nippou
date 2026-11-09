@@ -8,6 +8,7 @@ import { getSettings } from '@/lib/db/settings';
 import { getSite } from '@/lib/db/sites';
 import { AliasMapper } from '@/components/budget/AliasMapper';
 import { BudgetLinesEditor } from '@/components/budget/BudgetLinesEditor';
+import { BudgetPdfLinks } from '@/components/budget/PdfLinks';
 import { ContractItemsEditor } from '@/components/budget/ContractItemsEditor';
 import { ImportDialog } from '@/components/budget/ImportDialog';
 import { PdfImport } from '@/components/budget/PdfImport';
@@ -62,6 +63,10 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
         <p className="text-sm text-gray-700 dark:text-gray-300">
           社内用です（協力会社のアカウントには見えません）。画面で直接入れても、Excel の雛形から取り込んでも同じ中身になります。
         </p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {/* 保存済みの実行予算・内訳の PDF（画面で編集中の内容は入らない） */}
+          <BudgetPdfLinks siteId={siteId} kind="setup" title={`実行予算・元請けの内訳 ${site.name}`} back={`/sites/${siteId}/budget/setup`} />
+        </div>
         {readOnly && (
           <p role="status" className="mt-3 rounded-lg border border-blue-500 bg-blue-50 p-3 font-bold text-blue-900 dark:bg-blue-950 dark:text-blue-50">
             この現場は完了しているため閲覧のみです（Excel の書き出しはできます）。

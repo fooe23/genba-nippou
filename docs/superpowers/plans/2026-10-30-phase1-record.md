@@ -449,4 +449,6 @@
 - ④ の数量からの進み具合は月末の時点で集計し直す（`buildBudgetModel` を asOf を変えて呼ぶ）。% の上書きは時点が月と合わないので出さない。繰越初期値は月に分けないので ④ ⑤ に入れない。
 - ⑤ 出面の所属は作業員の最後の日報の行の写し。会社の名前は取引先の名前、無ければ現場の協力会社の名前。
 - 既存の制約（直していない）：雛形の取り込みは、工種の無い労務の行（画面では「予算外」の予算として入れられる）を「工種を選んでください」で断る。書き出して取り込み直すと、その行だけ入らない。
+- PDF（`src/lib/pdf/budget-setup-pdf.tsx`・`budget-report-pdf.tsx`、`GET /api/budget/pdf?site=&kind=setup|report&disposition=`）は A4 縦。予算と実績の 11 列の表は 7pt、8 列の表は 7.5pt で横 1 枚に収まるので横向きにはしない（脚注の位置が A4 縦の高さで決まっている common.tsx の部品をそのまま使える）。表の行は途中で切らない。表の中身は純関数 `budgetReportSections`・`budgetSetupSections`（`src/lib/budget/setup-sections.ts`）。
+- PDF ビューアーの許可に `/api/budget/pdf` を足した。format を持つ API（日報・原価集計・精算資料）だけ format=pdf を確かめ、予算の PDF とサインした時点の PDF は format を見ない。
 

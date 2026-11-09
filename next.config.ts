@@ -7,6 +7,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/guide/*": ["./src/content/guide/**/*.md"],
     "/api/reports/*": ["./public/fonts/**", "./public/logo.png"],
+    "/api/budget/pdf": ["./public/fonts/**"],
   },
   turbopack: {
     root: fileURLToPath(new URL(".", import.meta.url)),

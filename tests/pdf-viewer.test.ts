@@ -52,6 +52,22 @@ describe('validatePdfSrc', () => {
   });
 });
 
+describe('validatePdfSrc（予算の PDF）', () => {
+  it('/api/budget/pdf を通す（format を持たない）', () => {
+    expect(validatePdfSrc('/api/budget/pdf?site=s&kind=setup')).toBe('/api/budget/pdf?site=s&kind=setup');
+    expect(validatePdfSrc('/api/budget/pdf?site=s&kind=report&disposition=inline')).toBe('/api/budget/pdf?site=s&kind=report&disposition=inline');
+    expect(validatePdfSrc('/api/budget/report?site=s')).toBeNull(); // 集計 Excel は通さない
+    expect(validatePdfSrc('/api/budget/template?site=s')).toBeNull();
+  });
+  it('pdfViewerHref・downloadHref', () => {
+    const href = pdfViewerHref({ src: '/api/budget/pdf?site=s&kind=setup', title: '実行予算', back: '/sites/s/budget/setup' })!;
+    const q = new URL(href, 'http://x').searchParams;
+    expect(q.get('src')).toBe('/api/budget/pdf?site=s&kind=setup');
+    expect(q.get('back')).toBe('/sites/s/budget/setup');
+    expect(downloadHref('/api/budget/pdf?site=s&kind=report')).toBe('/api/budget/pdf?site=s&kind=report&disposition=attachment');
+  });
+});
+
 describe('validateBackPath', () => {
   it('同じサイトのパスを通す', () => {
     expect(validateBackPath('/sites/abc/reports/2026-11-08')).toBe('/sites/abc/reports/2026-11-08');

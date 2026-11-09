@@ -8,9 +8,9 @@ import {
   BUDGET_REPORT_TITLE,
   type BudgetReportMeta,
 } from '@/lib/budget/report-sections';
+import { contractItemsTable } from '@/lib/budget/setup-sections';
 import { SHEET_BUDGET } from '@/lib/budget/template-format';
 import { addBudgetTemplateSheets, type TemplatePartner } from '@/lib/budget/template-xlsx';
-import { CONTRACT_CATEGORY_LABEL, CONTRACT_SECTION_LABEL } from '@/lib/budget/types';
 import { affiliationLabel } from '@/lib/calc/affiliation';
 import { CHANGE_KIND_LABELS } from '@/lib/report/change-labels';
 import { cell, cellNumber, col, slashDate, type Cell, type NumFmt, type SectionTable } from '@/lib/reports/cost-sections';
@@ -340,34 +340,6 @@ export function attendanceTable(input: BudgetModelInput, asOf: string): SectionT
 
 // ─── ⑥ 元請けの内訳と数量の進み具合 ───
 
-export function contractTable(input: BudgetModelInput): SectionTable {
-  const names = new Map(input.data.trades.map((t) => [t.id, t.name]));
-  const items = [...input.data.contractItems].sort((a, b) => a.sortOrder - b.sortOrder);
-  return {
-    columns: [
-      col.text('区分', 1),
-      col.text('名称', 4),
-      col.text('規格・仕様', 2.4),
-      col.num('数量', 1.4),
-      col.text('単位', 1),
-      col.num('単価', 1.8),
-      col.num('金額', 2),
-      col.text('工種（識別）', 2),
-    ],
-    rows: items.map((c) => [
-      CONTRACT_SECTION_LABEL[c.section],
-      c.name,
-      c.spec,
-      qty(c.qty),
-      c.unit,
-      { value: c.unitPrice, fmt: 'qty' },
-      yen(c.amount),
-      c.category === 'trade' ? (c.tradeId ? (names.get(c.tradeId) ?? '（工種なし）') : '（まだ識別していない）') : CONTRACT_CATEGORY_LABEL[c.category],
-    ]),
-    total: ['合計', '', '', '', '', '', yen(items.reduce((s, c) => s + c.amount, 0)), ''],
-  };
-}
-
 export function quantityProgressTable(model: BudgetModel): SectionTable {
   return {
     columns: [
@@ -456,7 +428,7 @@ export async function buildBudgetReportXlsx(
   // ⑥ 元請けの内訳と数量の進み具合
   const ws6 = sheet(wb, s6, [14, 36, 18, 12, 12, 12, 14, 18], true);
   banner(ws6, '⑥ 元請けの内訳と数量の進み具合', model, meta, '経費・減分は工種に入れず、内訳の金額の合計にだけ数える。数量から＝日報の数量の合計 ÷ 単位が同じ内訳の行の数量の合計。');
-  writeTable(ws6, contractTable(input));
+  writeTable(ws6, contractItemsTable(input.data));
   subHead(ws6, '工種ごとの数量の進み具合');
   writeTable(ws6, quantityProgressTable(model));
 
