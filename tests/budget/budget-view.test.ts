@@ -9,6 +9,7 @@ import {
   percentText,
   profitClass,
   progressBar,
+  statusNote,
   statusTag,
   yenText,
 } from '@/lib/budget/budget-view';
@@ -93,6 +94,15 @@ describe('権限の判定', () => {
   });
 });
 
+describe('判定の注記', () => {
+  it('内訳の識別がまだの工種（見込みあり・none）だけ「内訳の識別がまだです」', () => {
+    expect(statusNote({ status: 'none', forecast: 100, contractItemCount: 0 })).toBe('内訳の識別がまだです');
+    expect(statusNote({ status: 'none', forecast: null, contractItemCount: 0 })).toBeNull();
+    expect(statusNote({ status: 'none', forecast: null, contractItemCount: 2 })).toBeNull();
+    expect(statusNote({ status: 'ok', forecast: 0, contractItemCount: 0 })).toBeNull();
+  });
+});
+
 describe('% の入力', () => {
   it('0〜100、全角・% 可、小数 1 桁まで', () => {
     expect(parsePercentInput('70')).toEqual({ ok: true, value: 70 });
@@ -105,5 +115,13 @@ describe('% の入力', () => {
     expect(parsePercentInput('-1').ok).toBe(false);
     expect(parsePercentInput('abc').ok).toBe(false);
     expect(parsePercentInput('12.34').ok).toBe(false);
+  });
+
+  it('指数・16 進・符号・先頭や末尾の小数点は断る', () => {
+    for (const raw of ['1e2', '1E1', '0x10', '+5', '.5', '5.', 'Infinity', '5 0.0.1', '1_0']) {
+      expect(parsePercentInput(raw).ok, raw).toBe(false);
+    }
+    expect(parsePercentInput(' 5 0 ')).toEqual({ ok: true, value: 50 }); // 空白は除く
+    expect(parsePercentInput('０５')).toEqual({ ok: true, value: 5 });
   });
 });

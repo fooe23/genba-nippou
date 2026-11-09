@@ -73,7 +73,7 @@ function DayList({ days }: { days: TradeDay[] }) {
                   <li key={i} className="break-words">
                     {[l.trade.trim() || '（工種の文字なし）', l.description.trim()].filter(Boolean).join('：')}
                     {l.qty !== null && `　${l.qty} ${l.unit}`}
-                    {`　投入 ${manDaysText(l.manDays)}`}
+                    {`　投入 ${l.manDays === null ? '—' : manDaysText(l.manDays)}`}
                   </li>
                 ))}
               </ul>

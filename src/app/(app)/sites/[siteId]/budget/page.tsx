@@ -1,10 +1,10 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
-import { buildBudgetModel } from '@/lib/budget/budget-model';
+import { buildBudgetModel, unmappedTradeTextsOf } from '@/lib/budget/budget-model';
 import { canOverrideProgress, canViewBudget, manDaysText } from '@/lib/budget/budget-view';
 import { jpDate, todayJst } from '@/lib/calc/format';
-import { loadBudgetModelInput, loadProgressHistory, loadUnmappedTradeTexts } from '@/lib/db/budget';
+import { loadBudgetModelInput, loadProgressHistory } from '@/lib/db/budget';
 import { requireProfile } from '@/lib/db/profile';
 import { getMySiteRole } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
@@ -34,7 +34,8 @@ export default async function BudgetPage({ params }: PageProps<'/sites/[siteId]/
     loadProgressHistory(siteId),
   ]);
   if (!input) notFound();
-  const unmapped = await loadUnmappedTradeTexts(siteId, { trades: input.data.trades, aliases: input.data.aliases });
+  // 割り当てていない工種の文字は、読み込んだ集計の入力（asOf までの日報）から数える（日報を読み直さない）
+  const unmapped = unmappedTradeTextsOf(input);
   const model = buildBudgetModel(input);
   const canOverride = canOverrideProgress(profile, role);
   const unmappedManDays = unmapped.reduce((s, u) => s + u.manDays, 0);

@@ -80,7 +80,7 @@ export async function loadTradeAliases(siteId: string): Promise<TradeAlias[]> {
   return readAliases(supabase, siteId);
 }
 
-/** 履歴から工種ごとの最新の行を選ぶ（rows は set_at の新しい順）。最新が「上書きを消した」（null）なら含めない。 */
+/** 履歴から工種ごとの最新の行を選ぶ（rows は set_at の新しい順、同じ日時は id の順）。最新が「上書きを消した」（null）なら含めない。 */
 function latestProgress(rows: Record<string, unknown>[]): TradeProgress[] {
   const seen = new Set<string>();
   const out: TradeProgress[] = [];
@@ -117,9 +117,11 @@ export async function loadBudgetData(siteId: string): Promise<BudgetData> {
       .order('sort_order', { ascending: true }),
     supabase
       .from('gn_trade_progress')
-      .select('trade_id, percent, set_by, set_at')
+      .select('id, trade_id, percent, set_by, set_at')
       .eq('site_id', siteId)
-      .order('set_at', { ascending: false }),
+      .order('set_at', { ascending: false })
+      // 同じ日時の行は id で並びを固定する（履歴 loadProgressHistory と同じ並び。その先頭を最新とみなす）
+      .order('id', { ascending: true }),
   ]);
   if (items.error) throw new Error(items.error.message);
   if (lines.error) throw new Error(lines.error.message);

@@ -7,6 +7,7 @@ import {
   manDaysText,
   outsideTag,
   profitClass,
+  statusNote,
   statusTag,
   yenText,
   type ProgressHistoryEntry,
@@ -123,6 +124,7 @@ export function BudgetTable({ siteId, model, history, canOverride, readOnly }: B
           <td className={`${td} ${profitClass(t.forecastProfit)}`}>{yenText(t.forecastProfit)}</td>
           <td className={`${td} text-left`}>
             <Tag {...tag} />
+            {statusNote(t) && <span className={smallTextClass}>{statusNote(t)}</span>}
           </td>
         </tr>
         {isOpen && (

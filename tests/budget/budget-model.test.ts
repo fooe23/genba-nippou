@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { apportion, buildBudgetModel, normalizeUnit, type BudgetModel, type TradeRow } from '@/lib/budget/budget-model';
+import { apportion, buildBudgetModel, normalizeUnit, unmappedTradeTextsOf, type BudgetModel, type TradeRow } from '@/lib/budget/budget-model';
 import {
   SP_NONE, SP_PAINT, SP_TWO, T_BLAST, T_PAINT, T_SCAFF, T_SEAL,
   nakanoData, nakanoInput, noAffiliation, own, partner, work,
@@ -380,5 +380,40 @@ describe('buildBudgetModel（Task 4 の見直し）', () => {
   it('asOf の日の日報は数える（その日を含む）', () => {
     const m = buildBudgetModel(nakanoInput({ asOf: '2026-10-20' }));
     expect(day(trade(m, T_BLAST), '2026-10-20')).toMatchObject({ amount: 20000 });
+  });
+});
+
+describe('buildBudgetModel（第 2 段階の見直し）', () => {
+  it('内訳の識別が 1 行も無い工種は、見込みが出ても赤字の見込みにせず none（粗利も null）', () => {
+    const data = nakanoData();
+    data.contractItems = data.contractItems.filter((c) => c.tradeId !== T_BLAST);
+    data.progress = [{ tradeId: T_BLAST, percent: 50, setBy: null, setAt: '2026-10-05T00:00:00Z' }];
+    const blast = trade(buildBudgetModel(nakanoInput({ data })), T_BLAST);
+    expect(blast.contractItemCount).toBe(0);
+    expect(blast.contractAmount).toBe(0);
+    expect(blast.forecast).not.toBeNull();
+    expect(blast).toMatchObject({ forecastProfit: null, status: 'none' });
+  });
+
+  it('内訳の行があれば contractItemCount に数える', () => {
+    const m = buildBudgetModel(nakanoInput());
+    expect(trade(m, T_BLAST).contractItemCount).toBe(2);
+    expect(trade(m, T_SEAL).contractItemCount).toBe(1);
+  });
+
+  it('日の明細の投入人工：空欄は null、区分を持つ', () => {
+    const blank = { ...work({ tradeId: T_BLAST, manDays: 0, description: '空欄' }), manDays: null };
+    const m = buildBudgetModel(nakanoInput({ reports: [{ date: '2026-10-01', lines: [own('A'), blank, work({ tradeId: T_BLAST, manDays: 2 })] }] }));
+    const lines = day(trade(m, T_BLAST), '2026-10-01') as unknown as { lines: { manDays: number | null; changeKind: string }[] };
+    expect(lines.lines.map((l) => l.manDays)).toEqual([null, 2]);
+    expect(lines.lines[0].changeKind).toBe('contract');
+  });
+
+  it('割り当てていない工種の文字は集計の入力から数え、asOf より後の日報は数えない', () => {
+    const input = nakanoInput();
+    input.reports.push({ date: '2026-10-21', lines: [work({ trade: '未来の工種', manDays: 5 })] });
+    const u = unmappedTradeTextsOf(input);
+    expect(u.map((x) => x.text)).toEqual(['片付け（予算外）']);
+    expect(u[0]).toMatchObject({ lineCount: 1, manDays: 1 });
   });
 });

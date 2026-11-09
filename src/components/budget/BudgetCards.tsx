@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import type { TradeRow } from '@/lib/budget/budget-model';
-import { budgetManDaysSummary, manDaysText, outsideTag, profitClass, statusTag, yenText } from '@/lib/budget/budget-view';
+import { budgetManDaysSummary, manDaysText, outsideTag, profitClass, statusNote, statusTag, yenText } from '@/lib/budget/budget-view';
 import { BudgetTable, totalContractNote, type BudgetViewProps } from './BudgetTable';
 import { ProgressOverride } from './ProgressOverride';
 import { TradeDetail } from './TradeDetail';
@@ -40,7 +40,10 @@ function TradeCard({ t, siteId, history, canOverride, readOnly }: { t: TradeRow 
     <li className={cardClass}>
       <div className="flex items-start justify-between gap-2">
         <h3 className="min-w-0 break-words text-base font-bold">{t.name}</h3>
-        <Tag {...tag} />
+        <span className="shrink-0 text-right">
+          <Tag {...tag} />
+          {statusNote(t) && <span className={smallTextClass}>{statusNote(t)}</span>}
+        </span>
       </div>
       <div className="mt-1 text-sm">
         <Line label="内訳の金額">{yenText(t.contractAmount)}</Line>

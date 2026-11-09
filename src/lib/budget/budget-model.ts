@@ -1,7 +1,8 @@
 import { OWN_LABEL, UNKNOWN_PARTNER_LABEL, type SupplierNames } from '@/lib/calc/affiliation';
-import { aliasMap, resolveTradeId, tradesByNameMap } from '@/lib/budget/resolve-trade';
+import { aliasMap, resolveTradeId, tradesByNameMap, unmappedTradeTexts, type UnmappedTradeText } from '@/lib/budget/resolve-trade';
 import { PARTNER_ITEMS, SITE_WIDE_ITEMS, type BudgetData, type BudgetLine, type ContractItem } from '@/lib/budget/types';
 import type { SavedReportLine } from '@/lib/reports/types';
+import type { ChangeKind } from '@/lib/types';
 
 // 予算と実績の集計（純関数。DB・Next に依存しない）。金額・人工はすべて保存値（明細の stored）から計算する。
 //
@@ -36,7 +37,8 @@ import type { SavedReportLine } from '@/lib/reports/types';
 // - used＝上書き ?? 数量から を 0〜100 に収めたもの。
 // 見込み＝実績の金額 ÷ (used / 100)（円に四捨五入）。used が null・0 なら見込み・見込みの粗利は null、判定は 'none'。
 // 判定：見込み > 内訳の金額 → 'loss'、そうでなく見込み > 実行予算 → 'overBudget'、それ以外 → 'ok'（実行予算が内訳の金額
-// より大きくても、内訳の金額を超える見込みは 'loss'）。
+// より大きくても、内訳の金額を超える見込みは 'loss'）。ただし工種に識別した内訳の行が 1 行も無い工種（contractItemCount 0）は
+// 内訳の金額と比べられないので、'loss' の代わりに 'none'、見込みの粗利は null（画面は「内訳の識別がまだです」と添える）。
 // 予算の人工（budgetManDays）：労務・常用の行のうち、単位が「人工」「人」「人日」か空欄の行の数量だけ。
 //
 // 繰越初期値（gn_carryovers。Excel から途中で移したときの作業員ごとの人工・労務費）：工種が分からないので「予算外」の行の
@@ -80,8 +82,10 @@ export interface WorkLineDetail {
   description: string;
   qty: number | null;
   unit: string;
-  /** 投入人工（stored.manDays）。 */
-  manDays: number;
+  /** 投入人工（stored.manDays）。空欄は null（画面は「—」）。 */
+  manDays: number | null;
+  /** 作業内容の区分（契約内・追加・増・変更・減）。 */
+  changeKind: ChangeKind;
 }
 
 export interface TradeDay {
@@ -102,6 +106,8 @@ export interface TradeRow {
   tradeId: string;
   name: string;
   contractAmount: number;
+  /** その工種に識別した元請けの内訳の行の数（0＝内訳の識別がまだ）。 */
+  contractItemCount: number;
   budget: { amount: number; manDays: number; byPerformer: PerformerRow[] };
   actual: { amount: number; manDays: number; byPerformer: PerformerRow[]; qty: number | null; unit: string | null };
   progress: { used: number | null; fromQty: number | null; override: number | null };
@@ -332,7 +338,14 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
       }
       const d = dayOf(bucket, r.date);
       d.workManDays += md;
-      d.lines.push({ trade: l.trade, description: l.description, qty: l.qty, unit: l.unit, manDays: md });
+      d.lines.push({
+        trade: l.trade,
+        description: l.description,
+        qty: l.qty,
+        unit: l.unit,
+        manDays: isBlankManDays(l.manDays) ? null : md,
+        changeKind: l.changeKind,
+      });
       const pu = tradeId === null ? undefined : progressUnit.get(tradeId);
       if (tradeId !== null && pu && l.qty !== null && Number.isFinite(l.qty) && normalizeUnit(l.unit) === pu.unit) {
         d.qty = (d.qty ?? 0) + l.qty;
@@ -480,7 +493,8 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
   const trades: TradeRow[] = orderedTrades.map((t) => {
     const budgetLines = budgetByTrade.get(t.id) ?? [];
     const byPerformer = performerRows(budgetLines, tradeActual.get(t.id), true);
-    const contractAmount = (contractByTrade.get(t.id) ?? []).reduce((s, c) => s + c.amount, 0);
+    const contractItems = contractByTrade.get(t.id) ?? [];
+    const contractAmount = contractItems.reduce((s, c) => s + c.amount, 0);
     const budgetAmount = budgetLines.reduce((s, b) => s + b.amount, 0);
     const budgetManDays = round9(byPerformer.reduce((s, p) => s + (p.budgetManDays ?? 0), 0));
     const actualAmount = byPerformer.reduce((s, p) => s + p.actualAmount, 0);
@@ -498,14 +512,17 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
     let status: TradeRow['status'] = 'none';
     if (used !== null && used > 0) {
       forecast = Math.round(actualAmount / (used / 100));
-      forecastProfit = contractAmount - forecast;
-      status = forecast > contractAmount ? 'loss' : forecast > budgetAmount ? 'overBudget' : 'ok';
+      const hasContract = contractItems.length > 0;
+      forecastProfit = hasContract ? contractAmount - forecast : null;
+      if (forecast > contractAmount) status = hasContract ? 'loss' : 'none';
+      else status = forecast > budgetAmount ? 'overBudget' : 'ok';
     }
 
     return {
       tradeId: t.id,
       name: t.name,
       contractAmount,
+      contractItemCount: contractItems.length,
       budget: { amount: budgetAmount, manDays: budgetManDays, byPerformer },
       actual: { amount: actualAmount, manDays: actualManDays, byPerformer, qty, unit: pu ? pu.label : null },
       progress: { used, fromQty, override },
@@ -568,4 +585,15 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
   };
 
   return { asOf: input.asOf, dailyRate: input.dailyRate, trades, outside, siteWide, total };
+}
+
+/**
+ * まだ工種に決まらない日報の工種の文字（読み替え表の候補）を、集計の入力（asOf までの日報）から数える。
+ * 予算と実績の画面で使う（日報を読み直さない。asOf より後の日報は数えない）。
+ */
+export function unmappedTradeTextsOf(input: Pick<BudgetModelInput, 'data' | 'reports' | 'asOf'>): UnmappedTradeText[] {
+  const lines = input.reports
+    .filter((r) => r.date <= input.asOf)
+    .flatMap((r) => r.lines.flatMap((l) => (l.kind === 'work' ? [{ siteTradeId: l.siteTradeId, trade: l.trade, manDays: l.manDays }] : [])));
+  return unmappedTradeTexts(lines, aliasMap(input.data.aliases), tradesByNameMap(input.data.trades));
 }

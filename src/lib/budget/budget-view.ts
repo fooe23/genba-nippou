@@ -65,6 +65,11 @@ export function statusTag(status: TradeRow['status']): { label: string; tone: Ta
   }
 }
 
+/** 判定の札に添える注記：内訳の識別がまだの工種（見込みはあるが内訳の金額と比べられない）は「内訳の識別がまだです」。 */
+export function statusNote(t: Pick<TradeRow, 'status' | 'forecast' | 'contractItemCount'>): string | null {
+  return t.status === 'none' && t.forecast !== null && t.contractItemCount === 0 ? '内訳の識別がまだです' : null;
+}
+
 /** 予算外の作業の札（実績があれば「追加の請求を検討」）。 */
 export function outsideTag(amount: number): { label: string; tone: TagTone } | null {
   return amount > 0 ? { label: '追加の請求を検討', tone: 'warn' } : null;
@@ -102,13 +107,16 @@ export function canOverrideProgress(
   return siteRole === 'reviewer' || siteRole === 'approver';
 }
 
-/** % の入力の文字 → 0〜100 の数（小数 1 桁まで）。全角・「%」可。 */
+/**
+ * % の入力の文字 → 0〜100 の数（小数 1 桁まで）。全角・「%」・空白可。整えた後は「数字」か「数字.数字 1 桁」だけ
+ * （"1e2"・"0x10"・"+5"・".5"・"5." などは断る）。
+ */
 export function parsePercentInput(raw: string): { ok: true; value: number } | { ok: false; error: string } {
   const t = raw.normalize('NFKC').replace(/[%\s]/g, '');
   const msg = '進み具合は 0〜100 の数で入れてください';
-  if (t === '') return { ok: false, error: msg };
+  if (/^\d+\.\d{2,}$/.test(t)) return { ok: false, error: '進み具合の小数は 1 桁までにしてください' };
+  if (!/^\d+(\.\d)?$/.test(t)) return { ok: false, error: msg };
   const n = Number(t);
   if (!Number.isFinite(n) || n < 0 || n > 100) return { ok: false, error: msg };
-  if (Math.abs(n * 10 - Math.round(n * 10)) > 1e-9) return { ok: false, error: '進み具合の小数は 1 桁までにしてください' };
   return { ok: true, value: n };
 }
