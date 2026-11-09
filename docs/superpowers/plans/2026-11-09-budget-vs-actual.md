@@ -159,4 +159,14 @@
 - [ ] **Step 1〜4:** テスト → 失敗を確認 → 実装 → test・tsc・lint・build
 - [ ] **Step 5: コミット** `feat(budget): 予算と実績の集計 Excel`
 
+### Task 8: 実行予算・内訳と予算と実績の PDF（プレビューと書き出し）（利用者 2026-11-10 追加）
+
+**Files:**
+- Create: `src/lib/pdf/budget-setup-pdf.tsx`（実行予算＝工種ごとの施工者の行・現場全体・合計、元請けの内訳＝当初・変更・識別、予算の標準日当）、`src/lib/pdf/budget-report-pdf.tsx`（予算と実績＝画面の表と同じ列・判定、工種ごとの施工者の明細、予算外・現場全体・合計、作成日時）、`src/app/api/budget/pdf/route.ts`（`?site=&kind=setup|report&disposition=inline|attachment`、社員・管理者だけ、協力会社 403、`maxDuration = 60`、`Cache-Control: no-store`）
+- Modify: `src/lib/pdf-viewer.ts`（`PDF_SRC_PATHS` に `/api/budget/pdf` を足す）、実行予算・内訳の画面と予算と実績の画面に「PDF で見る」（アプリの PDF ビューアー、同じタブ）と「PDF を保存」、ガイド `budget.md`
+- Test: 表の行を作る純関数（`budgetSetupSections`・`budgetReportSections`）と、PDF の生成が Buffer を返す軽いテスト。既存の帳票（`cost-sections.ts` と同じ流儀、A4 縦、Noto Sans JP、行の途中で切れない）。
+
+- [ ] **Step 1〜4:** テスト → 失敗を確認 → 実装 → test・tsc・lint・build
+- [ ] **Step 5: コミット** `feat(budget): 実行予算・内訳と予算と実績の PDF`
+
 **第 3 段階の区切り：** 最終レビュー → push（SQL が要らなければ push だけ）。
