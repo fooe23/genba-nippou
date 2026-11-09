@@ -28,7 +28,7 @@ function storedValues(r: LineRowRead): StoredLineValues {
 }
 
 /** 見出しに保存値つき明細を付ける（明細は 1 回の問い合わせでまとめて読む）。 */
-async function withLines(heads: ReportHead[]): Promise<ReportWithLines[]> {
+export async function withLines(heads: ReportHead[]): Promise<ReportWithLines[]> {
   const lineRows = await fetchReportLineRows(heads.map((h) => h.id));
   const linesById = new Map<string, SavedReportLine[]>(heads.map((h) => [h.id, []]));
   for (const r of lineRows) {

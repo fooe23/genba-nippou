@@ -1,9 +1,14 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import type { BudgetModelInput } from '@/lib/budget/budget-model';
 import { aliasMap, tradesByNameMap, unmappedTradeTexts, type UnmappedTradeText } from '@/lib/budget/resolve-trade';
 import { fetchReportLineRows } from '@/lib/db/export';
+import { listSuppliers } from '@/lib/db/masters';
 import { getCurrentProfile, isEmployeeOrAdmin } from '@/lib/db/profile';
 import { listReportHeads } from '@/lib/db/reports';
+import { withLines } from '@/lib/db/reports-data';
+import { getSettings } from '@/lib/db/settings';
+import { listSitePartners } from '@/lib/db/sites';
 import { fromLineRow } from '@/lib/report/rows';
 import { createServerSupabase } from '@/lib/supabase/server';
 import {
@@ -207,4 +212,30 @@ export async function loadUnmappedTradeTexts(
     return line && line.kind === 'work' ? [line] : [];
   });
   return unmappedTradeTexts(work, aliasMap(aliases), tradesByNameMap(trades));
+}
+
+/**
+ * 予算と実績の集計（buildBudgetModel）の入力：予算一式、現場の全日報（保存済みの全状態）の保存値つき明細（労務の行の
+ * 所属・会社の写しと金額・人工を含む）、予算の標準日当、現場の協力会社（請負金額）、取引先の名前。
+ * asOf（YYYY-MM-DD）までの日報を数えるのは buildBudgetModel。社員・管理者以外（協力会社・未ログイン）には null。
+ */
+export async function loadBudgetModelInput(siteId: string, asOf: string): Promise<BudgetModelInput | null> {
+  const profile = await getCurrentProfile();
+  if (!profile || !isEmployeeOrAdmin(profile)) return null;
+  const [data, heads, settings, sitePartners, suppliers] = await Promise.all([
+    loadBudgetData(siteId),
+    listReportHeads(siteId),
+    getSettings(),
+    listSitePartners(siteId),
+    listSuppliers(),
+  ]);
+  const reports = await withLines(heads);
+  return {
+    data,
+    reports: reports.map((r) => ({ date: r.reportDate, lines: r.lines })),
+    dailyRate: settings.budgetDailyRate,
+    asOf,
+    sitePartners: sitePartners.map((p) => ({ supplierId: p.supplierId, name: p.supplierName, amount: p.amount })),
+    supplierNames: Object.fromEntries(suppliers.map((s) => [s.id, s.name])),
+  };
 }
