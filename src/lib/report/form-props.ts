@@ -17,6 +17,7 @@ import {
   type ReportDetail,
 } from '@/lib/db/reports';
 import { canRequestReportFix, canReviewSite } from '@/lib/report/issue-status';
+import { loadSiteTrades, loadTradeAliases } from '@/lib/db/budget';
 import { getSettings } from '@/lib/db/settings';
 import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-signature';
 import { NO_SIGNATURE, type ClientSignatureView } from '@/lib/report/client-signature';
@@ -144,7 +145,7 @@ export async function loadReportFormProps(
   report: ReportDetail,
 ): Promise<Omit<ReportFormProps, 'readOnly' | 'review'>> {
   const siteId = site.id;
-  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings, role, fixRequests, reportAttachments, signature] = await Promise.all([
+  const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings, role, fixRequests, reportAttachments, signature, siteTrades, tradeAliases] = await Promise.all([
     listReportHeads(siteId),
     getSiteMasters(siteId),
     listWorkers(),
@@ -160,6 +161,9 @@ export async function loadReportFormProps(
     report.head ? listOpenFixRequestsForReport(report.head.id) : Promise.resolve([]),
     report.head ? listAttachmentsForReport(report.head.id) : Promise.resolve<Attachment[]>([]),
     report.head ? loadSignatureView(report.head.id) : Promise.resolve(NO_SIGNATURE),
+    // 実行予算の工種と読み替え表（名前だけ。協力会社を含む現場メンバーが読める）
+    loadSiteTrades(siteId),
+    loadTradeAliases(siteId),
   ]);
   const issueIds = [...openIssues.map((i) => i.id), ...issues.map((i) => i.id)];
   const [attachmentViews, confirmations] = await Promise.all([
@@ -197,6 +201,8 @@ export async function loadReportFormProps(
     weather,
     // 作業員の行の所属（自社／取引先名／所属なし）の表示用。協力会社のアカウントにも見えてよい（1 現場 1 日 1 枚で共有）。
     supplierNames: Object.fromEntries(suppliers.map((s) => [s.id, s.name])),
+    siteTrades,
+    tradeAliases,
   };
 
   const head = report.head;

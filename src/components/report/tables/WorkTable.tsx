@@ -1,14 +1,17 @@
 'use client';
 
 import { productivity, workAmount } from '@/lib/calc/report';
+import type { SiteTrade } from '@/lib/budget/types';
 import type { Issue } from '@/lib/db/reports';
 import { CHANGE_KINDS, CHANGE_KIND_LABELS, INSTRUCTION_METHODS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
 import { issueInstruction, issueInstructionText } from '@/lib/report/issue-instructions';
 import type { WorkLine } from '@/lib/types';
-import { decimal, money, newLine, patchRow, removeRow, row, type Row } from '../form-state';
+import { decimal, isManualRow, money, newLine, patchRow, removeRow, row, selectRow, type Row } from '../form-state';
 import { Computed, fieldClass, NumInput, Select, TextInput, type SelectOption } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
 import { LineIssueCreator } from './LineIssueCreator';
+
+const MANUAL_TRADE = '__manual__';
 
 const methodOptions: SelectOption[] = INSTRUCTION_METHODS.map((m) => ({ value: m, label: INSTRUCTION_METHOD_LABELS[m] }));
 
@@ -24,6 +27,57 @@ function issueOptions(issues: Issue[]): SelectOption[] {
     out.push({ value: i.id, label: `${i.reportDate.slice(5).replace('-', '/')} ${ISSUE_KIND_LABELS[i.kind]} ${head}` });
   }
   return out;
+}
+
+/**
+ * 工種の欄（現場に実行予算の工種があるとき）：工種の選択＋「（手入力）」の文字の欄。
+ * 工種を選ぶと siteTradeId と工種の文字（工種の名前）を入れる。手入力にすると siteTradeId を外し、文字はそのまま直せる。
+ * いまの工種に無い参照の行（工種が消えた下書きなど）は文字の欄と注記を出す（文字を直すと参照を外す）。
+ */
+function TradeCell({
+  line,
+  index,
+  row: r,
+  trades,
+  select,
+}: {
+  line: WorkLine;
+  index: number;
+  row: Row<WorkLine>;
+  trades: SiteTrade[];
+  select: (i: number, patch: Partial<WorkLine>, manual: boolean) => void;
+}) {
+  const known = line.siteTradeId !== null && trades.some((t) => t.id === line.siteTradeId);
+  const stale = line.siteTradeId !== null && !known;
+  const manual = stale || isManualRow(r, line.siteTradeId, line.trade);
+  const options: SelectOption[] = [...trades.map((t) => ({ value: t.id, label: t.name })), { value: MANUAL_TRADE, label: '（手入力）' }];
+  return (
+    <div className="space-y-2">
+      <label className="block">
+        <span className="sr-only">工種（{index + 1}行目）</span>
+        <Select
+          value={line.siteTradeId ?? (manual ? MANUAL_TRADE : '')}
+          options={options}
+          missingLabel="（実行予算に無い工種）"
+          onChange={(v) => {
+            const t = trades.find((x) => x.id === v);
+            if (t) select(index, { siteTradeId: t.id, trade: t.name }, false);
+            else if (v === MANUAL_TRADE) select(index, { siteTradeId: null }, true);
+            else select(index, { siteTradeId: null, trade: '' }, false);
+          }}
+        />
+      </label>
+      {manual && (
+        <label className="block">
+          <span className="sr-only">工種の文字（{index + 1}行目）</span>
+          <TextInput value={line.trade} maxLength={200} placeholder="工種" onChange={(v) => select(index, { trade: v, siteTradeId: null }, true)} />
+        </label>
+      )}
+      {stale && (
+        <p className="text-xs text-amber-800 dark:text-amber-300">選んでいた工種が実行予算にありません。工種を選び直すか、手入力にしてください。</p>
+      )}
+    </div>
+  );
 }
 
 /** 作業内容の行の id（提出を断られたときのスクロール先）。 */
@@ -54,6 +108,7 @@ export function WorkTable({
   reportId,
   onIssueCreated,
   readOnly = false,
+  trades = [],
 }: {
   rows: Row<WorkLine>[];
   onChange: (update: (rows: Row<WorkLine>[]) => Row<WorkLine>[]) => void;
@@ -68,8 +123,12 @@ export function WorkTable({
   onIssueCreated: () => void;
   /** 提出済み・承認済みなど、日報を直せないとき。「この行の件を作る」を出さない。 */
   readOnly?: boolean;
+  /** 現場の実行予算の工種。1 つ以上あれば工種の欄を選択（＋手入力）にする。空なら文字の欄だけ。 */
+  trades?: SiteTrade[];
 }) {
   const set = (i: number, patch: Partial<WorkLine>) => onChange((rs) => patchRow(rs, i, patch));
+  // 工種の選び直しと手入力の文字：「（手入力）」の印（Row.manual）も一緒に付け外しする。
+  const select = (i: number, patch: Partial<WorkLine>, manual: boolean) => onChange((rs) => selectRow(rs, i, patch, manual));
   const unitOptions = units.map((u) => ({ value: u, label: u }));
   const issueChoices = issueOptions(issues);
   const issuesById = new Map(issues.map((x) => [x.id, x]));
@@ -80,7 +139,15 @@ export function WorkTable({
   };
 
   const columns: Column<WorkLine>[] = [
-    { label: '工種', wide: true, cell: (l, i) => <TextInput value={l.trade} maxLength={200} onChange={(v) => set(i, { trade: v })} /> },
+    trades.length > 0
+      ? {
+          label: '工種',
+          wide: true,
+          // 選択と手入力の文字の 2 つの欄になるので、それぞれに label を付ける。
+          input: false,
+          cell: (l, i, r) => <TradeCell line={l} index={i} row={r} trades={trades} select={select} />,
+        }
+      : { label: '工種', wide: true, cell: (l, i) => <TextInput value={l.trade} maxLength={200} onChange={(v) => set(i, { trade: v })} /> },
     {
       label: '区分',
       wide: true,

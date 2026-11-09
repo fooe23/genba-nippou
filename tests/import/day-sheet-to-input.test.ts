@@ -192,4 +192,33 @@ describe('toSaveInput', () => {
     );
     expect(notes).toEqual(['作業内容の 1 行目（大工）は施工内容が空です。保存の前に入れてください']);
   });
+
+  it('作業内容の工種は読み替え表 → 工種名で実行予算の工種に決め、決まらなければ注記して文字のまま', () => {
+    const w = (trade: string) => ({ trade, description: '作業', qty: null, unit: '', manDays: 1, unitPrice: null });
+    const budget = {
+      trades: [{ id: id(41), name: '塗装', sortOrder: 0 }, { id: id(42), name: 'ブラスト', sortOrder: 1 }],
+      aliases: [{ tradeText: 'ブラスト工', tradeId: id(42) }],
+    };
+    const { input, notes } = toSaveInput(parse({ work: [w(' ブラスト工'), w('塗装'), w('足場'), w('')] }), SITE, '2026-11-03', masters, budget);
+    const work = input.lines.filter((l) => l.kind === 'work');
+    expect(work.map((l) => [l.trade, l.siteTradeId])).toEqual([
+      [' ブラスト工', id(42)],
+      ['塗装', id(41)],
+      ['足場', null],
+      ['', null],
+    ]);
+    expect(notes).toEqual(['工種「足場」は実行予算の工種に当てはまらないため、文字のまま取り込みました（工種の欄で選び直せます）']);
+  });
+
+  it('現場に工種が無ければ工種を決めず、注記もしない', () => {
+    const { input, notes } = toSaveInput(
+      parse({ work: [{ trade: '足場', description: '作業', qty: null, unit: '', manDays: 1, unitPrice: null }] }),
+      SITE,
+      '2026-11-03',
+      masters,
+      { trades: [], aliases: [{ tradeText: '足場', tradeId: id(42) }] },
+    );
+    expect(input.lines[0]).toMatchObject({ kind: 'work', siteTradeId: null });
+    expect(notes).toEqual([]);
+  });
 });

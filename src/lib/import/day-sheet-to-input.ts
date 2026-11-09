@@ -1,4 +1,6 @@
 import type { ReportMasters } from '@/components/report/form-state';
+import { aliasMap, resolveTradeId, tradesByNameMap } from '@/lib/budget/resolve-trade';
+import type { SiteTrade, TradeAlias } from '@/lib/budget/types';
 import { jpDate } from '@/lib/calc/format';
 import { rateAt } from '@/lib/calc/rates';
 import type { DaySheetParse } from '@/lib/import/day-sheet';
@@ -8,6 +10,7 @@ import type { ReportLineInput, SaveInput } from '@/lib/report/schema';
 // 1 日分の雛形から読んだ内容 → 日報フォームに流し込む SaveInput（純関数）。
 // 名前は前後の空白を除いた完全一致でマスターと突き合わせる。1 件に決まれば ID とマスターの単価を入れ、
 // 決まらなければ（無い・同名が複数）名前だけの行（作業員・仕入先は「手入力」の行）にして notes に書く。
+// 作業内容の行の工種は、現場の読み替え表 → 工種の名前の完全一致で実行予算の工種（siteTradeId）に決める（工種の文字はそのまま）。
 
 type Match<T> = { kind: 'one'; item: T } | { kind: 'none' } | { kind: 'many' };
 
@@ -27,6 +30,8 @@ export function toSaveInput(
   siteId: string,
   date: string,
   masters: ReportMasters,
+  /** 現場の実行予算の工種と読み替え表（呼び出し側で読んだもの）。省略・工種が空なら工種を決めない。 */
+  budget: { trades: SiteTrade[]; aliases: TradeAlias[] } = { trades: [], aliases: [] },
 ): { input: SaveInput; notes: string[] } {
   const notes = [...parse.notes];
   if (parse.date !== null && parse.date !== date) {
@@ -109,11 +114,18 @@ export function toSaveInput(
     });
   }
 
+  const aliases = aliasMap(budget.aliases);
+  const tradesByName = tradesByNameMap(budget.trades);
+  const hasTrades = budget.trades.length > 0;
   parse.work.forEach((l, i) => {
     if (l.description === '') notes.push(`作業内容の ${i + 1} 行目（${l.trade}）は施工内容が空です。保存の前に入れてください`);
+    const siteTradeId = hasTrades ? resolveTradeId({ siteTradeId: null, trade: l.trade }, aliases, tradesByName) : null;
+    if (hasTrades && siteTradeId === null && l.trade.trim() !== '') {
+      notes.push(`工種「${l.trade.trim()}」は実行予算の工種に当てはまらないため、文字のまま取り込みました（工種の欄で選び直せます）`);
+    }
     lines.push({
       kind: 'work', estimateItemId: null, trade: l.trade, description: l.description, qty: l.qty, unit: l.unit,
-      manDays: l.manDays, unitPrice: l.unitPrice, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null,
+      manDays: l.manDays, unitPrice: l.unitPrice, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId,
     });
   });
 

@@ -2,6 +2,7 @@ import { rateAt, type RateHistory } from '@/lib/calc/rates';
 import { yen } from '@/lib/calc/format';
 import { withoutSaved } from '@/lib/report/rows';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
+import type { SiteTrade, TradeAlias } from '@/lib/budget/types';
 import type { CashLineInput, CreditLineInput, ReportLineInput, SaveInput } from '@/lib/report/schema';
 import type { Affiliation, FuelLine, LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 
@@ -32,6 +33,10 @@ export interface ReportMasters {
   weather: string[];
   /** 取引先 ID → 名前（作業員の行の所属の表示用。無効な取引先も含む）。省略時は名前を出さない。 */
   supplierNames?: Record<string, string>;
+  /** 現場の工種（実行予算の工種。並び順）。作業内容の行の工種の選択肢。省略・空なら工種の欄は手入力だけ。 */
+  siteTrades?: SiteTrade[];
+  /** 現場の読み替え表（日報の工種の文字 → 工種）。1 日分の Excel の取り込みで工種を決めるのに使う。 */
+  tradeAliases?: TradeAlias[];
 }
 
 /** 表の1行。key は React 用、amountMode は現金・買掛の「金額のみ入力」、manual は作業員・買掛の仕入先で「（手入力）」を選んだ印。 */

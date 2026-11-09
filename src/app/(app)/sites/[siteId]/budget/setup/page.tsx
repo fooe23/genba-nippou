@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
-import { loadBudgetData, loadUsedTradeIds } from '@/lib/db/budget';
+import { loadBudgetData, loadUnmappedTradeTexts, loadUsedTradeIds } from '@/lib/db/budget';
 import { listSuppliers } from '@/lib/db/masters';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { getSettings } from '@/lib/db/settings';
 import { getSite } from '@/lib/db/sites';
+import { AliasMapper } from '@/components/budget/AliasMapper';
 import { BudgetLinesEditor } from '@/components/budget/BudgetLinesEditor';
 import { ContractItemsEditor } from '@/components/budget/ContractItemsEditor';
 import { ImportDialog } from '@/components/budget/ImportDialog';
@@ -29,7 +30,10 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
   const [data, suppliers, settings] = await Promise.all([loadBudgetData(siteId), listSuppliers(), getSettings()]);
   // 自社の労務の単価の初期値は全社の設定「予算の標準日当」（現場の常用単価の既定は客先への請求の単価なので使わない）
   const dailyRate = settings.budgetDailyRate;
-  const usedTradeIds = await loadUsedTradeIds(data.trades.map((t) => t.id));
+  const [usedTradeIds, unmapped] = await Promise.all([
+    loadUsedTradeIds(data.trades.map((t) => t.id)),
+    loadUnmappedTradeTexts(siteId, { trades: data.trades, aliases: data.aliases }),
+  ]);
   const allPartners = suppliers.filter((s) => s.isPartner);
   const usedSuppliers = new Set(data.budgetLines.map((l) => l.supplierId).filter((v): v is string => v !== null));
   // 選べるのは有効な協力会社と、いまの予算で使っている会社（無効にした会社も行が消えないように）
@@ -77,6 +81,12 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
         readOnly={readOnly}
       />
       <ContractItemsEditor key={itemsKey} siteId={siteId} trades={data.trades} items={data.contractItems} readOnly={readOnly} />
+      <section aria-labelledby="budget-aliases" className="space-y-3">
+        <h2 id="budget-aliases" className="text-lg font-bold">
+          日報の工種の読み替え
+        </h2>
+        <AliasMapper siteId={siteId} trades={data.trades} aliases={data.aliases} unmapped={unmapped} readOnly={readOnly} />
+      </section>
     </main>
   );
 }

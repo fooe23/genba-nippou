@@ -1,6 +1,10 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { aliasMap, tradesByNameMap, unmappedTradeTexts, type UnmappedTradeText } from '@/lib/budget/resolve-trade';
+import { fetchReportLineRows } from '@/lib/db/export';
 import { getCurrentProfile, isEmployeeOrAdmin } from '@/lib/db/profile';
+import { listReportHeads } from '@/lib/db/reports';
+import { fromLineRow } from '@/lib/report/rows';
 import { createServerSupabase } from '@/lib/supabase/server';
 import {
   BUDGET_ITEMS,
@@ -179,4 +183,28 @@ export async function loadUsedTradeIds(tradeIds: string[]): Promise<string[]> {
     }
   }
   return tradeIds.filter((id) => found.has(id));
+}
+
+/**
+ * まだ工種に決まらない日報の工種の文字（読み替え表の候補）：現場の全日報（保存済みの全状態）の作業内容の行のうち、
+ * 参照・読み替え表・工種名のどれでも決まらないもの。人工の多い順。社員・管理者以外には空。
+ * trades・aliases を渡せば読み直さない（呼び出し側で loadBudgetData 済みのとき）。
+ */
+export async function loadUnmappedTradeTexts(
+  siteId: string,
+  known?: { trades: SiteTrade[]; aliases: TradeAlias[] },
+): Promise<UnmappedTradeText[]> {
+  const profile = await getCurrentProfile();
+  if (!profile || !isEmployeeOrAdmin(profile)) return [];
+  const [heads, trades, aliases] = await Promise.all([
+    listReportHeads(siteId),
+    known ? Promise.resolve(known.trades) : loadSiteTrades(siteId),
+    known ? Promise.resolve(known.aliases) : loadTradeAliases(siteId),
+  ]);
+  const rows = await fetchReportLineRows(heads.map((h) => h.id));
+  const work = rows.flatMap((r) => {
+    const line = fromLineRow(r);
+    return line && line.kind === 'work' ? [line] : [];
+  });
+  return unmappedTradeTexts(work, aliasMap(aliases), tradesByNameMap(trades));
 }

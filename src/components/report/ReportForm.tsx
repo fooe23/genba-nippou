@@ -887,6 +887,7 @@ function ReportFormBody({
           reportId={p.readOnly ? null : p.reportId}
           onIssueCreated={() => router.refresh()}
           readOnly={p.readOnly}
+          trades={p.masters.siteTrades}
         />
 
         <ReportSummary

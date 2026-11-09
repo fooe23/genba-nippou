@@ -184,7 +184,8 @@ export function ImportDaySheet({
     setFileName(file.name);
     setReading(true);
     try {
-      setResult(toSaveInput(await readDayFile(file), siteId, date, masters));
+      const budget = { trades: masters.siteTrades ?? [], aliases: masters.tradeAliases ?? [] };
+      setResult(toSaveInput(await readDayFile(file), siteId, date, masters, budget));
     } catch (err) {
       console.error('[import-day] read', err);
       setError(err instanceof ReadError ? err.message : 'ファイルを読み取れませんでした。1 日分の雛形の Excel か確認してください。');
