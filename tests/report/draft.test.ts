@@ -37,11 +37,17 @@ describe('isValidDraft', () => {
     const old = { ...draft, lines: [work] } as unknown as SaveInput;
     expect(isValidDraft(old, siteId, date)).toBe(true);
     const up = upgradeDraft(old);
-    expect(up.lines[0]).toEqual({ ...work, changeKind: 'contract', instructedBy: '', instructionMethod: null, instructedOn: null, issueId: null });
-    expect(Object.keys(up.lines[0]).slice(-5)).toEqual(['changeKind', 'instructedBy', 'instructionMethod', 'instructedOn', 'issueId']);
+    expect(up.lines[0]).toEqual({ ...work, changeKind: 'contract', instructedBy: '', instructionMethod: null, instructedOn: null, issueId: null, siteTradeId: null });
+    expect(Object.keys(up.lines[0]).slice(-6)).toEqual(['changeKind', 'instructedBy', 'instructionMethod', 'instructedOn', 'issueId', 'siteTradeId']);
     // 入っている値はそのまま
     const filled = upgradeDraft({ ...draft, lines: [{ ...work, changeKind: 'minus', instructedBy: '施主' }] } as unknown as SaveInput);
     expect(filled.lines[0]).toMatchObject({ changeKind: 'minus', instructedBy: '施主', instructionMethod: null });
+  });
+  it('実行予算の工種（siteTradeId）の入った下書きは、その値のまま', () => {
+    const tradeId = '33333333-3333-4333-8333-333333333333';
+    const work = { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地', qty: 1, unit: '', manDays: null, unitPrice: null, source: 'extra', siteTradeId: tradeId };
+    const up = upgradeDraft({ ...draft, lines: [work] } as unknown as SaveInput);
+    expect(up.lines[0]).toMatchObject({ siteTradeId: tradeId, changeKind: 'contract' });
   });
   it('残業単価（overtimeRate）の無い古い下書きも受け付け、読み込み時に null を末尾に足す', () => {
     expect(isValidDraft(draft, siteId, date)).toBe(true); // draft の作業員行には overtimeRate が無い

@@ -37,8 +37,8 @@ export const lines: SavedReportLine[] = [
   { kind: 'cash', itemName: '釘', spec: 'N65', unit: '箱', qty: 1, unitPrice: 1200, vendor: '=ホームセンター', stored: stored(1200) },
   { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 10, unitPrice: 1500, supplierId: 'sp1', vendor: '山田商店', stored: stored(15000) },
   { kind: 'credit', itemName: '金物', spec: '', unit: '式', qty: 1, unitPrice: 800, supplierId: null, vendor: '川村金物', stored: stored(800) },
-  { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地, "1 階"', qty: 20, unit: 'm2', manDays: 2, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, stored: stored(100000, 2) },
-  { kind: 'work', estimateItemId: null, trade: '', description: '片付け', qty: null, unit: '', manDays: 0.5, unitPrice: null, source: 'extra', ...EMPTY_WORK_CHANGE, stored: stored(0, 0.5) },
+  { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地, "1 階"', qty: 20, unit: 'm2', manDays: 2, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, stored: stored(100000, 2) },
+  { kind: 'work', estimateItemId: null, trade: '', description: '片付け', qty: null, unit: '', manDays: 0.5, unitPrice: null, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, stored: stored(0, 0.5) },
 ];
 
 /**
@@ -46,10 +46,10 @@ export const lines: SavedReportLine[] = [
  * withChanges() で通常の明細の後ろに足す。
  */
 export const changeWorkLines: SavedReportLine[] = [
-  { kind: 'work', estimateItemId: null, trade: '大工', description: '棚の追加', qty: 2, unit: '台', manDays: 1, unitPrice: 30000, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'extra', stored: stored(60001, 1) },
-  { kind: 'work', estimateItemId: null, trade: '大工', description: '棚板の増', qty: 1, unit: '枚', manDays: 0.5, unitPrice: 4000, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'increase', stored: stored(4004, 0.5) },
-  { kind: 'work', estimateItemId: null, trade: '建具', description: '窓の変更', qty: 1, unit: '式', manDays: 0.5, unitPrice: 20000, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'change', stored: stored(20002, 0.5) },
-  { kind: 'work', estimateItemId: null, trade: '電気', description: '照明の減', qty: 3, unit: '台', manDays: 0, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'minus', stored: stored(-15003) },
+  { kind: 'work', estimateItemId: null, trade: '大工', description: '棚の追加', qty: 2, unit: '台', manDays: 1, unitPrice: 30000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind: 'extra', stored: stored(60001, 1) },
+  { kind: 'work', estimateItemId: null, trade: '大工', description: '棚板の増', qty: 1, unit: '枚', manDays: 0.5, unitPrice: 4000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind: 'increase', stored: stored(4004, 0.5) },
+  { kind: 'work', estimateItemId: null, trade: '建具', description: '窓の変更', qty: 1, unit: '式', manDays: 0.5, unitPrice: 20000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind: 'change', stored: stored(20002, 0.5) },
+  { kind: 'work', estimateItemId: null, trade: '電気', description: '照明の減', qty: 3, unit: '台', manDays: 0, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind: 'minus', stored: stored(-15003) },
 ];
 
 export const COST_TOTAL = 18001 + 17344 + 0 + 714 + 0 + 3000 + 5000 + 1200 + 15000 + 800;

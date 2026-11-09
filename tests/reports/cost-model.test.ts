@@ -40,7 +40,7 @@ const credit = (supplierId: string | null, vendor: string, cost: number): SavedR
   kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 1, unitPrice: 1, supplierId, vendor, stored: stored(cost),
 });
 const work = (trade: string, description: string, qty: number | null, unit: string, manDays: number, output: number, changeKind: ChangeKind = 'contract'): SavedReportLine => ({
-  kind: 'work', estimateItemId: null, trade, description, qty, unit, manDays, unitPrice: 1, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind, stored: stored(output, manDays),
+  kind: 'work', estimateItemId: null, trade, description, qty, unit, manDays, unitPrice: 1, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind, stored: stored(output, manDays),
 });
 
 /** cost_total・output_total は明細の保存値の合計（DB のトリガーと同じ）。 */

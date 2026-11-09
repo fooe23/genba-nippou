@@ -48,6 +48,8 @@ export interface LineRow {
   labor_contract: LaborContract | null;
   affiliation: Affiliation | null;
   supplier_id: string | null;
+  /** 作業内容の行の実行予算の工種（gn_site_trades.id。null＝選んでいない）。作業内容以外は null（DB も null にする）。 */
+  site_trade_id: string | null;
 }
 
 /** gn_save_report の p_report。 */
@@ -72,7 +74,7 @@ const EMPTY_ROW: Omit<LineRow, 'kind' | 'sort_order'> = {
   km_per_l: null, distance_km: null, price_per_l: null, vendor: null, trade: null, description: null,
   productivity: null, source: null, note: null, overtime_hours: null, overtime_rate: null,
   change_kind: null, instructed_by: null, instruction_method: null, instructed_on: null, issue_id: null,
-  labor_contract: null, affiliation: null, supplier_id: null,
+  labor_contract: null, affiliation: null, supplier_id: null, site_trade_id: null,
 };
 
 function text(v: string | null | undefined): string | null {
@@ -172,6 +174,7 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number,
         instruction_method: line.instructionMethod,
         instructed_on: text(line.instructedOn),
         issue_id: text(line.issueId),
+        site_trade_id: text(line.siteTradeId),
       };
     }
   }
@@ -312,6 +315,8 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         instructionMethod: isInstructionMethod(r.instruction_method) ? r.instruction_method : null,
         instructedOn: rDate(r.instructed_on),
         issueId: rId(r.issue_id),
+        // 列の無い・移行前の行は工種を選んでいない（null）。
+        siteTradeId: rId(r.site_trade_id),
       };
     default:
       return null;
@@ -354,6 +359,8 @@ export function saveErrorMessage(dbMessage: string | null | undefined): string {
   if (m.includes('stale_report')) return STALE_REPORT_MESSAGE;
   if (m.includes('approved_report_locked')) return APPROVED_LOCKED_MESSAGE;
   if (m.includes('not_reviewer')) return 'この現場の確認者・承認者ではありません';
+  // 作業内容の行の工種がこの現場に無い（他の端末で消された・別の現場の工種）。gn_report_lines_trade。
+  if (m.includes('trade_not_in_site')) return '選んだ工種がこの現場の実行予算にありません。画面を再読み込みして選び直してください';
   return '保存に失敗しました。通信状況を確認してもう一度お試しください。';
 }
 

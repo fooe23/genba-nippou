@@ -76,7 +76,7 @@ export const newLine = {
   lease: (): LeaseLine => ({ kind: 'lease', itemId: null, itemName: '', spec: '', unit: '', qty: null, unitPrice: null, note: '' }),
   cash: (): CashLineInput => ({ kind: 'cash', itemName: '', spec: '', unit: '', qty: null, unitPrice: null, vendor: '' }),
   credit: (): CreditLineInput => ({ kind: 'credit', itemName: '', spec: '', unit: '', qty: null, unitPrice: null, supplierId: null, vendor: '' }),
-  work: (): WorkLine => ({ kind: 'work', estimateItemId: null, trade: '', description: '', qty: null, unit: '', manDays: null, unitPrice: null, source: 'extra', ...EMPTY_WORK_CHANGE }),
+  work: (): WorkLine => ({ kind: 'work', estimateItemId: null, trade: '', description: '', qty: null, unit: '', manDays: null, unitPrice: null, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null }),
 };
 
 export function row<L>(line: L): Row<L> {

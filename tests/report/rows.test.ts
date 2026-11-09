@@ -12,14 +12,14 @@ const lines: ReportLine[] = [
   { kind: 'lease', itemId: W, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '' },
   { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'ホームセンター' },
   { kind: 'credit', itemName: 'タイル', spec: '300角', unit: '枚', qty: 50, unitPrice: 250, supplierId: W, vendor: 'ABC建材' },
-  { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra', ...EMPTY_WORK_CHANGE },
+  { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null },
 ];
 
 describe('toLineRows', () => {
   const rows = toLineRows(lines, common, DEFAULT_LABOR_RULE);
-  it('全行が34列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
+  it('全行が35列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
     for (const r of rows) {
-      expect(Object.keys(r)).toHaveLength(34);
+      expect(Object.keys(r)).toHaveLength(35);
       expect(Object.values(r)).not.toContain('');
     }
     expect(rows.map((r) => r.sort_order)).toEqual([0, 1, 2, 3, 4, 5]);
@@ -77,6 +77,25 @@ describe('toLineRows', () => {
   });
 });
 
+describe('作業内容の行の実行予算の工種（site_trade_id）', () => {
+  const T = '44444444-4444-4444-8444-444444444444';
+  const work = lines[5] as WorkLine;
+  it('選んだ工種は site_trade_id で送り、読み戻すと siteTradeId に残る', () => {
+    const row = toLineRow({ ...work, siteTradeId: T }, common, 0, DEFAULT_LABOR_RULE);
+    expect(row.site_trade_id).toBe(T);
+    expect(fromLineRow(row)).toEqual({ ...work, siteTradeId: T });
+  });
+  it('選んでいない行は null。作業内容以外の行も null', () => {
+    const rows = toLineRows(lines, common, DEFAULT_LABOR_RULE);
+    for (const r of rows) expect(r.site_trade_id).toBeNull();
+    expect(fromLineRow(rows[5])).toMatchObject({ siteTradeId: null });
+  });
+  it('列の無い・移行前の行は工種を選んでいない（null）', () => {
+    expect(fromLineRow({ kind: 'work', description: '片付け' })).toMatchObject({ siteTradeId: null });
+    expect(fromLineRow({ kind: 'work', description: '片付け', site_trade_id: '' })).toMatchObject({ siteTradeId: null });
+  });
+});
+
 describe('作業内容の区分・指示（追加・増・変更・減の記録）', () => {
   const ISSUE = '22222222-2222-4222-8222-222222222222';
   const work: WorkLine = {
@@ -100,8 +119,8 @@ describe('作業内容の区分・指示（追加・増・変更・減の記録�
     }
   });
   it('読み戻した作業内容の項目の並びは新しい行（区分などは末尾）と同じ', () => {
-    expect(Object.keys(fromLineRow({ kind: 'work' }) as WorkLine).slice(-6)).toEqual([
-      'source', 'changeKind', 'instructedBy', 'instructionMethod', 'instructedOn', 'issueId',
+    expect(Object.keys(fromLineRow({ kind: 'work' }) as WorkLine).slice(-7)).toEqual([
+      'source', 'changeKind', 'instructedBy', 'instructionMethod', 'instructedOn', 'issueId', 'siteTradeId',
     ]);
   });
 });
@@ -138,6 +157,7 @@ describe('saveErrorMessage', () => {
     expect(saveErrorMessage('site_closed')).toBe('この現場は完了（または削除）されているため変更できません。管理者が進行中に戻すと入力できます。');
     expect(saveErrorMessage('stale_report')).toBe('他の端末で更新されています。画面を再読み込みしてから保存してください。');
     expect(saveErrorMessage('new row violates row-level security')).toContain('保存に失敗しました');
+    expect(saveErrorMessage('trade_not_in_site')).toContain('工種がこの現場の実行予算にありません');
   });
 });
 

@@ -27,8 +27,8 @@ const lines: SavedReportLine[] = [
   { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '', unit: '日', qty: 3, unitPrice: 1000, note: '', stored: stored(3000) },
   { kind: 'cash', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 1200, vendor: '', stored: stored(1200) },
   { kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 10, unitPrice: 1500, supplierId: 'sp1', vendor: '山田商店', stored: stored(15000) },
-  { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地', qty: 20, unit: 'm2', manDays: 2, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, stored: stored(100000, 2) },
-  { kind: 'work', estimateItemId: null, trade: '', description: '片付け', qty: null, unit: '', manDays: 0, unitPrice: 0, source: 'extra', ...EMPTY_WORK_CHANGE, stored: stored(0, 0) },
+  { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地', qty: 20, unit: 'm2', manDays: 2, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, stored: stored(100000, 2) },
+  { kind: 'work', estimateItemId: null, trade: '', description: '片付け', qty: null, unit: '', manDays: 0, unitPrice: 0, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, stored: stored(0, 0) },
 ];
 
 const report = (date: string, status: ReportWithLines['status']): ReportWithLines => {
@@ -72,16 +72,16 @@ const changeLines: SavedReportLine[] = [
   ...lines,
   {
     kind: 'work', estimateItemId: null, trade: '内装', description: 'クロス張替え（2 階洋室）', qty: 30, unit: 'm2', manDays: 1.5, unitPrice: 1200,
-    source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'extra', instructedBy: '施主 〇〇様', instructionMethod: 'oral', instructedOn: '2026-11-01',
+    source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind: 'extra', instructedBy: '施主 〇〇様', instructionMethod: 'oral', instructedOn: '2026-11-01',
     issueId: 'i1', stored: stored(36000, 1.5),
   },
   {
     kind: 'work', estimateItemId: null, trade: '大工', description: '棚の位置変更', qty: 1, unit: '式', manDays: 0.5, unitPrice: 8000,
-    source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'change', instructionMethod: 'phone', stored: stored(8000, 0.5),
+    source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind: 'change', instructionMethod: 'phone', stored: stored(8000, 0.5),
   },
   {
     kind: 'work', estimateItemId: null, trade: '塗装', description: '外壁塗装の一部取りやめ', qty: 10, unit: 'm2', manDays: 0, unitPrice: 2500,
-    source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'minus', instructedBy: '設計 佐藤様', instructionMethod: 'document', instructedOn: '2026-11-04',
+    source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind: 'minus', instructedBy: '設計 佐藤様', instructionMethod: 'document', instructedOn: '2026-11-04',
     stored: stored(-25000, 0),
   },
 ];
@@ -117,7 +117,7 @@ export const settledInput = (): CostReportInput => {
     { ...minus, issueId: 'iM' },
     {
       kind: 'work', estimateItemId: null, trade: '大工', description: '手すり追加', qty: 1, unit: '式', manDays: 0.5, unitPrice: 6000,
-      source: 'extra', ...EMPTY_WORK_CHANGE, changeKind: 'extra', stored: stored(6000, 0.5),
+      source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind: 'extra', stored: stored(6000, 0.5),
     },
   ];
   const issue = (o: Partial<Issue> & Pick<Issue, 'id' | 'body' | 'kind'>): Issue => ({

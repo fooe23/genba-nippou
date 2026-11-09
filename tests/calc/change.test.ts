@@ -6,7 +6,7 @@ import type { ChangeKind, WorkLine } from '@/lib/types';
 function work(changeKind: ChangeKind, qty: number | null, unitPrice: number | null): WorkLine {
   return {
     kind: 'work', estimateItemId: null, trade: '大工', description: '', qty, unit: '㎡', manDays: null, unitPrice, source: 'extra',
-    ...EMPTY_WORK_CHANGE, changeKind,
+    ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind,
   };
 }
 

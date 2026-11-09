@@ -22,6 +22,7 @@ function work(p: Partial<WorkLine>): WorkLine {
     instructionMethod: null,
     instructedOn: null,
     issueId: null,
+    siteTradeId: null,
     ...p,
   };
 }

@@ -113,7 +113,7 @@ export function toSaveInput(
     if (l.description === '') notes.push(`作業内容の ${i + 1} 行目（${l.trade}）は施工内容が空です。保存の前に入れてください`);
     lines.push({
       kind: 'work', estimateItemId: null, trade: l.trade, description: l.description, qty: l.qty, unit: l.unit,
-      manDays: l.manDays, unitPrice: l.unitPrice, source: 'extra', ...EMPTY_WORK_CHANGE,
+      manDays: l.manDays, unitPrice: l.unitPrice, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null,
     });
   });
 

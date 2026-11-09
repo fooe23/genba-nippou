@@ -88,7 +88,7 @@ describe('日報合計', () => {
       { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '' },
       { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'コメリ' },
       { kind: 'credit', itemName: 'タイル', spec: '', unit: '枚', qty: 50, unitPrice: 250, supplierId: null, vendor: 'ABC建材' },
-      { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra', ...EMPTY_WORK_CHANGE },
+      { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null },
     ], common, rule);
     expect(t.workerCount).toBe(2);
     expect(t.laborHours).toBe(12);                 // 8 + 4
@@ -124,7 +124,7 @@ describe('日報合計', () => {
 });
 describe('作業内容の金額（減は負。DB のトリガーと同じ）', () => {
   const work = (changeKind: ChangeKind, qty: number | null, unitPrice: number | null): WorkLine => ({
-    kind: 'work', estimateItemId: null, trade: '大工', description: '', qty, unit: '㎡', manDays: 1, unitPrice, source: 'extra', ...EMPTY_WORK_CHANGE, changeKind,
+    kind: 'work', estimateItemId: null, trade: '大工', description: '', qty, unit: '㎡', manDays: 1, unitPrice, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind,
   });
   it('契約内・追加・変更は 数量 × 単価、減は −(数量 × 単価)', () => {
     expect(lineAmount(work('contract', 10, 1000), common, rule)).toBe(10000);

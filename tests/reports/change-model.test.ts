@@ -42,7 +42,7 @@ const work = (
   const a = (qty ?? 0) * (unitPrice ?? 0);
   return {
     kind: 'work', estimateItemId: null, trade: '内装', description: `${changeKind} の作業`, qty, unit: 'm2', manDays, unitPrice, source: 'extra',
-    ...EMPTY_WORK_CHANGE, changeKind, ...o, stored: stored(changeKind === 'minus' ? -a : a, manDays),
+    ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind, ...o, stored: stored(changeKind === 'minus' ? -a : a, manDays),
   };
 };
 

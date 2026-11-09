@@ -53,3 +53,19 @@ describe('労務の行の常用・請負（laborContract）', () => {
     expect(r.value.lines[0]).not.toHaveProperty('supplierId');
   });
 });
+
+describe('作業内容の行の実行予算の工種（siteTradeId）', () => {
+  const work = (extra: Record<string, unknown>) => ({
+    kind: 'work', estimateItemId: null, trade: '大工', description: '床下地', qty: 1, unit: '㎡', manDays: 1, unitPrice: null, source: 'extra', ...extra,
+  });
+  const T = '44444444-4444-4444-8444-444444444444';
+  it('工種の id はそのまま、空欄・省略（古い下書き）は null', () => {
+    const r = validateReport({ ...base, lines: [work({ siteTradeId: T }), work({ siteTradeId: '' }), work({})] });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.lines.map((l) => (l.kind === 'work' ? l.siteTradeId : 'x'))).toEqual([T, null, null]);
+  });
+  it('id の形でなければエラー', () => {
+    expect(validateReport({ ...base, lines: [work({ siteTradeId: 'abc' })] }).ok).toBe(false);
+  });
+});

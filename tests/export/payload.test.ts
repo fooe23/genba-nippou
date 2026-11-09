@@ -175,7 +175,7 @@ describe('buildExportPayload: マスターの並びと上限', () => {
 
   it('明細が雛形の行数を超える日は rows_overflow（2回目の作業内容だけ 8 行まで）', () => {
     const work = (n: number): ReportLine[] => Array.from({ length: n }, () => ({
-      kind: 'work', estimateItemId: null, trade: '解体', description: '撤去', qty: 1, unit: 'm2', manDays: 1, unitPrice: 100, source: 'extra', ...EMPTY_WORK_CHANGE,
+      kind: 'work', estimateItemId: null, trade: '解体', description: '撤去', qty: 1, unit: 'm2', manDays: 1, unitPrice: 100, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null,
     }));
     const reports = [
       report('2026-11-01', [...work(6), ...Array.from({ length: 11 }, () => labor(null, 'X'))]),
@@ -193,7 +193,7 @@ describe('buildExportPayload: マスターの並びと上限', () => {
   it('作業内容の減の行は数量を負（単価は正）にし、施工内容の頭に【追加】【増】【変更】【減】を付ける（増の数量は正のまま）（雛形の J＝E×I と出来高を揃える）', () => {
     const w = (o: Partial<WorkLine>): WorkLine => ({
       kind: 'work', estimateItemId: null, trade: '内装', description: '石膏ボード', qty: 10, unit: 'm2', manDays: 1, unitPrice: 2000, source: 'extra',
-      ...EMPTY_WORK_CHANGE, ...o,
+      ...EMPTY_WORK_CHANGE, siteTradeId: null, ...o,
     });
     const reports = [report('2026-11-02', [
       w({}),
@@ -407,7 +407,7 @@ describe('buildExportPayload: 日報の項目', () => {
       lease('l1', '発電機', 3000),
       { kind: 'cash', itemName: 'ビス', spec: '50mm', unit: '箱', qty: 1, unitPrice: 500, vendor: 'ホームセンター' },
       { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p1', vendor: '○○建材' },
-      { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE },
+      { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null },
     ], {
       status: 'approved', outputTotal: 50000, costTotal: 10600,
       issuesText: '追加工事の指示あり', issues: ['サッシ追加 2 か所'], notesText: '雨天のため午後中止',
@@ -471,7 +471,7 @@ describe('Python の fixture との形の一致', () => {
       lease('l1', '発電機', 3000),
       { kind: 'cash', itemName: 'ビス', spec: '50mm', unit: '箱', qty: 1, unitPrice: 500, vendor: 'ホームセンター' },
       { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p1', vendor: '○○建材' },
-      { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE },
+      { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null },
     ], { issues: ['件'] });
     const { payload } = buildExportPayload(input({
       reports: [r],

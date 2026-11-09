@@ -54,7 +54,7 @@ function missingWorkChange(l: object): Partial<typeof EMPTY_WORK_CHANGE> {
 
 /**
  * 古い形式の下書きを今の形にそろえる。作業員の行に残業単価（overtimeRate）が無ければ null（標準の計算式）を入れる。
- * 作業内容の行に区分・指示の項目が無ければ既定（契約内・指示なし）を入れる。
+ * 作業内容の行に区分・指示の項目が無ければ既定（契約内・指示なし）を、実行予算の工種が無ければ null（選んでいない）を入れる。
  * 項目は末尾に足す（サーバーから読んだ行と JSON の並びをそろえ、同じ内容なら復元を促さないため）。
  */
 export function upgradeDraft(data: SaveInput): SaveInput {
@@ -62,7 +62,11 @@ export function upgradeDraft(data: SaveInput): SaveInput {
     ...data,
     lines: data.lines.map((l) => {
       if (l.kind === 'labor' && (l as { overtimeRate?: unknown }).overtimeRate === undefined) return { ...l, overtimeRate: null };
-      if (l.kind === 'work') return { ...l, ...missingWorkChange(l) };
+      if (l.kind === 'work') {
+        const up = { ...l, ...missingWorkChange(l) };
+        // 実行予算の工種（2026-11-15）が無い下書きは選んでいない（null）。サーバーから読んだ行と同じく issueId の後ろに足す。
+        return (l as { siteTradeId?: unknown }).siteTradeId === undefined ? { ...up, siteTradeId: null } : up;
+      }
       return l;
     }),
   };

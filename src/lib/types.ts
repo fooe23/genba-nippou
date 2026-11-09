@@ -61,6 +61,8 @@ export interface WorkLine   {
   instructedOn: string | null;
   /** 根拠の件（gn_report_issues.id）。 */
   issueId: string | null;
+  /** 実行予算の工種（gn_site_trades.id）。null＝選んでいない（読み替え表 → 予算外の順で決める）。 */
+  siteTradeId: string | null;
 }
 export type ReportLine = LaborLine | FuelLine | LeaseLine | CashLine | CreditLine | WorkLine;
 export interface ReportTotals { laborHours: number; manDays: number; overtimeHours: number; workerCount: number; labor: number; fuel: number; lease: number; cash: number; credit: number; cost: number; output: number; }

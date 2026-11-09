@@ -202,6 +202,8 @@ const workSchema = z.object({
   instructionMethod: instructionMethodSchema.default(null),
   instructedOn: instructedOnSchema.default(null),
   issueId: refIdSchema.default(null),
+  // 実行予算の工種（gn_site_trades.id）。古い下書きには無い項目なので、省略時は選んでいない（null）。
+  siteTradeId: refIdSchema.default(null),
 });
 
 const lineSchema = z.discriminatedUnion('kind', [laborSchema, fuelSchema, leaseSchema, cashSchema, creditSchema, workSchema], {

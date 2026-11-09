@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］、20 は積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合［update_2026-11-15］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -2241,6 +2241,279 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 19 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 20. 積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合（update_2026-11-15） =====
+  -- 現場 S20（進行中）：A＝協力会社の担当（staff）、B＝協力会社の確認者（reviewer）、C＝社員（初めは割り当てなし）。
+  -- 現場 D20 は完了。会社 P20 は協力会社の印あり、V20 は取引先だけ。
+  declare
+    s20  uuid := '00000000-0000-0000-0000-000000002001';
+    d20  uuid := '00000000-0000-0000-0000-000000002002';
+    p20  uuid := '00000000-0000-0000-0000-000000002011';
+    v20  uuid := '00000000-0000-0000-0000-000000002012';
+    tr1 uuid; tr2 uuid; tr3 uuid; trd uuid; r20 uuid; j jsonb; k int; m int;
+  begin
+    insert into public.gn_sites (id, name, status) values (s20, '検証現場S20', 'active'), (d20, '検証現場D20', 'done');
+    insert into public.gn_site_members (site_id, user_id, role) values (s20, v_a, 'staff'), (s20, v_b, 'reviewer'), (d20, v_a, 'staff');
+    insert into public.gn_suppliers (id, name, is_vendor, is_partner) values (p20, '検証協力会社P20', false, true), (v20, '検証取引先V20', true, false);
+    -- 完了現場の工種（SQL Editor から。RLS の外）
+    insert into public.gn_site_trades (site_id, name) values (d20, '完了現場の工種') returning id into trd;
+
+    -- 20-1 社員は工種をまとめて保存できる（名前の前後の空白は落ちる・並びは配列の順）
+    begin
+      perform pg_temp.as_user(v_c);
+      select public.gn_save_site_trades(s20, '[{"id":null,"name":" 鉄骨工 "},{"id":null,"name":"塗装工"},{"id":null,"name":"足場工"}]'::jsonb) into j;
+      perform pg_temp.as_editor();
+      select id into tr1 from public.gn_site_trades where site_id = s20 and name = '鉄骨工';
+      select id into tr2 from public.gn_site_trades where site_id = s20 and name = '塗装工';
+      select id into tr3 from public.gn_site_trades where site_id = s20 and name = '足場工';
+      if jsonb_array_length(j) = 3 and tr1 is not null and tr2 is not null and tr3 is not null
+         and (select sort_order from public.gn_site_trades where id = tr3) = 2 then
+        rep := rep || E'PASS 20-1 社員は工種をまとめて保存できる（空白は落ちる・並びは配列の順）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-1 結果=%s\n', j); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 20-1 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 20-2 協力会社は工種を変えられない（not_employee・直接の insert も RLS）
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_site_trades(s20, '[{"id":null,"name":"勝手な工種"}]'::jsonb);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-2 協力会社が工種を保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%not_employee%' then rep := rep || E'PASS 20-2 協力会社は工種を保存できない（not_employee）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-2 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_site_trades (site_id, name) values (s20, '勝手な工種');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-2b 協力会社が工種を直接入れられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%row-level security%' then rep := rep || E'PASS 20-2b 協力会社は工種を直接入れられない（RLS）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-2b 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 20-3 社員は読み替え表・実行予算・元請けの内訳を入れられる（金額は round(数量 × 単価)）
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_trade_aliases (site_id, trade_text, trade_id) values (s20, ' ブラスト工 ', tr2);
+      perform public.gn_replace_budget_lines(s20, jsonb_build_array(
+        jsonb_build_object('trade_id', tr1, 'performer', 'own', 'item', 'labor', 'qty', 10, 'unit', '人工', 'unit_price', 25000),
+        jsonb_build_object('trade_id', tr1, 'performer', 'partner', 'supplier_id', p20, 'item', 'jouyou', 'qty', 2.5, 'unit', '人工', 'unit_price', 20001),
+        jsonb_build_object('trade_id', null, 'performer', 'own', 'item', 'material', 'note', '鋼材', 'qty', 1, 'unit', '式', 'unit_price', 300000)));
+      perform public.gn_replace_contract_items(s20, jsonb_build_array(
+        jsonb_build_object('section', 'initial', 'name', '鉄骨建方', 'qty', 12.5, 'unit', 't', 'unit_price', 1001, 'trade_id', tr1, 'category', 'trade'),
+        jsonb_build_object('section', 'initial', 'name', '諸経費', 'qty', 1, 'unit', '式', 'unit_price', 50000, 'category', 'expense')), 'replace');
+      perform public.gn_replace_contract_items(s20, jsonb_build_array(
+        jsonb_build_object('section', 'initial', 'name', '鉄骨建方 増', 'qty', 2, 'unit', 't', 'unit_price', 1001, 'trade_id', tr1, 'category', 'trade')), 'appendChange');
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_trade_aliases where site_id = s20 and trade_text = 'ブラスト工';
+      select count(*), sum(amount) into n2, num from public.gn_budget_lines where site_id = s20;
+      select count(*), sum(amount) into m, num2 from public.gn_contract_items where site_id = s20;
+      select count(*) into k from public.gn_contract_items where site_id = s20 and name = '鉄骨建方 増' and section = 'change' and sort_order = 2;
+      if n = 1 and n2 = 3 and num = 250000 + 50003 + 300000 and m = 3 and num2 = 12513 + 50000 + 2002 and k = 1 then
+        rep := rep || E'PASS 20-3 社員は読み替え表・実行予算・元請けの内訳（入れ替え・変更として足す）を入れられ、金額は round(数量 × 単価)\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-3 読み替え=%s 予算=%s/%s 内訳=%s/%s 変更=%s\n', n, n2, num, m, num2, k); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 20-3 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 20-4 請負・常用の会社は協力会社の印のある会社だけ（not_partner）。組み合わせの違う行は入らない（材料に工種）
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_replace_budget_lines(s20, jsonb_build_array(
+        jsonb_build_object('trade_id', tr1, 'performer', 'partner', 'supplier_id', v20, 'item', 'subcontract', 'qty', 1, 'unit', '式', 'unit_price', 1)));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-4 取引先だけの会社を請負に入れられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%not_partner%' then rep := rep || E'PASS 20-4 請負・常用の会社は協力会社だけ（not_partner）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-4 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_replace_budget_lines(s20, jsonb_build_array(
+        jsonb_build_object('trade_id', tr1, 'performer', 'own', 'item', 'material', 'qty', 1, 'unit', '式', 'unit_price', 1)));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-4b 材料を工種に入れられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%gn_budget_lines_combo_ck%' then rep := rep || E'PASS 20-4b 材料は現場全体だけ（gn_budget_lines_combo_ck）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-4b 想定外: %s\n', sqlerrm); end if;
+    end;
+    select count(*) into n from public.gn_budget_lines where site_id = s20;
+    if n = 3 then rep := rep || E'PASS 20-4c 入れ替えに失敗しても前の実行予算が残る\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 20-4c 予算の行=%s\n', n); end if;
+
+    -- 20-5 協力会社は内訳・実行予算・進み具合を読めない（0 行）。工種と読み替え表は読める
+    insert into public.gn_trade_progress (site_id, trade_id, percent) values (s20, tr1, 40);
+    perform pg_temp.as_user(v_a);
+    select count(*) into n from public.gn_contract_items where site_id = s20;
+    select count(*) into n2 from public.gn_budget_lines where site_id = s20;
+    select count(*) into num from public.gn_trade_progress where site_id = s20;
+    select count(*) into num2 from public.gn_site_trades where site_id = s20;
+    select count(*) into k from public.gn_trade_aliases where site_id = s20;
+    perform pg_temp.as_editor();
+    if n = 0 and n2 = 0 and num = 0 and num2 = 3 and k = 1 then
+      rep := rep || E'PASS 20-5 協力会社は内訳・予算・進み具合を読めず、工種と読み替え表は読める\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 20-5 内訳=%s 予算=%s 進み具合=%s 工種=%s 読み替え=%s\n', n, n2, num, num2, k); end if;
+    perform pg_temp.as_user(v_c);
+    select count(*) into n from public.gn_contract_items where site_id = s20;
+    select count(*) into n2 from public.gn_trade_progress where site_id = s20;
+    perform pg_temp.as_editor();
+    if n = 3 and n2 = 1 then rep := rep || E'PASS 20-5b 社員は内訳・進み具合を読める\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 20-5b 内訳=%s 進み具合=%s\n', n, n2); end if;
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_contract_items (site_id, name, qty, unit_price) values (s20, '勝手な内訳', 1, 1);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-5c 協力会社が内訳を入れられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%row-level security%' then rep := rep || E'PASS 20-5c 協力会社は内訳を入れられない（RLS）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-5c 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 20-6 進み具合の上書き：割り当てのない社員・担当（staff）の社員・協力会社の確認者は不可。社員の確認者・管理者はできる
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_trade_progress (site_id, trade_id, percent) values (s20, tr1, 50);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-6 割り当てのない社員が進み具合を上書きできた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%row-level security%' then rep := rep || E'PASS 20-6 割り当てのない社員は進み具合を上書きできない（RLS）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-6 想定外: %s\n', sqlerrm); end if;
+    end;
+    insert into public.gn_site_members (site_id, user_id, role) values (s20, v_c, 'staff');
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_trade_progress (site_id, trade_id, percent) values (s20, tr1, 50);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-6b 担当（staff）が進み具合を上書きできた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%row-level security%' then rep := rep || E'PASS 20-6b 担当（staff）は進み具合を上書きできない（RLS）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-6b 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_b);
+      insert into public.gn_trade_progress (site_id, trade_id, percent) values (s20, tr1, 50);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-6c 協力会社の確認者が進み具合を上書きできた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%row-level security%' then rep := rep || E'PASS 20-6c 協力会社の確認者は進み具合を上書きできない（RLS）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-6c 想定外: %s\n', sqlerrm); end if;
+    end;
+    update public.gn_site_members set role = 'reviewer' where site_id = s20 and user_id = v_c;
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_trade_progress (site_id, trade_id, percent, set_by) values (s20, tr1, 55, v_admin);
+      perform pg_temp.as_user(v_admin);
+      insert into public.gn_trade_progress (site_id, trade_id, percent) values (s20, tr2, null);
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_trade_progress where trade_id = tr1 and percent = 55 and set_by = v_c;
+      select count(*) into n2 from public.gn_trade_progress where trade_id = tr2 and percent is null and set_by = v_admin;
+      if n = 1 and n2 = 1 then rep := rep || E'PASS 20-6d 社員の確認者と管理者は進み具合を上書き・消せる（入れた人は本人）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-6d 確認者=%s 管理者=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 20-6d エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_trade_progress (site_id, trade_id, percent) values (s20, tr1, 101);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-6e 100 を超える % が入った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%gn_trade_progress_percent_check%' then rep := rep || E'PASS 20-6e % は 0〜100 だけ（gn_trade_progress_percent_check）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-6e 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 20-7 日報の作業内容の行に工種を保存できる（協力会社の担当も）。作業内容以外の行は null。ほかの現場の工種は断る
+    begin
+      perform pg_temp.as_user(v_a);
+      select public.gn_save_report(jsonb_build_object('site_id', s20, 'report_date', '2027-01-10', 'weather', '晴れ'),
+        jsonb_build_array(
+          jsonb_build_object('kind', 'labor', 'sort_order', 1, 'name', '山田', 'unit_price', 20000, 'site_trade_id', tr3),
+          jsonb_build_object('kind', 'work', 'sort_order', 2, 'trade', '鉄骨工', 'description', '建方', 'qty', 3, 'unit', 't', 'site_trade_id', tr1))) into r20;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_lines where report_id = r20 and kind = 'work' and site_trade_id = tr1;
+      select count(*) into n2 from public.gn_report_lines where report_id = r20 and kind = 'labor' and site_trade_id is null;
+      if n = 1 and n2 = 1 then rep := rep || E'PASS 20-7 日報の作業内容の行に工種が残る（作業員の行は null）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-7 作業内容=%s 作業員=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 20-7 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_report(jsonb_build_object('site_id', s20, 'report_date', '2027-01-11', 'weather', '晴れ'),
+        jsonb_build_array(jsonb_build_object('kind', 'work', 'sort_order', 1, 'description', '他現場', 'site_trade_id', trd)));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-7b ほかの現場の工種を保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%trade_not_in_site%' then rep := rep || E'PASS 20-7b ほかの現場の工種は保存できない（trade_not_in_site）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-7b 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 20-8 使われている工種は消せない（日報の行・読み替え表・実行予算＝trade_in_use）。使われていない工種は消せる
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_site_trades(s20, jsonb_build_array(jsonb_build_object('id', tr2, 'name', '塗装工'), jsonb_build_object('id', tr3, 'name', '足場工')));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-8 日報・予算で使っている工種を消せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%trade_in_use%' then rep := rep || E'PASS 20-8 日報・予算で使っている工種は消せない（trade_in_use）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-8 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      delete from public.gn_site_trades where id = tr2;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-8b 読み替え表で使っている工種を消せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%trade_in_use%' then rep := rep || E'PASS 20-8b 読み替え表で使っている工種は消せない（trade_in_use）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-8b 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      select public.gn_save_site_trades(s20, jsonb_build_array(
+        jsonb_build_object('id', tr2, 'name', '塗装工'), jsonb_build_object('id', tr1, 'name', '鉄骨建方工'))) into j;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_site_trades where id = tr3;
+      select count(*) into n2 from public.gn_site_trades where id = tr1 and name = '鉄骨建方工' and sort_order = 1;
+      if jsonb_array_length(j) = 2 and n = 0 and n2 = 1 then rep := rep || E'PASS 20-8c 使われていない工種は消せ、名前と並びを直せる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-8c 消えた?=%s 直った?=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 20-8c エラー: %s\n', sqlerrm);
+    end;
+
+    -- 20-9 完了現場には書けない（関数は site_closed・直接は RLS）
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_site_trades(d20, '[{"id":null,"name":"完了後の工種"}]'::jsonb);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-9 完了現場に工種を保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%site_closed%' then rep := rep || E'PASS 20-9 完了現場には工種を保存できない（site_closed）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-9 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_admin);
+      insert into public.gn_trade_aliases (site_id, trade_text, trade_id) values (d20, '完了後', trd);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-9b 管理者が完了現場の読み替え表を変えられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%row-level security%' then rep := rep || E'PASS 20-9b 完了現場の読み替え表は管理者も変えられない（RLS）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-9b 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_admin);
+      perform public.gn_replace_budget_lines(d20, '[]'::jsonb);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 20-9c 完了現場の実行予算を入れ替えられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%site_closed%' then rep := rep || E'PASS 20-9c 完了現場の実行予算は入れ替えられない（site_closed）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 20-9c 想定外: %s\n', sqlerrm); end if;
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 20 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====
