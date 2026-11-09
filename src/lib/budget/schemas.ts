@@ -47,6 +47,7 @@ function textSchema(label: string, max: number) {
     z.string({ error: `${label}は文字で入力してください` }).trim().max(max, `${label}は${max}文字以内で入力してください`),
   );
 }
+// trim は String.prototype.trim（全角の空白 U+3000 も落とす。DB の btrim は半角の空白だけなので、ここで落としてから送る）。
 function requiredTextSchema(label: string, max: number) {
   return z
     .string({ error: `${label}を入力してください` })

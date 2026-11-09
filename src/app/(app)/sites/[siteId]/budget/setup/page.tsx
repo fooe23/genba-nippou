@@ -52,7 +52,12 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
         <Link href={`/sites/${siteId}`} className="mb-2 inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400">
           ← {site.name}
         </Link>
-        <h1 className="mb-2 text-xl font-bold">実行予算・元請けの内訳</h1>
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4">
+          <h1 className="text-xl font-bold">実行予算・元請けの内訳</h1>
+          <Link href={`/sites/${siteId}/budget`} className="inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400">
+            予算と実績を見る →
+          </Link>
+        </div>
         <p className="text-sm text-gray-700 dark:text-gray-300">
           社内用です（協力会社のアカウントには見えません）。画面で直接入れても、Excel の雛形から取り込んでも同じ中身になります。
         </p>

@@ -18,7 +18,7 @@ export const GUIDE_CHAPTERS: { slug: string; title: string }[] = [
   { slug: 'pdf', title: 'PDF の見方' },
   { slug: 'changes', title: '追加・変更の精算' },
   { slug: 'estimate', title: '積算書の連携（第3計画で追記）' },
-  { slug: 'budget', title: '実行予算と元請けの内訳' },
+  { slug: 'budget', title: '実行予算・予算と実績' },
   { slug: 'photos', title: '写真・資料の添付' },
 ];
 

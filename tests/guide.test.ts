@@ -53,8 +53,8 @@ describe('ガイド', () => {
     expect(html).toContain('プレビュー');
   });
 
-  it('実行予算と元請けの内訳の章が、工種・経費と減分・Excel の取り込み直しに触れている', async () => {
-    expect(GUIDE_CHAPTERS.find((c) => c.slug === 'budget')?.title).toBe('実行予算と元請けの内訳');
+  it('実行予算・予算と実績の章が、工種・経費と減分・Excel の取り込み直し・判定・% の上書きに触れている', async () => {
+    expect(GUIDE_CHAPTERS.find((c) => c.slug === 'budget')?.title).toBe('実行予算・予算と実績');
     const html = await loadChapter('budget');
     expect(html).toContain('工種（識別）');
     expect(html).toContain('経費');
@@ -63,6 +63,10 @@ describe('ガイド', () => {
     expect(html).toContain('変更の行として足す');
     expect(html).toContain('空の雛形');
     expect(html).toContain('予算の標準日当');
+    expect(html).toContain('赤字の見込み');
+    expect(html).toContain('上書きを外す');
+    expect(html).toContain('繰越（工種なし）');
+    expect(html).not.toContain('次の段階');
   });
 
   it('前月繰越の章に必須の3点が入っている', async () => {

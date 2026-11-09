@@ -65,8 +65,21 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
           </>
         )}
       </div>
-      {/* 協力会社と作業員の登録・実行予算と元請けの内訳は社員・管理者だけ（協力会社には出さない）。
-          「予算と実績」の画面（/budget）ができるまでは、実行予算・元請けの内訳の入れ方の画面だけを出す */}
+      {/* 協力会社と作業員の登録・予算と実績・実行予算と元請けの内訳は社員・管理者だけ（協力会社には出さない） */}
+      {isEmployeeOrAdmin(profile) && (
+        <Link
+          href={`/sites/${siteId}/budget`}
+          className="mt-3 flex min-h-14 w-full items-center justify-between gap-3 rounded-lg border-2 border-blue-700 px-4 py-2 text-blue-700 dark:border-blue-400 dark:text-blue-400"
+        >
+          <span className="min-w-0">
+            <span className="block text-base font-bold">予算と実績</span>
+            <span className="block text-sm text-gray-700 dark:text-gray-300">工種ごとの内訳の金額・実行予算・実績・進み具合・見込み</span>
+          </span>
+          <span aria-hidden="true" className="shrink-0 text-xl font-bold">
+            →
+          </span>
+        </Link>
+      )}
       {isEmployeeOrAdmin(profile) && (
         <Link
           href={`/sites/${siteId}/budget/setup`}

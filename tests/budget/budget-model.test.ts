@@ -138,9 +138,10 @@ describe('buildBudgetModel（中野橋）', () => {
     expect(seal).toMatchObject({ forecast: null, forecastProfit: null, status: 'none' });
   });
 
-  it('単位が「式」だけで日報に数量が無い工種は 0 %：見込み null・status none（0 除算しない）', () => {
+  it('単位が「式」だけで日報に数量が無い工種は数量からを出さない：見込み null・status none（0 除算しない）', () => {
     const scaff = trade(m, T_SCAFF);
-    expect(scaff.progress).toEqual({ used: 0, fromQty: 0, override: null });
+    expect(scaff.progress).toEqual({ used: null, fromQty: null, override: null });
+    expect(scaff.actual.qty).toBeNull();
     expect(scaff).toMatchObject({ forecast: null, forecastProfit: null, status: 'none' });
   });
 
@@ -278,5 +279,106 @@ describe('buildBudgetModel（振り分けの細部）', () => {
     expect(blast.actual).toMatchObject({ qty: 50, unit: 'm2' });
     expect(blast.progress.fromQty).toBe(25);
     expect(blast.forecast).toBe(80000);
+  });
+});
+
+describe('buildBudgetModel（繰越初期値）', () => {
+  const W = '00000000-0000-4000-8000-0000000000d1';
+  const withWorker = (date: string, amount: number) => ({
+    date,
+    lines: [{ ...own('甲', amount, 1), workerId: W }, work({ tradeId: T_BLAST, manDays: 1 })],
+  });
+
+  it('繰越が無ければ null', () => {
+    expect(buildBudgetModel(nakanoInput()).outside.carryover).toBeNull();
+  });
+
+  it('予算外の行に「繰越（工種なし）」として別に出し、合計の実績に数える。基準日より前のその作業員の行は数えない', () => {
+    const input = nakanoInput({
+      reports: [withWorker('2026-09-30', 20000), withWorker('2026-10-01', 21000)],
+      carryovers: [
+        { workerId: W, manDays: 12.5, laborCost: 250000, beforeDate: '2026-10-01' },
+        { workerId: '00000000-0000-4000-8000-0000000000d2', manDays: 3, laborCost: 60000, beforeDate: '2026-10-01' },
+      ],
+    });
+    const m = buildBudgetModel(input);
+    expect(m.outside.carryover).toEqual({ manDays: 15.5, amount: 310000 });
+    // 予算外の作業の人工・労務費には入れない
+    expect(m.outside.amount).toBe(0);
+    // 9/30 は繰越の基準日より前なので数えない。10/01 だけブラストへ
+    expect(trade(m, T_BLAST).actual).toMatchObject({ amount: 21000, manDays: 1 });
+    expect(day(trade(m, T_BLAST), '2026-09-30')).toMatchObject({ amount: 0, manDays: 0 });
+    expect(m.total.actualAmount).toBe(21000 + 310000);
+    expect(m.total.actualManDays).toBe(16.5);
+  });
+});
+
+describe('buildBudgetModel（Task 4 の見直し）', () => {
+  const base = (lines: ReturnType<typeof own>[], date = '2026-10-01') => nakanoInput({ reports: [{ date, lines }] });
+
+  it('判定：実行予算が内訳の金額より大きくても、内訳の金額を超える見込みは赤字の見込み', () => {
+    const data = nakanoData();
+    // ブラスト：内訳 2,250,000、実行予算を 3,000,000 に
+    data.budgetLines = data.budgetLines.map((b) => (b.tradeId === T_BLAST && b.item === 'labor' ? { ...b, qty: 150, amount: 3000000 } : b));
+    data.progress = [{ tradeId: T_BLAST, percent: 50, setBy: null, setAt: '2026-10-05T00:00:00Z' }];
+    const blast = (amount: number) =>
+      trade(buildBudgetModel(nakanoInput({ data, reports: [{ date: '2026-10-01', lines: [own('A', amount), work({ tradeId: T_BLAST, manDays: 1 })] }] })), T_BLAST);
+    expect(blast(1200000)).toMatchObject({ forecast: 2400000, status: 'loss' }); // 内訳超え・予算内
+    expect(blast(1000000)).toMatchObject({ forecast: 2000000, status: 'ok' });
+  });
+
+  it('内訳の単位と合う数量の行が無ければ数量からは null（単位違いだけの日報）', () => {
+    const input = base([own('A'), work({ tradeId: T_BLAST, manDays: 1, qty: 20, unit: 'm' })]);
+    const blast = trade(buildBudgetModel(input), T_BLAST);
+    expect(blast.progress).toEqual({ used: null, fromQty: null, override: null });
+    expect(blast.actual.qty).toBeNull();
+    expect(blast.status).toBe('none');
+  });
+
+  it('投入人工が空欄の行は、その日の空欄でない行の平均の重み（すべて空欄なら 1）', () => {
+    const blank = (tradeId: string | null, trade = '') => ({ ...work({ tradeId, trade, manDays: 0 }), manDays: null });
+    // 空欄でない行：塗装 1・予算外 3 → 平均 2。ブラスト（空欄）は 2 → ブラスト 2：塗装 1：予算外 3
+    const m1 = buildBudgetModel(base([own('A', 60000, 3), blank(T_BLAST), work({ tradeId: T_PAINT, manDays: 1 }), work({ trade: '雑', manDays: 3 })]));
+    expect(day(trade(m1, T_BLAST), '2026-10-01')).toMatchObject({ amount: 20000, manDays: 1, workManDays: 0 });
+    expect(day(trade(m1, T_PAINT), '2026-10-01')).toMatchObject({ amount: 10000, manDays: 0.5 });
+    expect(m1.outside).toMatchObject({ amount: 30000, manDays: 1.5 });
+    // すべて空欄 → 1 行 1：ブラスト 1・予算外 1
+    const m2 = buildBudgetModel(base([own('A', 20000, 1), blank(T_BLAST), blank(null, '雑')]));
+    expect(trade(m2, T_BLAST).actual).toMatchObject({ amount: 10000, manDays: 0.5 });
+    expect(m2.outside.amount).toBe(10000);
+  });
+
+  it('予算の人工は単位が人工・人・人日・空欄の労務・常用の行だけ', () => {
+    const data = nakanoData();
+    data.budgetLines = [
+      { id: 'b1', tradeId: T_BLAST, performer: 'own', supplierId: null, item: 'labor', note: '', qty: 10, unit: '人工', unitPrice: 20000, amount: 200000, sortOrder: 1 },
+      { id: 'b2', tradeId: T_BLAST, performer: 'own', supplierId: null, item: 'labor', note: '', qty: 2, unit: '人日', unitPrice: 20000, amount: 40000, sortOrder: 2 },
+      { id: 'b3', tradeId: T_BLAST, performer: 'own', supplierId: null, item: 'labor', note: '', qty: 1, unit: '', unitPrice: 20000, amount: 20000, sortOrder: 3 },
+      { id: 'b4', tradeId: T_BLAST, performer: 'own', supplierId: null, item: 'labor', note: '', qty: 1, unit: '式', unitPrice: 50000, amount: 50000, sortOrder: 4 },
+      { id: 'b5', tradeId: null, performer: 'own', supplierId: null, item: 'labor', note: '', qty: 1, unit: '式', unitPrice: 30000, amount: 30000, sortOrder: 5 },
+    ];
+    const m = buildBudgetModel(nakanoInput({ data }));
+    expect(trade(m, T_BLAST).budget).toMatchObject({ amount: 310000, manDays: 13 });
+    expect(m.outside.budget).toEqual({ amount: 30000, manDays: 0 });
+  });
+
+  it('労務の合計が負（訂正の行）でも振り分けの和は一致', () => {
+    const input = base([own('A', 20000, 1), own('訂正', -30001, -1.5), work({ tradeId: T_BLAST, manDays: 2 }), work({ tradeId: T_PAINT, manDays: 1 })]);
+    const m = buildBudgetModel(input);
+    expect(trade(m, T_BLAST).actual.amount + trade(m, T_PAINT).actual.amount).toBe(-10001);
+    expect(trade(m, T_BLAST).actual.amount).toBe(-6668);
+    expectDaySumsExact(m, input);
+  });
+
+  it('人工が 0.01 刻みでなくても和は元の人工と一致（表示で丸める）', () => {
+    const input = base([own('A', 20000, 0.333), work({ tradeId: T_BLAST, manDays: 1 }), work({ tradeId: T_PAINT, manDays: 1 })]);
+    const m = buildBudgetModel(input);
+    const sum = trade(m, T_BLAST).actual.manDays + trade(m, T_PAINT).actual.manDays;
+    expect(sum).toBeCloseTo(0.333, 9);
+  });
+
+  it('asOf の日の日報は数える（その日を含む）', () => {
+    const m = buildBudgetModel(nakanoInput({ asOf: '2026-10-20' }));
+    expect(day(trade(m, T_BLAST), '2026-10-20')).toMatchObject({ amount: 20000 });
   });
 });

@@ -1,15 +1,16 @@
 import 'server-only';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { BudgetModelInput } from '@/lib/budget/budget-model';
+import type { ProgressHistoryEntry } from '@/lib/budget/budget-view';
 import { aliasMap, tradesByNameMap, unmappedTradeTexts, type UnmappedTradeText } from '@/lib/budget/resolve-trade';
-import { fetchReportLineRows } from '@/lib/db/export';
+import { chunk, fetchAllPages } from '@/lib/calc/paging';
+import { loadProfileNames } from '@/lib/db/export';
 import { listSuppliers } from '@/lib/db/masters';
 import { getCurrentProfile, isEmployeeOrAdmin } from '@/lib/db/profile';
 import { listReportHeads } from '@/lib/db/reports';
 import { withLines } from '@/lib/db/reports-data';
 import { getSettings } from '@/lib/db/settings';
-import { listSitePartners } from '@/lib/db/sites';
-import { fromLineRow } from '@/lib/report/rows';
+import { listCarryovers, listSitePartners } from '@/lib/db/sites';
 import { createServerSupabase } from '@/lib/supabase/server';
 import {
   BUDGET_ITEMS,
@@ -190,6 +191,35 @@ export async function loadUsedTradeIds(tradeIds: string[]): Promise<string[]> {
   return tradeIds.filter((id) => found.has(id));
 }
 
+const REPORT_CHUNK = 200;
+
+/** 日報の作業内容の行の工種の参照・工種の文字・投入人工だけを読む（日報 200 件ずつ、1000 行ずつ）。 */
+async function readWorkTradeLines(
+  reportIds: string[],
+): Promise<{ siteTradeId: string | null; trade: string; manDays: number | null }[]> {
+  if (reportIds.length === 0) return [];
+  const supabase = await createServerSupabase();
+  const pages = await Promise.all(
+    chunk(reportIds, REPORT_CHUNK).map((part) =>
+      fetchAllPages<Record<string, unknown>>(async (from, to) => {
+        const { data, error } = await supabase
+          .from('gn_report_lines')
+          .select('trade, man_days, site_trade_id')
+          .in('report_id', part)
+          .eq('kind', 'work')
+          .order('id', { ascending: true }) // ページ境界で重複・欠落しないよう並びを固定する
+          .range(from, to);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as Record<string, unknown>[];
+      }),
+    ),
+  );
+  return pages.flat().map((r) => {
+    const md = r.man_days === null || r.man_days === undefined || r.man_days === '' ? null : Number(r.man_days);
+    return { siteTradeId: idOrNull(r.site_trade_id), trade: str(r.trade), manDays: md !== null && Number.isFinite(md) ? md : null };
+  });
+}
+
 /**
  * まだ工種に決まらない日報の工種の文字（読み替え表の候補）：現場の全日報（保存済みの全状態）の作業内容の行のうち、
  * 参照・読み替え表・工種名のどれでも決まらないもの。人工の多い順。社員・管理者以外には空。
@@ -206,11 +236,7 @@ export async function loadUnmappedTradeTexts(
     known ? Promise.resolve(known.trades) : loadSiteTrades(siteId),
     known ? Promise.resolve(known.aliases) : loadTradeAliases(siteId),
   ]);
-  const rows = await fetchReportLineRows(heads.map((h) => h.id));
-  const work = rows.flatMap((r) => {
-    const line = fromLineRow(r);
-    return line && line.kind === 'work' ? [line] : [];
-  });
+  const work = await readWorkTradeLines(heads.map((h) => h.id));
   return unmappedTradeTexts(work, aliasMap(aliases), tradesByNameMap(trades));
 }
 
@@ -222,14 +248,16 @@ export async function loadUnmappedTradeTexts(
 export async function loadBudgetModelInput(siteId: string, asOf: string): Promise<BudgetModelInput | null> {
   const profile = await getCurrentProfile();
   if (!profile || !isEmployeeOrAdmin(profile)) return null;
-  const [data, heads, settings, sitePartners, suppliers] = await Promise.all([
+  const [data, heads, settings, sitePartners, suppliers, carryovers] = await Promise.all([
     loadBudgetData(siteId),
     listReportHeads(siteId),
     getSettings(),
     listSitePartners(siteId),
     listSuppliers(),
+    listCarryovers(siteId),
   ]);
-  const reports = await withLines(heads);
+  // asOf より後の日報は数えないので、明細も読まない
+  const reports = await withLines(heads.filter((h) => h.reportDate <= asOf));
   return {
     data,
     reports: reports.map((r) => ({ date: r.reportDate, lines: r.lines })),
@@ -237,5 +265,45 @@ export async function loadBudgetModelInput(siteId: string, asOf: string): Promis
     asOf,
     sitePartners: sitePartners.map((p) => ({ supplierId: p.supplierId, name: p.supplierName, amount: p.amount })),
     supplierNames: Object.fromEntries(suppliers.map((s) => [s.id, s.name])),
+    carryovers,
   };
+}
+
+/**
+ * 工種ごとの進み具合の上書きの履歴（新しい順に perTrade 件まで）。入れた人の氏名は gn_profile_names で読む。
+ * 社員・管理者以外には空。
+ */
+export async function loadProgressHistory(siteId: string, perTrade = 5): Promise<Record<string, ProgressHistoryEntry[]>> {
+  const profile = await getCurrentProfile();
+  if (!profile || !isEmployeeOrAdmin(profile)) return {};
+  const supabase = await createServerSupabase();
+  const rows = await fetchAllPages<Record<string, unknown>>(async (from, to) => {
+    const { data, error } = await supabase
+      .from('gn_trade_progress')
+      .select('id, trade_id, percent, set_by, set_at')
+      .eq('site_id', siteId)
+      .order('set_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(from, to);
+    if (error) throw new Error(error.message);
+    return (data ?? []) as Record<string, unknown>[];
+  });
+  const byTrade: Record<string, Omit<ProgressHistoryEntry, 'setByName'>[]> = {};
+  for (const r of rows) {
+    const list = (byTrade[str(r.trade_id)] ??= []);
+    if (list.length >= perTrade) continue;
+    list.push({
+      percent: r.percent === null || r.percent === undefined ? null : num(r.percent),
+      setBy: idOrNull(r.set_by),
+      setAt: str(r.set_at),
+    });
+  }
+  const ids = Object.values(byTrade).flatMap((list) => list.map((e) => e.setBy).filter((v): v is string => v !== null));
+  const names = await loadProfileNames(ids);
+  return Object.fromEntries(
+    Object.entries(byTrade).map(([tradeId, list]) => [
+      tradeId,
+      list.map((e) => ({ ...e, setByName: e.setBy ? (names[e.setBy] ?? '') : '' })),
+    ]),
+  );
 }

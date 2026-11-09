@@ -182,3 +182,12 @@ describe('工種の名前に使えない名前', () => {
     expect(tradesInputSchema.safeParse([{ id: null, name: '経費調整工' }]).success).toBe(true);
   });
 });
+
+describe('工種の名前の前後の空白', () => {
+  it('全角の空白（U+3000）も落とす', () => {
+    const r = tradesInputSchema.safeParse([{ id: null, name: '　ブラスト　 ' }]);
+    expect(r.success).toBe(true);
+    expect(r.data?.[0]?.name).toBe('ブラスト');
+    expect(tradesInputSchema.safeParse([{ id: null, name: '　　' }]).success).toBe(false);
+  });
+});
