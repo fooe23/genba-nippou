@@ -152,7 +152,24 @@ export async function buildBudgetWorkbook(
   const wb = new ExcelJS.Workbook();
   wb.creator = '現場日報';
   wb.created = new Date();
+  addBudgetTemplateSheets(wb, data, site, partners, { contract: true, hideChoices: false });
+  const out = await wb.xlsx.writeBuffer();
+  return Buffer.from(out as ArrayBuffer);
+}
 
+/**
+ * 雛形のシート（実行予算・［元請けの内訳］・選択肢）を wb の後ろに足す。取り込み（parse-template.ts）はシート名で読むので、
+ * ここで足したシートはそのまま取り込める。
+ * - contract：元請けの内訳のシートも足す（予算と実績の集計 Excel の ⑦ は false。実行予算だけを取り込み直せるように）。
+ * - hideChoices：選択肢のシートを隠す（集計 Excel では補助のシート。プルダウンと工種の並びのために置く）。
+ */
+export function addBudgetTemplateSheets(
+  wb: ExcelJS.Workbook,
+  data: Pick<BudgetData, 'trades' | 'budgetLines'> & Partial<Pick<BudgetData, 'contractItems'>>,
+  site: BudgetTemplateSite,
+  partners: TemplatePartner[],
+  opts: { contract: boolean; hideChoices: boolean },
+): void {
   const trades = [...data.trades].sort((a, b) => a.sortOrder - b.sortOrder);
   const tradeNames = new Map(trades.map((t) => [t.id, t.name]));
   const supplierNames = new Map(partners.map((p) => [p.id, p.name]));
@@ -187,9 +204,36 @@ export async function buildBudgetWorkbook(
   styleRows(wsB, lastB, BUDGET_HEADERS.length, { qty: 5, price: 7, amount: 8 }, budgetAmounts);
 
   // ─── 元請けの内訳 ───
+  const contract = opts.contract ? writeContractSheet(wb, data.contractItems ?? [], site, tradeNames) : null;
+
+  // ─── 選択肢 ───
+  const performerCount = writeChoices(wb, trades, partners, opts.hideChoices);
+
+  const q = `'${SHEET_CHOICES}'`;
+  const perfLast = 1 + Math.max(performerCount, 1);
+  validations(wsB).add(`A${FIRST_DATA_ROW}:A${lastB}`, listValidation(`${q}!$A$2:$A$${CHOICE_LAST_ROW}`, '工種'));
+  validations(wsB).add(`B${FIRST_DATA_ROW}:B${lastB}`, listValidation(`${q}!$B$2:$B$${perfLast}`, '施工者'));
+  validations(wsB).add(`C${FIRST_DATA_ROW}:C${lastB}`, listValidation(`${q}!$C$2:$C$${1 + ITEM_LABELS.length}`, '項目'));
+  if (contract) {
+    const { ws: wsC, lastRow: lastC } = contract;
+    validations(wsC).add(`A${FIRST_DATA_ROW}:A${lastC}`, listValidation(`${q}!$D$2:$D$${1 + SECTION_LABELS.length}`, '区分'));
+    validations(wsC).add(`H${FIRST_DATA_ROW}:H${lastC}`, listValidation(`${q}!$E$2:$E$${CHOICE_LAST_ROW + 1}`, '工種（識別）'));
+  }
+
+  for (const ws of contract ? [wsB, contract.ws] : [wsB]) {
+    ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
+  }
+}
+
+function writeContractSheet(
+  wb: ExcelJS.Workbook,
+  contractItems: ContractItem[],
+  site: BudgetTemplateSite,
+  tradeNames: Map<string, string>,
+): { ws: ExcelJS.Worksheet; lastRow: number } {
   const wsC = wb.addWorksheet(SHEET_CONTRACT, { properties: { tabColor: { argb: 'FF047857' } } });
   writeHeader(wsC, `${siteBanner(site, '元請けの内訳')}　経費・減分は工種に入れず、内訳の金額の合計にだけ数えます`, CONTRACT_HEADERS, [8, 36, 18, 10, 8, 12, 14, 16]);
-  const items = [...data.contractItems].sort((a, b) => a.sortOrder - b.sortOrder);
+  const items = [...contractItems].sort((a, b) => a.sortOrder - b.sortOrder);
   const contractAmounts = new Map<number, number>();
   items.forEach((it, i) => {
     const r = FIRST_DATA_ROW + i;
@@ -205,9 +249,15 @@ export async function buildBudgetWorkbook(
   });
   const lastC = FIRST_DATA_ROW + items.length + SPARE_ROWS - 1;
   styleRows(wsC, lastC, CONTRACT_HEADERS.length, { qty: 4, price: 6, amount: 7 }, contractAmounts);
+  return { ws: wsC, lastRow: lastC };
+}
 
-  // ─── 選択肢 ───
-  const wsO = wb.addWorksheet(SHEET_CHOICES, { properties: { tabColor: { argb: 'FF6B7280' } } });
+/** 選択肢のシートを足す。施工者の欄の数（自社・—・協力会社）を返す。 */
+function writeChoices(wb: ExcelJS.Workbook, trades: BudgetData['trades'], partners: TemplatePartner[], hidden: boolean): number {
+  const wsO = wb.addWorksheet(SHEET_CHOICES, {
+    properties: { tabColor: { argb: 'FF6B7280' } },
+    ...(hidden ? { state: 'hidden' as const } : {}),
+  });
   CHOICE_HEADERS.forEach((h, i) => {
     const c = wsO.getCell(1, i + 1);
     c.value = h;
@@ -240,19 +290,5 @@ export async function buildBudgetWorkbook(
     'A 列の 3 行目から下が工種です（ここで足す・並べ替えると、取り込みでその順になります）。名前を変えるとアプリでは別の工種として足されます（名前の変更はアプリの画面で）。';
   wsO.getCell(1, 7).alignment = { wrapText: true, vertical: 'top' };
   wsO.getColumn(7).width = 50;
-
-  const q = `'${SHEET_CHOICES}'`;
-  const perfLast = 1 + Math.max(performers.length, 1);
-  validations(wsB).add(`A${FIRST_DATA_ROW}:A${lastB}`, listValidation(`${q}!$A$2:$A$${CHOICE_LAST_ROW}`, '工種'));
-  validations(wsB).add(`B${FIRST_DATA_ROW}:B${lastB}`, listValidation(`${q}!$B$2:$B$${perfLast}`, '施工者'));
-  validations(wsB).add(`C${FIRST_DATA_ROW}:C${lastB}`, listValidation(`${q}!$C$2:$C$${1 + ITEM_LABELS.length}`, '項目'));
-  validations(wsC).add(`A${FIRST_DATA_ROW}:A${lastC}`, listValidation(`${q}!$D$2:$D$${1 + SECTION_LABELS.length}`, '区分'));
-  validations(wsC).add(`H${FIRST_DATA_ROW}:H${lastC}`, listValidation(`${q}!$E$2:$E$${CHOICE_LAST_ROW + 1}`, '工種（識別）'));
-
-  for (const ws of [wsB, wsC]) {
-    ws.pageSetup = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0 };
-  }
-
-  const out = await wb.xlsx.writeBuffer();
-  return Buffer.from(out as ArrayBuffer);
+  return performers.length;
 }

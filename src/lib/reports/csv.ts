@@ -4,11 +4,18 @@ const NEEDS_QUOTE = /[",\t\r\n]/;
 /** Excel が数式として読む先頭の文字。 */
 const FORMULA_START = /^[=+\-@\t\r]/;
 
+/**
+ * 数式の注入を防ぐ：= + - @ タブ CR で始まる文字列（"-5" など数値の文字列を除く）の先頭に ' を付ける
+ * （Excel は先頭の ' を「文字列」の印として扱う）。CSV と、予算と実績の集計 Excel で使う。
+ */
+export function neutralizeFormula(v: string): string {
+  return FORMULA_START.test(v) && !Number.isFinite(Number(v)) ? `'${v}` : v;
+}
+
 function cell(v: string | number | null): string {
   if (v === null) return '';
   if (typeof v === 'number') return String(v);
-  // 数式の注入を防ぐ：Excel は先頭の ' を「文字列」の印として扱う（"-5" など数値の文字列はそのまま）。
-  const s = FORMULA_START.test(v) && !Number.isFinite(Number(v)) ? `'${v}` : v;
+  const s = neutralizeFormula(v);
   return NEEDS_QUOTE.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
 }
 

@@ -109,7 +109,8 @@ export interface TradeRow {
   /** その工種に識別した元請けの内訳の行の数（0＝内訳の識別がまだ）。 */
   contractItemCount: number;
   budget: { amount: number; manDays: number; byPerformer: PerformerRow[] };
-  actual: { amount: number; manDays: number; byPerformer: PerformerRow[]; qty: number | null; unit: string | null };
+  /** qty・unit は進み具合の単位の日報の施工数量、contractQty はその単位の内訳の数量（当初＋変更。数量からの分母。単位が無ければ null）。 */
+  actual: { amount: number; manDays: number; byPerformer: PerformerRow[]; qty: number | null; unit: string | null; contractQty: number | null };
   progress: { used: number | null; fromQty: number | null; override: number | null };
   forecast: number | null;
   forecastProfit: number | null;
@@ -524,7 +525,7 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
       contractAmount,
       contractItemCount: contractItems.length,
       budget: { amount: budgetAmount, manDays: budgetManDays, byPerformer },
-      actual: { amount: actualAmount, manDays: actualManDays, byPerformer, qty, unit: pu ? pu.label : null },
+      actual: { amount: actualAmount, manDays: actualManDays, byPerformer, qty, unit: pu ? pu.label : null, contractQty: pu ? pu.denominator : null },
       progress: { used, fromQty, override },
       forecast,
       forecastProfit,

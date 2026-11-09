@@ -55,6 +55,16 @@ export default async function BudgetPage({ params }: PageProps<'/sites/[siteId]/
             実行予算・元請けの内訳 →
           </Link>
         </div>
+        <div className="my-2 flex flex-wrap gap-2">
+          {/* 集計 Excel（7 シート。社内用）。ダウンロード */}
+          <a
+            href={`/api/budget/report?site=${encodeURIComponent(siteId)}`}
+            download
+            className="inline-flex min-h-11 items-center rounded-lg border border-blue-700 px-4 font-bold text-blue-700 dark:border-blue-400 dark:text-blue-400"
+          >
+            Excel に書き出す
+          </a>
+        </div>
         <p className="text-sm text-gray-700 dark:text-gray-300">
           工期全体・{jpDate(asOf)} 時点（{jpDate(asOf)} までの日報）。社内用です（協力会社のアカウントには見えません）。
         </p>
