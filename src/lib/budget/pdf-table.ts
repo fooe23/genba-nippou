@@ -92,16 +92,20 @@ export function squash(s: string): string {
 
 /**
  * 数の文字を読む（「1,305,000」「¥1,305,000」「1,305,000円」「１２３」）。「△」「▲」「−」「-」が頭にあれば負、
- * 「(1,000)」も負。空欄は null、数でなければ NaN。
+ * 「(1,000)」も負（括弧の中が金額らしい＝カンマがあるか 3 桁以上のときだけ。「(2)」のような番号・備考は数にしない）。
+ * 空欄は null、数でなければ NaN。
  */
 export function parseAmount(raw: string): number | null {
-  let s = raw.normalize('NFKC').replace(/[,\s¥￥円\\]/g, '');
-  if (s === '') return null;
+  let s = raw.normalize('NFKC').replace(/[\s¥￥円\\]/g, '');
+  if (s.replace(/,/g, '') === '') return null;
   let neg = false;
   if (/^\(.*\)$/.test(s)) {
+    const inner = s.slice(1, -1);
+    if (!inner.includes(',') && (inner.match(/\d/g) ?? []).length < 3) return Number.NaN;
     neg = true;
-    s = s.slice(1, -1);
+    s = inner;
   }
+  s = s.replace(/,/g, '');
   if (/^[△▲▽▼−‐‑–—ー―-]/.test(s)) {
     neg = !neg;
     s = s.slice(1);
@@ -125,13 +129,20 @@ export function isUnitText(s: string): boolean {
   return UNIT_RE.test(squash(s));
 }
 
-/** 「450㎡」「1式」のような数と単位のくっついた文字を分ける（分けられなければ null）。 */
-function splitQtyUnit(s: string): { qty: number; unit: string } | null {
-  const m = squash(s).match(/^([△▲−-]?[\d,]+(?:\.\d+)?)(\D{1,4})$/);
-  if (!m || !isUnitText(m[2])) return null;
-  const qty = parseAmount(m[1]);
-  if (qty === null || Number.isNaN(qty)) return null;
-  return { qty, unit: m[2] };
+/**
+ * 「450㎡」「12.5m3」「3式」のような数と単位のくっついた文字を分ける（分けられなければ null）。
+ * 単位は数字で始まらない末尾（「m2」のように数字を含んでもよい）。まず書かれたまま（「㎡」を残す）、
+ * だめなら全角を半角にして（「４５０㎡」→「450m2」）試す。
+ */
+export function splitQtyUnit(s: string): { qty: number; unit: string } | null {
+  for (const v of [s.replace(/\s+/g, ''), squash(s)]) {
+    const m = v.match(/^([△▲−-]?[\d.,]+)(\D\S{0,3})$/);
+    if (!m || !isUnitText(m[2])) continue;
+    const qty = parseAmount(m[1]);
+    if (qty === null || Number.isNaN(qty)) continue;
+    return { qty, unit: m[2] };
+  }
+  return null;
 }
 
 // ─── 行とセル ───
@@ -372,7 +383,16 @@ export function extractTable(pages: PdfTextItem[][]): PdfTable {
 
 // ─── 候補 ───
 
-const TOTAL_RE = /(総合計|合計|総計|税込|消費税)/;
+const TOTAL_RE = /(総合計|合計|総計)/;
+/** 消費税・税込の行（「消費税」「消費税等(10%)」「税込金額」）。名称が短いときだけ合計とみる（「税込み処理費」は明細）。 */
+const TAX_TOTAL_RE = /^(地方)?(消費税|税込)(及び地方消費税|等|額|金額|合計|計|相当額)*$/;
+const TAX_TEXT_MAX = 8;
+
+function isTaxTotal(text: string): boolean {
+  // 括弧の中（税率など）・数・記号は除いて比べる
+  const t = text.replace(/[(（][^)）]*[)）]/g, '').replace(/[\d.%％:：]/g, '');
+  return t.length <= TAX_TEXT_MAX && TAX_TOTAL_RE.test(t);
+}
 const SUBTOTAL_RE = /(小計|中計)/;
 const BRACKET_RE = /^[【［\[〔＜<《≪(（].*[】］\]〕＞>》≫)）]$/;
 const CHANGE_RE = /(変更|増減|追加変更)/;
@@ -439,7 +459,7 @@ function completeGuess(g: CandidateGuess): CandidateGuess {
 function kindOf(cells: string[], g: CandidateGuess): CandidateKind {
   if (cells.every((c) => c.trim() === '')) return 'blank';
   const text = squash(cells.filter((c) => !isNumeric(c)).join(''));
-  if (TOTAL_RE.test(text)) return 'total';
+  if (TOTAL_RE.test(text) || isTaxTotal(squash(g.name) || text)) return 'total';
   if (SUBTOTAL_RE.test(text) || /^(計|.*[】）)\]]計)$/.test(text) || /(^|\s)計$/.test(g.name.trim())) return 'subtotal';
   const hasNumbers = g.qty !== null || g.unitPrice !== null || g.amount !== null;
   if (!hasNumbers) return 'heading';

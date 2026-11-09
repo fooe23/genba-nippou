@@ -363,6 +363,11 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
           <p className="text-sm text-gray-700 dark:text-gray-300">
             見出し・小計・合計の行は初めから「取り込む」を外しています。2 行に分かれた明細や、読み違えた行は、ここで直してください。金額は数量 × 単価で計算し直します。
           </p>
+          {mode === 'appendChange' && (
+            <p role="status" className="text-sm font-medium text-amber-800 dark:text-amber-300">
+              すべて変更として足します（行ごとの区分は使いません。取り込み方は下で切り替えられます）。
+            </p>
+          )}
           <ul className="space-y-2">
             {rows.map((r, i) => {
               const label = `PDF の${i + 1}行目`;
@@ -390,19 +395,22 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
                   ) : (
                     <>
                       <div className="flex gap-2">
-                        <select
-                          aria-label={`${label}の区分`}
-                          value={r.section}
-                          disabled={pending}
-                          onChange={(e) => update(r.key, { section: e.target.value as ContractSection })}
-                          className={`${inputClass} w-24 shrink-0`}
-                        >
-                          {CONTRACT_SECTIONS.map((s) => (
-                            <option key={s} value={s}>
-                              {CONTRACT_SECTION_LABEL[s]}
-                            </option>
-                          ))}
-                        </select>
+                        {/* 「変更の行として足す」では区分は使わない（全部「変更」になる）ので選ばせない */}
+                        {mode !== 'appendChange' && (
+                          <select
+                            aria-label={`${label}の区分`}
+                            value={r.section}
+                            disabled={pending}
+                            onChange={(e) => update(r.key, { section: e.target.value as ContractSection })}
+                            className={`${inputClass} w-24 shrink-0`}
+                          >
+                            {CONTRACT_SECTIONS.map((s) => (
+                              <option key={s} value={s}>
+                                {CONTRACT_SECTION_LABEL[s]}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         <select
                           aria-label={`${label}の工種（識別）`}
                           value={r.tag}

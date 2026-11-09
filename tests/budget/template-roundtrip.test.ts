@@ -42,6 +42,7 @@ function sample(): BudgetData {
       line({ tradeId: T_TOSOU, performer: 'partner', supplierId: P_MARU, item: 'subcontract', note: '上塗 450㎡', qty: 1, unit: '式', unitPrice: 400000 }),
       line({ tradeId: T_TOSOU, performer: 'partner', supplierId: P_SANKAKU, item: 'jouyou', note: '応援', qty: 5, unit: '人工', unitPrice: 22000 }),
       line({ tradeId: T_TOSOU, performer: 'own', supplierId: null, item: 'labor', note: '下塗〜上塗', qty: 45, unit: '人工', unitPrice: 20000 }),
+      line({ tradeId: null, performer: 'own', supplierId: null, item: 'labor', note: '予算外の応援', qty: 3, unit: '人工', unitPrice: 20000 }),
       line({ tradeId: null, performer: 'own', supplierId: null, item: 'material', note: '塗料・剥離剤・研削材', qty: 1, unit: '式', unitPrice: 800000 }),
       line({ tradeId: null, performer: 'own', supplierId: null, item: 'lease', note: 'ブラスト機・発電機', qty: 2, unit: '月', unitPrice: 150000 }),
       line({ tradeId: null, performer: 'own', supplierId: null, item: 'other', note: '燃料・宿泊', qty: 1, unit: '式', unitPrice: 100000 }),
@@ -140,6 +141,7 @@ describe('実行予算・元請けの内訳の雛形：書き出し → 取り�
       })),
     };
     expect(shape(back)).toEqual(shape(data));
+    expect(parsed.warnings).toEqual(['工種なしの労務・請負・常用 1 行は予算外の予算になります']);
     expect(parsed.trades).toContain('足場（予算なし）'); // 予算・内訳に出てこない工種も残る
     expect(parsed.hasBudgetSheet).toBe(true);
     expect(parsed.hasContractSheet).toBe(true);
@@ -170,6 +172,10 @@ describe('実行予算・元請けの内訳の雛形：書き出し → 取り�
     expect([1, 2, 3, 4, 5, 6, 7, 8].map((i) => c.getRow(2).getCell(i).value)).toEqual([
       '区分', '名称', '規格・仕様', '数量', '単位', '単価', '金額', '工種（識別）',
     ]);
+    // 工種なしの労務（予算外の予算）は工種を空欄、材料は「（現場全体）」
+    expect(b.getCell('A8').value).toBeNull();
+    expect(b.getCell('C8').value).toBe('労務');
+    expect(b.getCell('A9').value).toBe('（現場全体）');
     expect(b.getCell('A3').dataValidation?.type).toBe('list');
     expect(b.getCell('B3').dataValidation?.type).toBe('list');
     expect(c.getCell('H3').dataValidation?.type).toBe('list');
@@ -210,16 +216,34 @@ describe('取り込みの誤り（行番号つき）', () => {
       ['塗装', '〇〇塗装', '労務', '', 1, '人工', 20000], // 3 行目：労務に協力会社
       ['塗装', '自社', '請負', '', 1, '式', 1], // 4 行目：請負に自社
       ['塗装', '—', '材料', '', 1, '式', 1], // 5 行目：材料に工種
-      ['（現場全体）', '自社', '労務', '', 1, '人工', 1], // 6 行目：労務に工種なし
+      ['塗装', '〇〇塗装', '常用', '', 1, '人工', 1], // 6 行目：正しい（下の確認では使わない）
       ['塗装', '自社', '手当', '', 1, '式', 1], // 7 行目：項目が無い
       ['（現場全体）', '—', '材料', '', 1, '式', 500], // 8 行目：正しい
     ]);
-    expect(parsed.errors.map((e) => e.row)).toEqual([3, 4, 5, 6, 7]);
+    parsed.budgetLines = parsed.budgetLines.filter((l) => l.row !== 6);
+    expect(parsed.errors.map((e) => e.row)).toEqual([3, 4, 5, 7]);
     expect(parsed.errors.every((e) => e.sheet === '実行予算')).toBe(true);
     expect(parsed.errors[0].message).toContain('労務は自社');
     expect(parsed.errors[2].message).toContain('現場全体');
     expect(parsed.budgetLines).toHaveLength(1);
     expect(parsed.budgetLines[0]).toMatchObject({ row: 8, tradeName: null, item: 'material', performer: 'own', supplierId: null });
+  });
+
+  it('工種が空欄の労務・請負・常用は予算外の予算として取り込み、確認の画面で知らせる', async () => {
+    const parsed = await withBudgetRows([
+      ['', '自社', '労務', '応援', 2, '人工', 20000],
+      ['', '〇〇塗装', '請負', '', 1, '式', 50000],
+      ['塗装', '自社', '労務', '', 1, '人工', 20000],
+    ]);
+    expect(parsed.errors).toEqual([]);
+    expect(parsed.budgetLines.map((l) => [l.tradeName, l.item])).toEqual([
+      [null, 'labor'],
+      [null, 'subcontract'],
+      ['塗装', 'labor'],
+    ]);
+    expect(parsed.warnings).toEqual(['工種なしの労務・請負・常用 2 行は予算外の予算になります']);
+    const plain = await withBudgetRows([['塗装', '自社', '労務', '', 1, '人工', 20000]]);
+    expect(plain.warnings).toEqual([]);
   });
 
   it('自社の労務の単価が空欄なら設定日当、設定が無ければ誤り', async () => {

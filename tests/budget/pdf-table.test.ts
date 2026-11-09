@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildCandidates, extractTable, hasNoText, parseAmount, parsePdfTable, type PdfTextItem } from '@/lib/budget/pdf-table';
+import { buildCandidates, extractTable, hasNoText, parseAmount, parsePdfTable, splitQtyUnit, type PdfTextItem } from '@/lib/budget/pdf-table';
 
 // 文字の幅：全角 10、半角 5（文字の高さ 10）。
 function width(s: string): number {
@@ -74,6 +74,10 @@ describe('parseAmount', () => {
     expect(parseAmount('−3')).toBe(-3);
     expect(parseAmount('-1,000')).toBe(-1000);
     expect(parseAmount('(1,000)')).toBe(-1000);
+    expect(parseAmount('(500)')).toBe(-500);
+    // 括弧の中が金額らしくない（カンマなし・2 桁まで）なら番号・備考として数にしない
+    expect(parseAmount('(2)')).toBeNaN();
+    expect(parseAmount('（12）')).toBeNaN();
     expect(parseAmount('')).toBeNull();
     expect(parseAmount('  ')).toBeNull();
     expect(parseAmount('式')).toBeNaN();
@@ -180,6 +184,48 @@ describe('2 行に分かれた明細', () => {
     expect(candidates).toHaveLength(1);
     expect(candidates[0]).toMatchObject({ kind: 'item', include: true });
     expect(candidates[0].guess).toMatchObject({ name: 'ケレン 3種', qty: 200, unit: '㎡', unitPrice: 1000 });
+  });
+});
+
+describe('splitQtyUnit', () => {
+  it('数と単位のくっついた文字（NFKC で「m2」「m3」になる単位も）', () => {
+    expect(splitQtyUnit('450㎡')).toEqual({ qty: 450, unit: '㎡' });
+    expect(splitQtyUnit('４５０㎡')).toEqual({ qty: 450, unit: 'm2' });
+    expect(splitQtyUnit('12.5m3')).toEqual({ qty: 12.5, unit: 'm3' });
+    expect(splitQtyUnit('12.5㎥')).toEqual({ qty: 12.5, unit: '㎥' });
+    expect(splitQtyUnit('3式')).toEqual({ qty: 3, unit: '式' });
+    expect(splitQtyUnit('1,200 m')).toEqual({ qty: 1200, unit: 'm' });
+    expect(splitQtyUnit('3あいう')).toBeNull();
+    expect(splitQtyUnit('450')).toBeNull();
+  });
+
+  it('数量の列の「450㎡」を数量と単位に分ける', () => {
+    const roles = ['name', 'qty', 'unitPrice', 'amount'] as const;
+    const [c] = buildCandidates({ rows: [{ cells: ['ケレン', '450㎡', '1,000', '450,000'], page: 1, y: 0, height: 10 }] }, [...roles]);
+    expect(c.guess).toMatchObject({ qty: 450, unit: '㎡', unitPrice: 1000 });
+  });
+});
+
+describe('合計の行の見分け', () => {
+  const roles = ['name', 'qty', 'unit', 'unitPrice', 'amount'] as const;
+  const kind = (name: string, unit = '', qty = '', price = '', amount = '100,000') =>
+    buildCandidates({ rows: [{ cells: [name, qty, unit, price, amount], page: 1, y: 0, height: 10 }] }, [...roles])[0].kind;
+
+  it('短い「消費税」「税込金額」は合計', () => {
+    expect(kind('消費税')).toBe('total');
+    expect(kind('消費税等(10%)')).toBe('total');
+    expect(kind('税込金額')).toBe('total');
+    expect(kind('合計')).toBe('total');
+  });
+
+  it('「税込み処理費」のような明細は合計にしない', () => {
+    expect(kind('税込み処理費', '式', '1', '100,000')).toBe('item');
+    expect(kind('消費税の還付に伴う事務手数料', '式', '1', '100,000')).toBe('item');
+  });
+
+  it('備考の「(2)」は負の数にしない', () => {
+    const [c] = buildCandidates({ rows: [{ cells: ['足場 (2)', '10', '㎡', '1,000', '10,000'], page: 1, y: 0, height: 10 }] }, [...roles]);
+    expect(c.guess).toMatchObject({ name: '足場 (2)', qty: 10, unitPrice: 1000, amount: 10000 });
   });
 });
 

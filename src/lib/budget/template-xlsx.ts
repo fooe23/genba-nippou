@@ -191,7 +191,9 @@ export function addBudgetTemplateSheets(
           ? NO_PERFORMER_LABEL
           : OWN_LABEL;
     const row = wsB.getRow(r);
-    row.getCell(1).value = l.tradeId === null ? SITE_WIDE_LABEL : tradeName(tradeNames, l.tradeId);
+    // 工種なしの労務・請負・常用（予算外の予算）は工種を空欄にする（「（現場全体）」は材料・リース・その他だけ）
+    row.getCell(1).value =
+      l.tradeId !== null ? tradeName(tradeNames, l.tradeId) : SITE_WIDE_ITEMS.includes(l.item) ? SITE_WIDE_LABEL : null;
     row.getCell(2).value = performer;
     row.getCell(3).value = BUDGET_ITEM_LABEL[l.item];
     row.getCell(4).value = l.note;

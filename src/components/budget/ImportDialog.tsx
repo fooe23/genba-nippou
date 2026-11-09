@@ -204,6 +204,13 @@ export function ImportDialog({
               </ul>
             </div>
           )}
+          {parsed.warnings.length > 0 && (
+            <ul className="space-y-1 text-sm font-medium text-amber-800 dark:text-amber-300">
+              {parsed.warnings.map((w) => (
+                <li key={w}>{w}</li>
+              ))}
+            </ul>
+          )}
           <NameList title="足す工種" names={diff.addTrades} />
           <NameList title="消す工種（Excel に無く、どこでも使われていない）" names={diff.removeTrades} />
           <NameList title="Excel に無い工種（使用中のため残します）" names={diff.keptMissingTrades} tone="warn" />

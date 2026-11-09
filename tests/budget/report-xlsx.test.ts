@@ -65,9 +65,9 @@ describe('予算と実績の集計 Excel', () => {
   });
 
   it('⑦ を取り込むと同じ予算（内訳は変えない）', async () => {
-    // 雛形の取り込みは工種の無い労務の行（予算外の予算）を受け付けないので、この例からは外す（既存の制約）
+    // 工種の無い労務の行（予算外の予算）も、工種を空欄にして書き出し・取り込みで戻る
     const base = nakanoData();
-    base.budgetLines = base.budgetLines.filter((l) => !(l.tradeId === null && l.item === 'labor'));
+    expect(base.budgetLines.some((l) => l.tradeId === null && l.item === 'labor')).toBe(true);
     const input = nakanoInput({ data: base });
     const buf = await buildBudgetReportXlsx(input, meta, partners);
     const parsed = parseBudgetWorkbook(new Uint8Array(buf), { partners, dailyRate: input.dailyRate });

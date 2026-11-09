@@ -69,6 +69,8 @@ export interface ParsedBudgetWorkbook {
   budgetLines: ParsedBudgetLine[];
   contractItems: ParsedContractItem[];
   errors: ParseError[];
+  /** 取り込みは止めないが、確認の画面で知らせること。 */
+  warnings: string[];
   /** 実行予算・元請けの内訳のシートがあったか（無いシートは取り込みで変えない）。 */
   hasBudgetSheet: boolean;
   hasContractSheet: boolean;
@@ -228,10 +230,6 @@ function parseBudgetSheet(grid: Grid, opts: ParseOptions, errors: ParseError[]):
         fail(tooLong);
         continue;
       }
-    }
-    if (tradeName === null && !SITE_WIDE_ITEMS.includes(item)) {
-      fail(`${BUDGET_ITEM_LABEL[item]}の行は工種を選んでください`);
-      continue;
     }
 
     let performer: BudgetPerformer = 'own';
@@ -393,5 +391,9 @@ export function parseBudgetWorkbook(buf: ArrayBuffer | Uint8Array, opts: ParseOp
   for (const name of [...budgetLines.map((l) => l.tradeName), ...contractItems.map((i) => i.tradeName)]) {
     if (name !== null && !trades.includes(name)) trades.push(name);
   }
-  return { trades, budgetLines, contractItems, errors, hasBudgetSheet: budgetGrid !== null, hasContractSheet: contractGrid !== null };
+  const warnings: string[] = [];
+  // 工種が空欄（または「（現場全体）」）の労務・請負・常用は、工種に入らない「予算外の予算」として取り込む
+  const noTrade = budgetLines.filter((l) => l.tradeName === null && !SITE_WIDE_ITEMS.includes(l.item)).length;
+  if (noTrade > 0) warnings.push(`工種なしの労務・請負・常用 ${noTrade} 行は予算外の予算になります`);
+  return { trades, budgetLines, contractItems, errors, warnings, hasBudgetSheet: budgetGrid !== null, hasContractSheet: contractGrid !== null };
 }
