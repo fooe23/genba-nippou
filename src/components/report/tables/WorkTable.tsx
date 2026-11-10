@@ -85,7 +85,7 @@ function SubField({ label, children }: { label: string; children: React.ReactNod
 
 /**
  * 作業内容（出来高）の表。歩掛 = 施工数量 ÷ 投入人工、合計金額 = 施工数量 × 施工単価。
- * 区分が追加・増・変更・減の行は、行の下に指示者・指示方法・指示日・根拠の件の欄を出す（契約内に戻しても値は消さず、欄を隠すだけ）。
+ * 区分が追加・増・変更・減の行は、行の下に「精算が必要」の印と、指示者・指示方法・指示日・根拠の件の欄を出す（契約内に戻しても値は消さず、欄を隠すだけ）。
  * 根拠の件を選んだ行は、指示者・指示方法・指示日を件から入れ、欄の代わりに「指示：…（件から）」を出す（2026-11-08）。
  */
 export function WorkTable({
@@ -178,6 +178,13 @@ export function WorkTable({
         const linkedIssue = l.issueId ? issuesById.get(l.issueId) : undefined;
         return (
           <div role="group" aria-label={`${i + 1}行目の${CHANGE_KIND_LABELS[l.changeKind]}の指示`}>
+            {/* 契約外の行（あとで件ごとに精算する）を目立たせる。 */}
+            <p className="mb-2 flex flex-wrap items-center gap-2 text-sm">
+              <span className="rounded-full border border-amber-600 bg-amber-100 px-2.5 py-0.5 font-bold text-amber-900 dark:border-amber-400 dark:bg-amber-900 dark:text-amber-50">
+                精算が必要
+              </span>
+              <span className="text-gray-700 dark:text-gray-300">契約外（{CHANGE_KIND_LABELS[l.changeKind]}）の作業です。</span>
+            </p>
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               {linkedIssue ? null : (
                 <>

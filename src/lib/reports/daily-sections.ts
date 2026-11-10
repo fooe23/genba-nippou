@@ -2,6 +2,7 @@ import type { ChangeTotals } from '@/lib/calc/change';
 import { weekday } from '@/lib/calc/calendar';
 import { jpDateTime } from '@/lib/calc/format';
 import { ISSUE_STATUS_LABELS, withChangeKindPrefix } from '@/lib/report/change-labels';
+import { outputBreakdown } from '@/lib/report/contract-work';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
 import type { DailyClientConfirmation, DailyHeader, DailyReportModel, DailyWorkRow } from '@/lib/reports/types';
 import type { LineKind, TimeSpec } from '@/lib/types';
@@ -60,6 +61,21 @@ function signedYen(n: number): string {
 /** 「追加 +x／増 +y／変更 +z／減 −w」（保存値の合計。DailyReportModel.work.changes）。 */
 export function changeTotalsText(t: ChangeTotals): string {
   return `追加 ${signedYen(t.extra)}／増 ${signedYen(t.increase)}／変更 ${signedYen(t.change)}／減 ${signedYen(t.minus)}`;
+}
+
+/** 本日出来高の表の、契約外（追加・増・変更・減）の合計の見出し。 */
+export const SETTLEMENT_OUTPUT_LABEL = '追加・変更（精算が必要）(円)';
+
+/** 0 でない区分の [表示名, 金額]（追加・増・変更・減の順。null は空）。 */
+function changeParts(t: ChangeTotals | null): [string, number][] {
+  if (!t) return [];
+  const parts: [string, number][] = [
+    ['追加', t.extra],
+    ['増', t.increase],
+    ['変更', t.change],
+    ['減', t.minus],
+  ];
+  return parts.filter(([, v]) => v !== 0);
 }
 
 /** 客先確認の欄の見出し。 */
@@ -145,6 +161,7 @@ export function dailyTables(m: DailyReportModel): Record<
   });
   const w = m.workers;
   const c = m.costs;
+  const split = outputBreakdown(m.output.today, m.work.changes);
   return {
     workers: {
       columns: [
@@ -201,8 +218,12 @@ export function dailyTables(m: DailyReportModel): Record<
     ),
     output: {
       columns: [text('項目', 3), num('値', 2)],
+      // 本日出来高は「契約内」と「追加・変更（精算が必要。減は負）」に分け、区分ごとの内訳（0 の区分は出さない）と合計を出す（日報画面と同じ）。
       rows: [
-        ['本日出来高(円)', yen(m.output.today)],
+        ['契約内の出来高(円)', yen(split.contract)],
+        [SETTLEMENT_OUTPUT_LABEL, signedYen(split.changes)],
+        ...changeParts(m.work.changes).map(([label, v]): Cell[] => [`　うち${label}`, signedYen(v)]),
+        ['本日出来高 合計(円)', yen(split.total)],
         ['累計出来高(円)', yen(m.output.cumulative)],
         ...(m.output.tentative
           ? [

@@ -1,7 +1,9 @@
 import type { ChangeTotals } from '@/lib/calc/change';
 import { yen } from '@/lib/calc/format';
 import { progressRate } from '@/lib/calc/report';
+import { outputBreakdown } from '@/lib/report/contract-work';
 import type { ReportTotals } from '@/lib/types';
+import { ContractWorkWarning } from './ContractWorkWarning';
 import { decimal, money } from './form-state';
 
 function Line({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
@@ -31,7 +33,7 @@ function changeText(c: ChangeTotals): string | null {
 }
 
 /**
- * 本日原価集計（5項目と合計）・本日出来高・進捗率（この日までの累計出来高 ÷ 総請負金額）。
+ * 本日原価集計（5項目と合計）・本日出来高（契約内／追加・変更（精算が必要）／合計）・進捗率（この日までの累計出来高 ÷ 総請負金額）。
  * 契約が未確定の現場は「総請負金額（未確定）」と「概算金額」を出す（進捗率の基準は請負金額のまま。日報 PDF と同じ）。
  */
 export function ReportSummary({
@@ -42,6 +44,7 @@ export function ReportSummary({
   tentative = false,
   estimatedAmount = null,
   showMoney,
+  workWarning = null,
 }: {
   totals: ReportTotals;
   /** 作業内容の区分ごとの金額（減は負）。 */
@@ -54,12 +57,16 @@ export function ReportSummary({
   estimatedAmount?: number | null;
   /** 請負金額・概算金額・進捗率を出すか（社員・管理者だけ true。協力会社は行ごと出さない）。 */
   showMoney: boolean;
+  /** 作業内容が無い・契約外だけの日の知らせ（編集できる画面だけ。1 行で出す）。 */
+  workWarning?: string | null;
 }) {
   const cumulative = outputBefore + totals.output;
   const changeLine = changeText(changes);
+  const split = outputBreakdown(totals.output, changes);
   const rate = showMoney && contractAmount ? progressRate(cumulative, contractAmount) * 100 : null;
   return (
     <section aria-label="本日の集計" className="mb-8 grid gap-4 md:grid-cols-2">
+      <ContractWorkWarning message={workWarning} variant="line" className="md:col-span-2" />
       <div className="rounded-lg border border-gray-300 p-3 dark:border-gray-700">
         <h2 className="mb-1 text-lg font-bold">本日原価集計</h2>
         <dl>
@@ -85,13 +92,15 @@ export function ReportSummary({
       <div className="rounded-lg border border-gray-300 p-3 dark:border-gray-700">
         <h2 className="mb-1 text-lg font-bold">出来高</h2>
         <dl>
-          <Line label="本日出来高" value={money(totals.output)} />
-          {changeLine && (
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3 py-1 text-sm">
-              <dt>本日の追加・増・変更・減</dt>
-              <dd className="font-bold tabular-nums">{changeLine}</dd>
-            </div>
-          )}
+          <Line label="契約内の出来高" value={money(split.contract)} />
+          {/* 契約外（追加・増・変更・減）は区分ごとに出す（減は負）。あとで件ごとに精算する分。 */}
+          <div
+            className={`flex flex-wrap items-baseline justify-between gap-x-3 py-1 ${changeLine ? 'rounded bg-amber-50 px-1 text-amber-950 dark:bg-amber-950 dark:text-amber-50' : ''}`}
+          >
+            <dt>追加・変更（精算が必要）</dt>
+            <dd className="font-bold tabular-nums">{changeLine ?? 'なし'}</dd>
+          </div>
+          <Line label="本日出来高 合計" value={money(split.total)} />
           <Line label="累計出来高（この日まで）" value={money(cumulative)} />
           {showMoney && (
             <>
