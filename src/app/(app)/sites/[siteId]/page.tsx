@@ -5,6 +5,7 @@ import { todayJst } from '@/lib/calc/format';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { listOpenIssues, listReportHeads } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
+import { siteForViewer, siteSubline, siteTitle } from '@/lib/sites/display';
 import { ReportCalendar } from '@/components/site/ReportCalendar';
 import { SiteStatusButton } from '@/components/site/SiteStatusButton';
 import { SiteSummary } from '@/components/site/SiteSummary';
@@ -18,9 +19,12 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
   const profile = await requireProfile();
   const { siteId } = await params;
   if (!isUuid(siteId)) notFound();
-  const site = await getSite(siteId);
+  const found = await getSite(siteId);
   // 削除済みの現場は管理者にも出さない（管理 → 現場 → 「削除済み」でだけ扱う）。
-  if (!site || site.deletedAt !== null) notFound();
+  if (!found || found.deletedAt !== null) notFound();
+  // 請負金額などのお金の項目は社員・管理者だけ。協力会社には画面に渡す前に落とす（サマリーの進捗率も「—」になる）。
+  const showAmount = isEmployeeOrAdmin(profile);
+  const site = siteForViewer(found, showAmount);
   const done = site.status === 'done';
   const [heads, issues] = await Promise.all([listReportHeads(siteId), listOpenIssues(siteId)]);
   const today = todayJst();
@@ -34,14 +38,14 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
         {done ? '← 完了現場' : '← ホーム'}
       </Link>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <h1 className="text-xl font-bold">{site.name}</h1>
+        <h1 className="text-xl font-bold">{siteTitle(site)}</h1>
         {done && (
           <span className="rounded border border-blue-400 bg-blue-50 px-2 py-0.5 text-sm font-bold text-blue-900 dark:border-blue-600 dark:bg-blue-950 dark:text-blue-50">
             完了（閲覧のみ）
           </span>
         )}
       </div>
-      {site.clientName && <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">{site.clientName}</p>}
+      <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">{siteSubline(site, { showAmount })}</p>
 
       <div className="mt-4">
         <SiteSummary site={site} heads={heads} today={today} issues={issues} />

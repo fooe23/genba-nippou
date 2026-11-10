@@ -1,7 +1,8 @@
 import Link from 'next/link';
-import { jpDateTime, yen } from '@/lib/calc/format';
+import { jpDateTime } from '@/lib/calc/format';
 import { requireAdmin } from '@/lib/db/profile';
 import { listDeletedSites, listMySites } from '@/lib/db/sites';
+import { contractAmountText, siteSubline, siteTitle } from '@/lib/sites/display';
 import { AdminNav } from '@/components/accounts/AdminNav';
 import { EmptyText } from '@/components/masters/common';
 import { LIST_FILTER_LABELS, type ListFilter } from '@/components/sites/labels';
@@ -73,9 +74,9 @@ export default async function SitesPage({ searchParams }: PageProps<'/admin/site
                 className={`flex min-h-14 items-center justify-between gap-3 border-b border-gray-300 px-1 py-2 dark:border-gray-700 ${rowLinkClass}`}
               >
                 <span className="min-w-0">
-                  <span className={`block truncate font-bold ${linkTitleClass}`}>{s.name}</span>
+                  <span className={`block truncate font-bold ${linkTitleClass}`}>{siteTitle(s)}</span>
                   <span className="block truncate text-sm text-gray-600 dark:text-gray-400">
-                    {s.clientName ?? '客先未設定'}
+                    {siteSubline(s, { showAmount: false })}
                   </span>
                   <span className="block text-sm text-gray-600 dark:text-gray-400">
                     削除 {s.deletedAt ? jpDateTime(s.deletedAt) : ''}
@@ -95,13 +96,14 @@ export default async function SitesPage({ searchParams }: PageProps<'/admin/site
                 className={`flex min-h-14 items-center justify-between gap-3 border-b border-gray-300 px-1 py-2 dark:border-gray-700 ${rowLinkClass}`}
               >
                 <span className="min-w-0">
-                  <span className={`block truncate font-bold ${linkTitleClass}`}>{s.name}</span>
+                  <span className={`block truncate font-bold ${linkTitleClass}`}>{siteTitle(s)}</span>
                   <span className="block truncate text-sm text-gray-600 dark:text-gray-400">
-                    {s.clientName ?? '客先未設定'}
+                    {siteSubline(s, { showAmount: false })}
                   </span>
                 </span>
                 <span className="flex shrink-0 items-center gap-1 text-sm font-medium">
-                  {s.contractAmount === null ? '' : yen(s.contractAmount)}
+                  {/* 請負金額は右の列のまま（管理者だけの画面なので 2 行目には重ねない） */}
+                  {contractAmountText(s.contractAmount)}
                   <Chevron />
                 </span>
               </Link>

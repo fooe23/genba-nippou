@@ -1,8 +1,9 @@
 import Link from 'next/link';
 import { todayJst } from '@/lib/calc/format';
-import { requireProfile } from '@/lib/db/profile';
+import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { listTodayStatus } from '@/lib/db/reports';
 import { listMyMemberSiteIds, listMySites, type Site } from '@/lib/db/sites';
+import { siteForViewer, siteSubline, siteTitle } from '@/lib/sites/display';
 import { STATUS_COLOR, STATUS_LABEL, STATUS_ORDER, type DayStatus } from '@/components/site/status';
 import { Chevron, linkTitleClass, rowLinkClass } from '@/components/ui/tappable';
 
@@ -13,7 +14,7 @@ interface SiteCard {
   status: DayStatus;
 }
 
-function SiteCards({ cards, today }: { cards: SiteCard[]; today: string }) {
+function SiteCards({ cards, today, showAmount }: { cards: SiteCard[]; today: string; showAmount: boolean }) {
   return (
     <ul className="space-y-3">
       {cards.map(({ site, status }) => (
@@ -21,10 +22,8 @@ function SiteCards({ cards, today }: { cards: SiteCard[]; today: string }) {
           <Link href={`/sites/${site.id}`} className={`block min-h-14 rounded-t-lg p-3 ${rowLinkClass}`}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <p className={`truncate text-lg font-bold ${linkTitleClass}`}>{site.name}</p>
-                {site.clientName && (
-                  <p className="truncate text-sm text-gray-600 dark:text-gray-400">{site.clientName}</p>
-                )}
+                <p className={`truncate text-lg font-bold ${linkTitleClass}`}>{siteTitle(site)}</p>
+                <p className="truncate text-sm text-gray-600 dark:text-gray-400">{siteSubline(site, { showAmount })}</p>
                 <p className="mt-1 text-sm text-blue-700 dark:text-blue-400">現場の詳細・カレンダーを開く</p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
@@ -54,7 +53,9 @@ export default async function HomePage() {
   const today = todayJst();
   // RLS により、社員・管理者は全現場、協力会社は割り当て現場だけが返る。
   const [allSites, memberIds] = await Promise.all([listMySites(), listMyMemberSiteIds(profile.id)]);
-  const sites = allSites.filter((s) => s.status === 'active');
+  // 請負金額などのお金の項目は社員・管理者だけ。協力会社には画面に渡す前に落とす。
+  const showAmount = isEmployeeOrAdmin(profile);
+  const sites = allSites.filter((s) => s.status === 'active').map((s) => siteForViewer(s, showAmount));
   const statuses = await listTodayStatus(
     sites.map((s) => s.id),
     today,
@@ -79,7 +80,7 @@ export default async function HomePage() {
       ) : (
         <>
           {mine.length > 0 ? (
-            <SiteCards cards={mine} today={today} />
+            <SiteCards cards={mine} today={today} showAmount={showAmount} />
           ) : (
             <p className="rounded-lg border border-gray-300 p-4 text-base dark:border-gray-700">
               担当の割り当てがありません。下の『その他の現場』から入力できます。
@@ -91,7 +92,7 @@ export default async function HomePage() {
                 その他の現場（{others.length}件）
               </summary>
               <div className="mt-3">
-                <SiteCards cards={others} today={today} />
+                <SiteCards cards={others} today={today} showAmount={showAmount} />
               </div>
             </details>
           )}

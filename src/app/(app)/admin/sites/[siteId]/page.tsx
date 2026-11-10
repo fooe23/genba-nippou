@@ -1,11 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
-import { jpDateTime, yen } from '@/lib/calc/format';
+import { jpDateTime } from '@/lib/calc/format';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
 import { vendorSuppliers } from '@/lib/calc/supplier-roles';
 import { requireAdmin } from '@/lib/db/profile';
 import { getSite, getSiteMasters, listCarryovers, listProfiles, listSiteMembers } from '@/lib/db/sites';
+import { siteSubline, siteTitle } from '@/lib/sites/display';
 import { CarryoverSection } from '@/components/sites/CarryoverSection';
 import { DeleteSiteButton } from '@/components/sites/DeleteSiteButton';
 import { MembersSection } from '@/components/sites/MembersSection';
@@ -90,10 +91,9 @@ export default async function SiteEditPage({ params }: PageProps<'/admin/sites/[
           この現場は削除済みです（{jpDateTime(site.deletedAt).slice(0, 10)}）。復元は現場一覧の『削除済み』から行えます。
         </p>
       )}
-      <h1 className="text-xl font-bold">{site.name}</h1>
-      {site.contractAmount !== null && (
-        <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">工事総請負金額 {yen(site.contractAmount)}</p>
-      )}
+      <h1 className="text-xl font-bold">{siteTitle(site)}</h1>
+      {/* 管理者だけの画面なので請負金額も出す */}
+      <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">{siteSubline(site, { showAmount: true })}</p>
 
       <div className="mt-4">
         <Section title="① 現場情報">
