@@ -6,6 +6,7 @@ import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { loadLaborCostContext } from '@/lib/db/labor-cost';
 import { listOpenIssues, listReportHeads, loadCostAdjustments } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
+import { loadSubcontractOutputs, subcontractOutputTotals } from '@/lib/db/subcontract-output';
 import { siteForViewer, siteSubline, siteTitle } from '@/lib/sites/display';
 import { ReportCalendar } from '@/components/site/ReportCalendar';
 import { SiteStatusButton } from '@/components/site/SiteStatusButton';
@@ -36,6 +37,8 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
     new Map([[siteId, laborCost]]),
   );
   const costAdjustment = [...adjustments.values()].reduce((s, n) => s + n, 0);
+  // 外注の支払いのうち出来高に数える分（2026-11-11。協力会社には空）。累計出来高・進捗率に入れる。
+  const subcontract = await loadSubcontractOutputs(heads.map((h) => h.id));
   const today = todayJst();
 
   return (
@@ -57,7 +60,15 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
       <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">{siteSubline(site, { showAmount })}</p>
 
       <div className="mt-4">
-        <SiteSummary site={site} heads={heads} today={today} issues={issues} showMoney={showAmount} costAdjustment={costAdjustment} />
+        <SiteSummary
+          site={site}
+          heads={heads}
+          today={today}
+          issues={issues}
+          showMoney={showAmount}
+          costAdjustment={costAdjustment}
+          subcontractOutputs={subcontractOutputTotals(subcontract.byReport)}
+        />
         <ReportCalendar siteId={siteId} heads={heads} today={today} />
       </div>
 

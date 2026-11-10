@@ -4,12 +4,14 @@ import { laborCountedCost, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { loadLaborCostContext } from '@/lib/db/labor-cost';
 import { listReportHeads } from '@/lib/db/reports';
+import { loadSubcontractOutputs } from '@/lib/db/subcontract-output';
 import { isUnnamedLabor, laborHeadcount } from '@/lib/report/unnamed-workers';
 import { createServerSupabase } from '@/lib/supabase/server';
 
 // 集計用の読み取り（RLS 前提）。日報の見出し + 明細（gn_report_lines）から区分別の合計を作る。
 // 原価は明細の和（見出しの cost_total は外注の買掛を含まないので使わない。2026-11-17）。協力会社のアカウントでは外注の行が読めない。
 // 労務費は労務費の決まり（src/lib/calc/labor-cost.ts）の「原価に数える分」（請負の行はうち常用の時間の分だけ）。人工は出面のまま。
+// 出来高は output_total ＋ 外注の支払いのうち出来高に数える分（2026-11-11。DayTotals.subcontractOutput。協力会社には 0）。
 
 interface LineRow {
   report_id: string;
@@ -113,7 +115,7 @@ export async function loadSummaryData(
     listReportHeads(siteId),
     opts.labor === 'stored' ? Promise.resolve(null) : loadLaborCostContext(siteId),
   ]);
-  const lines = await fetchLines(heads.map((h) => h.id));
+  const [lines, sub] = await Promise.all([fetchLines(heads.map((h) => h.id)), loadSubcontractOutputs(heads.map((h) => h.id))]);
 
   const dateById = new Map(heads.map((h) => [h.id, h.reportDate]));
   const totals = new Map<string, Pick<DayTotals, 'labor' | 'fuel' | 'lease' | 'cash' | 'credit' | 'subcontract' | 'workerCount'>>();
@@ -155,7 +157,7 @@ export async function loadSummaryData(
   }
 
   const zero = { labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, workerCount: 0 };
-  const days: DayTotals[] = heads.map((h) => ({ ...h, ...(totals.get(h.id) ?? zero) }));
+  const days: DayTotals[] = heads.map((h) => ({ ...h, ...(totals.get(h.id) ?? zero), subcontractOutput: sub.byReport.get(h.id)?.total ?? 0 }));
   entries.sort((a, b) => a.reportDate.localeCompare(b.reportDate));
   return { days, entries };
 }

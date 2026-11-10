@@ -1,5 +1,6 @@
 import type { ChangeTotals } from '@/lib/calc/change';
 import { creditItemLabel } from '@/lib/report/purchase-kind';
+import { EMPTY_SUBCONTRACT_OUTPUT, issueKindMap, subcontractOutput, subcontractOutputLines } from '@/lib/report/subcontract-output';
 import { isUnnamedLabor, laborDisplayName, laborHeadcount } from '@/lib/report/unnamed-workers';
 import { laborCostSplit, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { productivity } from '@/lib/calc/report';
@@ -22,6 +23,8 @@ import type { LaborLine, TimeSpec } from '@/lib/types';
 // 金額・人工・残業・実働は DB の保存値（stored・saved・output_total）だけを使い、ここで再計算しない。
 // 本日原価の合計は明細の保存値の和（見出しの cost_total は外注の買掛を含まないので使わない。2026-11-17）。
 // 労務費は労務費の決まり（src/lib/calc/labor-cost.ts）の「原価に数える分」。人工は出面（全部）のまま。
+// 本日出来高は作業内容の出来高（output_total）＋ 外注の支払いのうち出来高に数える分（2026-11-11。件なしは契約内、件ありは
+// その件の区分。src/lib/report/subcontract-output.ts）。協力会社のアカウントには外注の行が来ないので外注は入らない。
 
 const EMPTY_TIME: TimeSpec = { start: null, end: null, breakMin: null, gapMin: null };
 
@@ -156,7 +159,11 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
   // 買掛のうち外注（2026-11-17）。買掛費（creditTotal）に 1 回だけ入っている。
   const subcontractTotal = sum(report.lines.flatMap((l) => (l.kind === 'credit' && l.purchaseKind === 'subcontract' ? [l.stored.amount] : [])));
   const visit = visitNumbers(input.reportDates, report.reportDate);
-  const cumulative = input.cumulativeOutputBefore + report.outputTotal;
+  // 外注の支払いのうち出来高に数える分。件の種別はこの日報の件 → 外注の行が選んだほかの日報の件（subcontractIssueKinds）の順。
+  const kinds = new Map([...Object.entries(input.subcontractIssueKinds ?? {}), ...issueKindMap(input.issues)]);
+  const sub = subcontractOutput(subcontractOutputLines(report.lines, (l) => l.stored.amount), kinds);
+  const today = report.outputTotal + sub.total;
+  const cumulative = input.cumulativeOutputBefore + today;
   const contract = site.contractAmount;
   const nameOf = (id: string | null) => (id !== null ? (names[id] ?? null) : null);
 
@@ -188,7 +195,15 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
     cash: { rows: cash, total: { amount: cashTotal } },
     credit: { rows: credit, total: { amount: creditTotal } },
     costs: { labor, fuel, lease, cash: cashTotal, credit: creditTotal, subcontract: subcontractTotal, total: labor + fuel + lease + cashTotal + creditTotal },
-    output: { today: report.outputTotal, cumulative, contractAmount: contract, progress: contract ? cumulative / contract : null, ...contractBasis(site) },
+    output: {
+      today,
+      work: report.outputTotal,
+      subcontract: sub,
+      cumulative,
+      contractAmount: contract,
+      progress: contract ? cumulative / contract : null,
+      ...contractBasis(site),
+    },
     work: { rows: work, total: { manDays: sum(work.map((r) => r.manDays)), amount: sum(work.map((r) => r.amount)) }, changes: storedChangeTotals(work) },
     issues: {
       text: report.issuesText,
@@ -236,7 +251,15 @@ export function buildEmptyDailyReport(site: Site, date: string): DailyReportMode
     cash: { rows: [], total: { amount: 0 } },
     credit: { rows: [], total: { amount: 0 } },
     costs: { labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, total: 0 },
-    output: { today: 0, cumulative: null, contractAmount: site.contractAmount, progress: null, ...contractBasis(site) },
+    output: {
+      today: 0,
+      work: 0,
+      subcontract: { ...EMPTY_SUBCONTRACT_OUTPUT },
+      cumulative: null,
+      contractAmount: site.contractAmount,
+      progress: null,
+      ...contractBasis(site),
+    },
     work: { rows: [], total: { manDays: 0, amount: 0 }, changes: null },
     issues: { text: '', items: [] },
     notes: '',

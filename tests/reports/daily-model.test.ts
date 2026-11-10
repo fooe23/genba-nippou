@@ -75,14 +75,14 @@ describe('buildDailyReport', () => {
   it('本日出来高と進捗率 = (前日までの出来高 + 本日) ÷ 請負金額', () => {
     const m = sampleDaily();
     expect(m.output).toEqual({
-      today: 100000, cumulative: 250000, contractAmount: 1_000_000, progress: 0.25, tentative: false, estimatedAmount: null,
+      today: 100000, work: 100000, subcontract: { contract: 0, extra: 0, increase: 0, change: 0, total: 0 }, cumulative: 250000, contractAmount: 1_000_000, progress: 0.25, tentative: false, estimatedAmount: null,
     });
   });
 
   it('契約が未確定の現場：tentative と概算金額を持つ。進捗率の基準は請負金額のまま（無ければ null）', () => {
     const tentative = sampleDaily({ site: { ...site, contractStatus: 'tentative', contractAmount: null, estimatedAmount: 800_000 } });
     expect(tentative.output).toEqual({
-      today: 100000, cumulative: 250000, contractAmount: null, progress: null, tentative: true, estimatedAmount: 800_000,
+      today: 100000, work: 100000, subcontract: { contract: 0, extra: 0, increase: 0, change: 0, total: 0 }, cumulative: 250000, contractAmount: null, progress: null, tentative: true, estimatedAmount: 800_000,
     });
     // 確定の現場では概算金額を持たない（入力が残っていても使わない）
     expect(sampleDaily({ site: { ...site, estimatedAmount: 800_000 } }).output.estimatedAmount).toBeNull();
@@ -187,7 +187,7 @@ describe('buildEmptyDailyReport', () => {
     expect(m.workers.rows).toEqual([]);
     expect(m.work.rows).toEqual([]);
     expect(m.costs).toEqual({ labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, total: 0 });
-    expect(m.output).toEqual({ today: 0, cumulative: null, contractAmount: 1_000_000, progress: null, tentative: false, estimatedAmount: null });
+    expect(m.output).toEqual({ today: 0, work: 0, subcontract: { contract: 0, extra: 0, increase: 0, change: 0, total: 0 }, cumulative: null, contractAmount: 1_000_000, progress: null, tentative: false, estimatedAmount: null });
     expect(m.signature).toEqual({ createdBy: null, reviewedBy: null, approvedBy: null, approvedAt: null });
   });
 });
@@ -250,5 +250,61 @@ describe('名前なし（会社と人数）の作業員の行（2026-11-19）', 
     const { clientDailyTables } = await import('@/lib/reports/client-daily-sections');
     const m = sampleDaily({ report: report('2026-11-02', { lines: [unnamed] }) });
     expect(clientDailyTables(m).workersLine).toBe('作業員 2 名・合計 2.0 人工');
+  });
+});
+
+describe('外注の支払いを本日出来高に入れる（2026-11-11）', () => {
+  const sub = (amount: number, issueId: string | null): SavedReportLine => ({
+    kind: 'credit', itemName: 'タイル張り', spec: '', unit: '式', qty: 1, unitPrice: amount, supplierId: 'pT', vendor: '東北建興',
+    stored: { amount, manDays: 0, overtimeHours: 0, hours: 0 }, purchaseKind: 'subcontract', siteTradeId: 't-tile', issueId,
+  });
+  // 村山様邸 11/10 の例：契約内の作業内容 ¥20,000、増 ¥25,000（件 iInc）、外注 東北建興 タイル ¥170,000（件なし）
+  const lines: SavedReportLine[] = [
+    { kind: 'work', estimateItemId: null, trade: '仮設', description: '養生', qty: 1, unit: '式', manDays: 0.5, unitPrice: 20000, source: 'extra', changeKind: 'contract', instructedBy: '', instructionMethod: null, instructedOn: null, issueId: null, siteTradeId: null, stored: { amount: 20000, manDays: 0.5, overtimeHours: 0, hours: 4 } },
+    { kind: 'work', estimateItemId: null, trade: 'タイル', description: '目地 増', qty: 1, unit: '式', manDays: 0.5, unitPrice: 25000, source: 'extra', changeKind: 'increase', instructedBy: '', instructionMethod: null, instructedOn: null, issueId: 'iInc', siteTradeId: null, stored: { amount: 25000, manDays: 0.5, overtimeHours: 0, hours: 4 } },
+    sub(170_000, null),
+  ];
+  const incIssue = { ...issues[0], id: 'iInc', kind: 'increase' as const, reportId: 'r-2026-11-10', reportDate: '2026-11-10' };
+  const build = (extra: SavedReportLine[] = [], o: Parameters<typeof dailyInput>[0] = {}) =>
+    buildDailyReport(dailyInput({ report: report('2026-11-10', { lines: [...lines, ...extra], outputTotal: 45_000 }), issues: [incIssue], ...o }));
+
+  it('件なしの外注は契約内、本日出来高 合計・累計・進捗率に入る', () => {
+    const m = build();
+    expect(m.output).toMatchObject({
+      today: 215_000, work: 45_000, subcontract: { contract: 170_000, extra: 0, increase: 0, change: 0, total: 170_000 },
+      cumulative: 365_000, progress: 0.365,
+    });
+    const rows = dailyTables(m).output.rows.map((r) => r.map((c) => (typeof c === 'object' && c !== null ? c.value : c)));
+    expect(rows.slice(0, 5)).toEqual([
+      ['契約内の出来高(円)', 190_000],
+      ['　うち外注', 170_000],
+      ['追加・変更（精算が必要）(円)', '+25,000'],
+      ['　うち増', '+25,000'],
+      ['本日出来高 合計(円)', 215_000],
+    ]);
+  });
+
+  it('件ありの外注は件の区分に入る。ほかの日報の件は subcontractIssueKinds で分かる。減の件・読めない件は数えない', () => {
+    const m = build([sub(30_000, 'iInc'), sub(10_000, 'iOther'), sub(9_000, 'iMinus'), sub(7_000, 'gone')], {
+      subcontractIssueKinds: { iOther: 'change', iMinus: 'minus' },
+    });
+    expect(m.output.subcontract).toEqual({ contract: 170_000, extra: 0, increase: 30_000, change: 10_000, total: 210_000 });
+    expect(m.output.today).toBe(255_000);
+    const rows = dailyTables(m).output.rows.map((r) => r.map((c) => (typeof c === 'object' && c !== null ? c.value : c)));
+    expect(rows.slice(0, 7)).toEqual([
+      ['契約内の出来高(円)', 190_000],
+      ['　うち外注', 170_000],
+      ['追加・変更（精算が必要）(円)', '+65,000'],
+      ['　うち増', '+55,000'],
+      ['　うち変更', '+10,000'],
+      ['　うち外注', '+40,000'],
+      ['本日出来高 合計(円)', 255_000],
+    ]);
+  });
+
+  it('外注の行が無い（協力会社のアカウント）なら作業内容の出来高だけ', () => {
+    const m = buildDailyReport(dailyInput({ report: report('2026-11-10', { lines: lines.slice(0, 2), outputTotal: 45_000 }), issues: [incIssue] }));
+    expect(m.output).toMatchObject({ today: 45_000, work: 45_000, subcontract: { total: 0 } });
+    expect(dailyTables(m).output.rows.map((r) => r[0])).not.toContain('　うち外注');
   });
 });

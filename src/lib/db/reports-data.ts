@@ -5,7 +5,10 @@ import { loadLaborCostContext } from '@/lib/db/labor-cost';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
 import { listIssuesForReports, listReportHeads, type Issue, type ReportHead } from '@/lib/db/reports';
 import { getSite, listCarryovers, listSitePartners, type Site } from '@/lib/db/sites';
+import { loadSubcontractOutputs } from '@/lib/db/subcontract-output';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
+import { getCurrentProfile, isEmployeeOrAdmin } from '@/lib/db/profile';
+import { budgetSubcontractAmounts } from '@/lib/report/subcontract-output';
 import { createServerSupabase } from '@/lib/supabase/server';
 import type {
   CostReportInput,
@@ -48,7 +51,7 @@ export async function withLines(heads: ReportHead[]): Promise<ReportWithLines[]>
 export async function loadCostReportInput(siteId: string): Promise<CostReportInput> {
   const site = await getSite(siteId);
   if (!site) throw new Error('現場が見つかりません');
-  const [heads, carryovers, workers, suppliers, vehicles, leaseItems, sitePartners, laborCost] = await Promise.all([
+  const [heads, carryovers, workers, suppliers, vehicles, leaseItems, sitePartners, laborCost, budget] = await Promise.all([
     listReportHeads(siteId),
     listCarryovers(siteId),
     listWorkers(),
@@ -57,11 +60,51 @@ export async function loadCostReportInput(siteId: string): Promise<CostReportInp
     listLeaseItems(),
     listSitePartners(siteId),
     loadLaborCostContext(siteId),
+    loadBudgetForCost(siteId),
   ]);
 
   const [reports, issues] = await Promise.all([withLines(heads), listIssuesForReports(heads.map((h) => h.id))]);
 
-  return { site, reports, carryovers, workers, suppliers, vehicles, leaseItems, issues, sitePartners, laborCost };
+  return {
+    site,
+    reports,
+    carryovers,
+    workers,
+    suppliers,
+    vehicles,
+    leaseItems,
+    issues,
+    sitePartners,
+    laborCost,
+    ...budget,
+  };
+}
+
+/**
+ * 工事原価集計表が使う実行予算（2026-11-11）：④-2 の請負金額（請負の行の会社ごとの合計）と ⑦ の外注の行の工種名。
+ * 社員・管理者だけ（ほかは空。外注の行も読めないので使わない）。表が無い（SQL の前）・読めないときも空にする
+ * （帳票は現場の協力会社の請負金額・「工種なし」で出せる）。
+ */
+async function loadBudgetForCost(siteId: string): Promise<Pick<CostReportInput, 'budgetSubcontractAmounts' | 'tradeNames'>> {
+  const profile = await getCurrentProfile();
+  if (!profile || !isEmployeeOrAdmin(profile)) return {};
+  const supabase = await createServerSupabase();
+  const [lines, trades] = await Promise.all([
+    supabase.from('gn_budget_lines').select('supplier_id, item, amount').eq('site_id', siteId).eq('item', 'subcontract'),
+    supabase.from('gn_site_trades').select('id, name').eq('site_id', siteId),
+  ]);
+  return {
+    budgetSubcontractAmounts: lines.error
+      ? {}
+      : budgetSubcontractAmounts(
+          ((lines.data ?? []) as { supplier_id: string | null; item: string; amount: number | string | null }[]).map((r) => ({
+            item: r.item,
+            supplierId: r.supplier_id,
+            amount: Number(r.amount ?? 0),
+          })),
+        ),
+    tradeNames: trades.error ? {} : Object.fromEntries(((trades.data ?? []) as { id: string; name: string }[]).map((t) => [t.id, t.name])),
+  };
 }
 
 // ─── 日報（1 日分・月まとめ） ───
@@ -97,11 +140,13 @@ async function loadDailyInputs(site: Site, allHeads: ReportHead[], targets: Repo
   if (targets.length === 0) return [];
   const ids = targets.map((h) => h.id);
   const supabase = await createServerSupabase();
-  const [extraRes, reports, issues, laborCost] = await Promise.all([
+  // 外注の出来高（2026-11-11）は前日までの累計にも入れるので、現場の全日報の分を読む（社員・管理者だけ。ほかは空）。
+  const [extraRes, reports, issues, laborCost, sub] = await Promise.all([
     supabase.from('gn_daily_reports').select(DAILY_EXTRA_COLUMNS).in('id', ids),
     withLines(targets),
     listIssuesForReports(ids),
     loadLaborCostContext(site.id),
+    loadSubcontractOutputs(allHeads.map((h) => h.id)),
   ]);
   if (extraRes.error) throw new Error(extraRes.error.message);
   const extras = new Map(((extraRes.data ?? []) as DailyExtraRow[]).map((r) => [r.id, r]));
@@ -137,7 +182,10 @@ async function loadDailyInputs(site: Site, allHeads: ReportHead[], targets: Repo
       reportDates,
       issues: issuesById.get(report.id) ?? [],
       names,
-      cumulativeOutputBefore: allHeads.filter((h) => h.reportDate < report.reportDate).reduce((sum, h) => sum + h.outputTotal, 0),
+      cumulativeOutputBefore: allHeads
+        .filter((h) => h.reportDate < report.reportDate)
+        .reduce((sum, h) => sum + h.outputTotal + (sub.byReport.get(h.id)?.total ?? 0), 0),
+      subcontractIssueKinds: sub.issueKinds,
       tradeNames,
       laborCost,
     };

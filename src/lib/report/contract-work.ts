@@ -1,4 +1,5 @@
 import type { ChangeTotals } from '@/lib/calc/change';
+import { EMPTY_SUBCONTRACT_OUTPUT, type SubcontractOutput } from '@/lib/report/subcontract-output';
 import type { ChangeKind, SettlementMethod } from '@/lib/types';
 
 // 契約内の作業と、契約外（追加・増・変更・減。精算が必要）の作業を分けて見せるための純関数（日報の画面・PDF で共通）と、
@@ -88,10 +89,23 @@ export function missingSettlementAmount(
 }
 
 /**
- * 本日出来高を「契約内」と「追加・変更（精算が必要）」に分ける。changes は区分ごとの合計（減は負。契約外の行が無ければ null）。
- * 契約内 = 合計 − 契約外の合計（net）。合計は契約内 + 契約外にそのまま戻る。
+ * 本日出来高を「契約内」と「追加・変更（精算が必要）」に分ける。total は作業内容の出来高（output_total）、changes は作業内容の
+ * 区分ごとの合計（減は負。契約外の行が無ければ null）。sub は外注の支払いのうち出来高に数える分（src/lib/report/subcontract-output.ts。
+ * 2026-11-11：件を選んでいない外注は契約内、件を選んだ外注は追加・変更）。
+ * 契約内 = 作業内容の合計 − 契約外の合計（net）＋ 契約内の外注。合計は契約内 + 契約外にそのまま戻る。
  */
-export function outputBreakdown(total: number, changes: ChangeTotals | null): { contract: number; changes: number; total: number } {
+export function outputBreakdown(
+  total: number,
+  changes: ChangeTotals | null,
+  sub: SubcontractOutput = EMPTY_SUBCONTRACT_OUTPUT,
+): { contract: number; changes: number; total: number; subcontractContract: number; subcontractChanges: number } {
   const net = changes?.net ?? 0;
-  return { contract: total - net, changes: net, total };
+  const subChanges = sub.total - sub.contract;
+  return {
+    contract: total - net + sub.contract,
+    changes: net + subChanges,
+    total: total + sub.total,
+    subcontractContract: sub.contract,
+    subcontractChanges: subChanges,
+  };
 }

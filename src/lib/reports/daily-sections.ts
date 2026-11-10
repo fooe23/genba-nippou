@@ -3,6 +3,7 @@ import { weekday } from '@/lib/calc/calendar';
 import { jpDateTime } from '@/lib/calc/format';
 import { ISSUE_STATUS_LABELS, withChangeKindPrefix } from '@/lib/report/change-labels';
 import { outputBreakdown } from '@/lib/report/contract-work';
+import { changesWithSubcontract } from '@/lib/report/subcontract-output';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
 import type { DailyClientConfirmation, DailyHeader, DailyReportModel, DailyWorkerRow, DailyWorkRow } from '@/lib/reports/types';
 import type { LineKind, TimeSpec } from '@/lib/types';
@@ -171,7 +172,9 @@ export function dailyTables(m: DailyReportModel): Record<
   });
   const w = m.workers;
   const c = m.costs;
-  const split = outputBreakdown(m.output.today, m.work.changes);
+  // 外注の支払い（2026-11-11）：件なしは契約内、件ありは追加・変更（その件の区分）に入る。
+  const split = outputBreakdown(m.output.work, m.work.changes, m.output.subcontract);
+  const outputChanges = changesWithSubcontract(m.work.changes, m.output.subcontract);
   return {
     workers: {
       columns: [
@@ -233,8 +236,10 @@ export function dailyTables(m: DailyReportModel): Record<
       // 本日出来高は「契約内」と「追加・変更（精算が必要。減は負）」に分け、区分ごとの内訳（0 の区分は出さない）と合計を出す（日報画面と同じ）。
       rows: [
         ['契約内の出来高(円)', yen(split.contract)],
+        ...(split.subcontractContract !== 0 ? [['　うち外注', yen(split.subcontractContract)] as Cell[]] : []),
         [SETTLEMENT_OUTPUT_LABEL, signedYen(split.changes)],
-        ...changeParts(m.work.changes).map(([label, v]): Cell[] => [`　うち${label}`, signedYen(v)]),
+        ...changeParts(outputChanges).map(([label, v]): Cell[] => [`　うち${label}`, signedYen(v)]),
+        ...(split.subcontractChanges !== 0 ? [['　うち外注', signedYen(split.subcontractChanges)] as Cell[]] : []),
         ['本日出来高 合計(円)', yen(split.total)],
         ['累計出来高(円)', yen(m.output.cumulative)],
         ...(m.output.tentative

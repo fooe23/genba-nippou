@@ -26,6 +26,21 @@ describe('外注の買掛のある日（2026-11-17）', () => {
     expect(costSummary(d, null).cost).toBe(138000);
   });
 });
+describe('外注の支払いを出来高に入れる（2026-11-11）', () => {
+  // 作業内容の出来高 ¥45,000 ＋ 外注の出来高に数える分 ¥170,000
+  const d = [
+    day('2026-11-09', { outputTotal: 100000 }),
+    day('2026-11-10', { outputTotal: 45000, credit: 170000, subcontract: 170000, subcontractOutput: 170000 }),
+  ];
+  it('月次の出来高・累計の進捗率に入る', () => {
+    const rows = monthlyRows(d, '2026-11', 1_000_000);
+    expect(rows[1]).toMatchObject({ output: 215000, progress: 0.315 });
+    expect(sumRows(rows).output).toBe(315000);
+  });
+  it('原価集計の進捗率にも入る', () => {
+    expect(costSummary(d, 1_000_000).progress).toBe(0.315);
+  });
+});
 describe('原価集計', () => {
   it('構成比・粗利・粗利率・進捗', () => {
     const c = costSummary(days, 1_000_000);

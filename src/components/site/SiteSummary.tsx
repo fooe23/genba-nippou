@@ -27,6 +27,7 @@ export function SiteSummary({
   issues,
   showMoney,
   costAdjustment = 0,
+  subcontractOutputs = {},
 }: {
   site: Site;
   heads: ReportHead[];
@@ -38,9 +39,15 @@ export function SiteSummary({
    * 行の（原価に数える分 − 行の金額）。loadCostAdjustments の合計。
    */
   costAdjustment?: number;
+  /**
+   * 日報 id → 外注の支払いのうち出来高に数える分（2026-11-11。loadSubcontractOutputs。協力会社には空）。累計出来高・進捗率・
+   * 直近の日報の出来高に足す。
+   */
+  subcontractOutputs?: Readonly<Record<string, number>>;
 }) {
   const costTotal = heads.reduce((sum, h) => sum + h.costTotal, 0) + costAdjustment;
-  const outputTotal = heads.reduce((sum, h) => sum + h.outputTotal, 0);
+  const dayOutput = (h: ReportHead) => h.outputTotal + (subcontractOutputs[h.id] ?? 0);
+  const outputTotal = heads.reduce((sum, h) => sum + dayOutput(h), 0);
   const rate = !showMoney || site.contractAmount === null ? null : progressRate(outputTotal, site.contractAmount) * 100;
   const allDates = heads.map((h) => h.reportDate);
   const recent = heads.slice(-3).reverse();
@@ -83,7 +90,7 @@ export function SiteSummary({
             {recent.map((h) => (
               <li key={h.id} className="flex flex-wrap items-baseline justify-between gap-x-3 px-3 py-2">
                 <span className="text-sm">{visitLabel(h.reportDate, visitNumbers(allDates, h.reportDate))}</span>
-                <span className="font-bold">{yen(h.outputTotal)}</span>
+                <span className="font-bold">{yen(dayOutput(h))}</span>
               </li>
             ))}
           </ul>

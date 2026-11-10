@@ -8,7 +8,7 @@ import type { LaborCostContext } from '@/lib/calc/labor-cost';
 import { formLaborSplit } from '@/lib/report/labor-form';
 import { jpDate } from '@/lib/calc/format';
 import { changeTotals } from '@/lib/calc/change';
-import { commonHours, laborLineValues, reportTotals, type LaborValues } from '@/lib/calc/report';
+import { amount, commonHours, laborLineValues, reportTotals, type LaborValues } from '@/lib/calc/report';
 import {
   addIssue,
   copyPreviousReport,
@@ -22,6 +22,7 @@ import type { Issue, ReportFixRequest } from '@/lib/db/reports';
 import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import { issueOptions } from '@/lib/report/issue-options';
+import { issueKindMap, subcontractOutput, subcontractOutputLines } from '@/lib/report/subcontract-output';
 import { workWarnings as buildWorkWarnings } from '@/lib/report/contract-work';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeWarning } from '@/lib/report/unlinked-change-lines';
 import {
@@ -90,8 +91,13 @@ export interface ReportFormProps {
   contractTentative: boolean;
   /** 未確定の現場の概算金額（確定の現場は null）。 */
   estimatedAmount: number | null;
-  /** この日より前の日報の出来高合計（進捗率の累計に使う）。 */
+  /** この日より前の日報の出来高合計（外注の支払いのうち出来高に数える分を含む。進捗率の累計に使う）。 */
   outputBefore: number;
+  /**
+   * 外注の行が根拠に選んだ件の種別（件の id → 種別。2026-11-11）。この日報の件・対応中の件に無い件（完了したほかの日報の件）も
+   * 外注の出来高を区分に分けられるように渡す。社員・管理者だけ（協力会社には空）。
+   */
+  subcontractIssueKinds?: Record<string, IssueKind>;
   hasPrevious: boolean;
   initial: SaveInput;
   masters: ReportMasters;
@@ -442,6 +448,11 @@ function ReportFormBody({
   const issueCandidates = useMemo(() => [...p.issues, ...p.openIssues], [p.issues, p.openIssues]);
   // 燃料・リース・現金・買掛の根拠の件の選択肢（作業内容の行と同じ候補・文言。2026-11-17）。
   const issueChoices = useMemo(() => issueOptions(issueCandidates), [issueCandidates]);
+  // 外注の支払いのうち出来高に数える分（2026-11-11）：件なしは契約内、件ありはその件の区分。外注の行は社員・管理者の画面だけにある。
+  const subcontract = useMemo(() => {
+    const kinds = new Map([...Object.entries(p.subcontractIssueKinds ?? {}), ...issueKindMap(issueCandidates)]);
+    return subcontractOutput(subcontractOutputLines(input.lines, (l) => (l.kind === 'credit' ? amount(l.qty, l.unitPrice) : 0)), kinds);
+  }, [input.lines, issueCandidates, p.subcontractIssueKinds]);
 
   const draft = useReportDraft({
     siteId: p.siteId,
@@ -946,6 +957,7 @@ function ReportFormBody({
           estimatedAmount={p.estimatedAmount}
           showMoney={p.isStaff}
           workWarnings={workWarnings}
+          subcontract={subcontract}
         />
 
         <section aria-label="重要事項・連絡事項" className="mb-6 grid gap-4 md:grid-cols-2">

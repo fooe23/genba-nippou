@@ -666,3 +666,78 @@ describe('外注の買掛（2026-11-17）：原価に 1 回だけ入る（見出
     expect(m.vendors.total).toEqual({ cash: 0, credit: 118000, total: 118000 });
   });
 });
+
+describe('外注の支払いを出来高に入れる（2026-11-11）', () => {
+  const issueOf = (id: string, kind: Issue['kind']): Issue => ({
+    id, siteId: 's1', reportId: 'r-2026-11-10', reportDate: '2026-11-10', body: `${id} の件`, status: 'open', doneAt: null, kind,
+    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null,
+  });
+  const sub = (supplierId: string | null, vendor: string, amount: number, siteTradeId: string | null, issueId: string | null = null): SavedReportLine => ({
+    kind: 'credit', itemName: 'タイル張り', spec: '', unit: '式', qty: 1, unitPrice: amount, supplierId, vendor,
+    stored: stored(amount), purchaseKind: 'subcontract', siteTradeId, issueId,
+  });
+  const tohoku = supplier('pT', '東北建興');
+  // 村山様邸 11/10：養生（契約内）¥20,000、増 ¥25,000（件 iInc）、外注 東北建興 タイル ¥170,000（件なし）、減の件の外注 ¥9,000（数えない）
+  const day = report('2026-11-10', [
+    labor('w1', '田中', 1, 20000),
+    work('仮設', '養生', 1, '式', 0.5, 20_000),
+    { ...work('タイル', '目地 増', 1, '式', 0.5, 25_000, 'increase'), issueId: 'iInc' } as SavedReportLine,
+    sub('pT', '東北建興', 170_000, 't-tile'),
+    sub('pT', '東北建興', 9_000, 't-tile', 'iMinus'),
+  ]);
+  const m = buildCostReport(
+    input([day], {
+      suppliers: [supplier('sp1', '山田商店'), tohoku],
+      issues: [issueOf('iInc', 'increase'), issueOf('iMinus', 'minus')],
+      tradeNames: { 't-tile': 'タイル' },
+    }),
+    NOV,
+    now,
+    RATES,
+  );
+
+  it('② 累計出来高・進捗率、③ 出来高・進捗率に件なしの外注が入る（減の件の外注は入らない）', () => {
+    expect(m.profit.cumulativeOutput).toBe(215_000);
+    expect(m.profit.progress).toBeCloseTo(0.215, 10);
+    expect(m.trend.total.output).toBe(215_000);
+    expect(m.trend.total.progress).toBeCloseTo(0.215, 10);
+  });
+
+  it('⑦ は外注を工種・支払先ごとの行にし、合計が出来高と一致する', () => {
+    const tile = m.trades.rows.find((r) => r.trade === 'タイル（外注・東北建興）');
+    expect(tile).toMatchObject({ subcontract: true, output: 170_000, manDays: 0, productivity: null, mainDescription: 'タイル張り' });
+    expect(m.trades.rows.map((r) => r.trade)).toEqual(['仮設', 'タイル', 'タイル（外注・東北建興）']);
+    expect(m.trades.total.output).toBe(215_000);
+  });
+
+  it('件ありの外注（増の件）も出来高に入る', () => {
+    const tagged = report('2026-11-10', [work('仮設', '養生', 1, '式', 0.5, 20_000), sub(null, '', 30_000, null, 'iInc')]);
+    const t = buildCostReport(input([tagged], { issues: [issueOf('iInc', 'increase')] }), NOV, now, RATES);
+    expect(t.profit.cumulativeOutput).toBe(50_000);
+    expect(t.trades.rows.map((r) => [r.trade, r.output])).toEqual([
+      ['仮設', 20_000],
+      ['工種なし（外注）', 30_000],
+    ]);
+  });
+
+  it('④-2 の請負金額は実行予算の請負の行（工種をまたいだ合計）を先に使い、無い会社は現場の協力会社の額', () => {
+    const a = buildCostReport(
+      input([day], {
+        suppliers: [supplier('sp1', '山田商店'), tohoku, supplier('pA', '〇〇工業')],
+        issues: [issueOf('iInc', 'increase'), issueOf('iMinus', 'minus')],
+        sitePartners: [
+          { supplierId: 'pT', supplierName: '東北建興', amount: 150_000 },
+          { supplierId: 'pA', supplierName: '〇〇工業', amount: 80_000 },
+        ],
+        budgetSubcontractAmounts: { pT: 400_000 },
+      }),
+      NOV,
+      now,
+      RATES,
+    ).affiliations;
+    // 外注の支払いは件に関わらずその会社の外注の買掛の全部（170,000 ＋ 9,000）
+    expect(a.rows.find((r) => r.label === '東北建興')).toMatchObject({ subcontractPaid: 179_000, partnerAmount: 400_000, difference: 221_000 });
+    expect(a.rows.find((r) => r.label === '〇〇工業')).toMatchObject({ partnerAmount: 80_000, difference: 80_000 });
+    expect(a.total).toMatchObject({ partnerAmount: 480_000, difference: 301_000 });
+  });
+});

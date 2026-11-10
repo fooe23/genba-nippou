@@ -49,6 +49,8 @@ import type {
 //              期間内のその件の行と根拠の行から件の提案額と同じ式で出した額（材料・リース・燃料・外注を含む）。
 //              ほか（件なし・一式・見積・常用・やり直しの件に紐づく行）は行の区分に、行の提案額。
 //
+//   契約内の出来高 = 契約内の作業内容の行 ＋ 件を選んでいない外注の支払い（2026-11-11）。件を選んだ外注は件の精算（外注）に入る。
+//
 // 期間が月のときは、一覧（rows）・区分ごとの件数・申告額・提案額・契約内の出来高はその月の日報の行だけ（回目は現場の
 // 全日報で数える）。件ごとの精算・区分ごとの精算額・精算提案額（settlement）はその月末までの全部の行と、月末までに
 // 載せる件で計算する（工事原価集計表 ② と同じ範囲）。一式・見積・常用の件は件の日報日が月末以前なら載せる（確定日は見ない）。
@@ -357,6 +359,11 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
     const visit = visitNumbers(reportDates, r.reportDate);
     for (const l of r.lines) {
       if (l.kind === 'fuel' || l.kind === 'lease' || l.kind === 'cash' || l.kind === 'credit') {
+        // 件を選んでいない外注の支払いは契約内の出来高に入れる（2026-11-11。src/lib/report/subcontract-output.ts）
+        if (l.kind === 'credit' && l.purchaseKind === 'subcontract' && l.issueId === null) {
+          if (inPeriod(r.reportDate)) contractOutput += l.stored.amount;
+          continue;
+        }
         const issue = l.issueId === null ? undefined : refs.get(l.issueId);
         // 読めない件・減の区分の件（減は申告額だけ）の根拠の行は数えない
         if (!issue || settlementCategory(issue.kind) === 'minus') continue;

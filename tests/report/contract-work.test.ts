@@ -65,15 +65,15 @@ describe('needsSettlement（精算が必要な区分）', () => {
 
 describe('outputBreakdown（本日出来高を契約内と追加・変更に分ける）', () => {
   it('契約外の行が無ければ全部契約内', () => {
-    expect(outputBreakdown(100_000, null)).toEqual({ contract: 100_000, changes: 0, total: 100_000 });
+    expect(outputBreakdown(100_000, null)).toEqual({ contract: 100_000, changes: 0, total: 100_000, subcontractContract: 0, subcontractChanges: 0 });
   });
   it('契約外の合計（減は負）を引いた残りが契約内', () => {
     const changes = { extra: 30_000, increase: 25_000, change: 0, minus: -5_000, net: 50_000 };
-    expect(outputBreakdown(150_000, changes)).toEqual({ contract: 100_000, changes: 50_000, total: 150_000 });
+    expect(outputBreakdown(150_000, changes)).toEqual({ contract: 100_000, changes: 50_000, total: 150_000, subcontractContract: 0, subcontractChanges: 0 });
   });
   it('減だけの日は契約外がマイナス', () => {
     const changes = { extra: 0, increase: 0, change: 0, minus: -10_000, net: -10_000 };
-    expect(outputBreakdown(40_000, changes)).toEqual({ contract: 50_000, changes: -10_000, total: 40_000 });
+    expect(outputBreakdown(40_000, changes)).toEqual({ contract: 50_000, changes: -10_000, total: 40_000, subcontractContract: 0, subcontractChanges: 0 });
   });
 });
 

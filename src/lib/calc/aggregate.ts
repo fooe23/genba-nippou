@@ -17,7 +17,19 @@ export interface LaborEntry { reportDate: string; workerId: string | null; worke
  * 原価 ＝ labor + fuel + lease + cash + credit（外注は credit に 1 回だけ入る）。見出しの costTotal（cost_total）は外注を含まないので
  * 原価には使わない。
  */
-export interface DayTotals extends ReportHead { labor: number; fuel: number; lease: number; cash: number; credit: number; subcontract: number; workerCount: number; }
+export interface DayTotals extends ReportHead {
+  labor: number; fuel: number; lease: number; cash: number; credit: number; subcontract: number; workerCount: number;
+  /**
+   * 外注の支払いのうち出来高に数える分（2026-11-11。src/lib/report/subcontract-output.ts：件なしは契約内、件ありは追加・増・変更、
+   * 減・やり直しの件は数えない）。協力会社のアカウントには外注の行が来ないので 0。省略は 0。
+   */
+  subcontractOutput?: number;
+}
+
+/** 日の出来高 = 作業内容の出来高（output_total）＋ 外注の支払いのうち出来高に数える分。 */
+export function dayOutput(d: Pick<DayTotals, 'outputTotal' | 'subcontractOutput'>): number {
+  return d.outputTotal + (d.subcontractOutput ?? 0);
+}
 
 /** 日の原価（区分の和。外注の買掛を含む）。 */
 export function dayCostTotal(d: Pick<DayTotals, 'labor' | 'fuel' | 'lease' | 'cash' | 'credit'>): number {
@@ -38,7 +50,7 @@ export function monthlyRows(days: DayTotals[], month: string, contractTotal: num
     .map((d) => {
       const v = visitNumbers(allDates, d.reportDate);
       let cumulative = 0;
-      for (const x of sorted) if (x.reportDate <= d.reportDate) cumulative += x.outputTotal;
+      for (const x of sorted) if (x.reportDate <= d.reportDate) cumulative += dayOutput(x);
       return {
         date: d.reportDate,
         monthIndex: v.monthIndex,
@@ -51,7 +63,7 @@ export function monthlyRows(days: DayTotals[], month: string, contractTotal: num
         cash: d.cash,
         credit: d.credit,
         cost: dayCostTotal(d),
-        output: d.outputTotal,
+        output: dayOutput(d),
         progress: progressRate(cumulative, contractTotal),
       };
     });
@@ -83,7 +95,7 @@ export function costSummary(days: DayTotals[], contractTotal: number | null): Co
     lease += d.lease;
     cash += d.cash;
     credit += d.credit;
-    output += d.outputTotal;
+    output += dayOutput(d);
   }
   const cost = labor + fuel + lease + cash + credit;
   const share = (n: number) => (cost === 0 ? 0 : n / cost);

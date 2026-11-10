@@ -1,6 +1,7 @@
 import {
   costSummary,
   dayCostTotal,
+  dayOutput,
   monthlyRows,
   sumRows,
   workerCumulative,
@@ -15,6 +16,7 @@ import { laborCostSplit, laborCountedCost, type LaborCostContext } from '@/lib/c
 import { daysBetween, monthEnd } from '@/lib/calc/calendar';
 import { monthKey } from '@/lib/calc/format';
 import type { Site } from '@/lib/db/sites';
+import { issueKindMap, subcontractOutput, subcontractOutputCategory, subcontractOutputLines, type IssueKindLookup } from '@/lib/report/subcontract-output';
 import { isUnnamedLabor, laborHeadcount } from '@/lib/report/unnamed-workers';
 import { buildChangeLedger, siteBaseAmount } from '@/lib/reports/change-model';
 import { affiliationGroup, compareAffiliation, NONE_GROUP, OWN_GROUP, type AffiliationGroup } from '@/lib/reports/affiliation-breakdown';
@@ -55,13 +57,18 @@ import type {
 //   … 現場の最初の日報からその月の末日までの累計
 // - ④ 作業員別累計 … workerCumulative に { from: 月初, to: 月末 } を渡す（繰越初期値 + 前月までの日報が前月繰越）
 // - ④-2 所属別 … ④ と同じ範囲（繰越初期値 + 繰越の基準日以降〜期間末の日報）。所属は労務の行の写し（マスターのいまの
-//   所属は見ない）。繰越初期値は機能の追加前の分なので自社・常用に入れる。請負金額は現場全体の額（月でもそのまま）。
+//   所属は見ない）。繰越初期値は機能の追加前の分なので自社・常用に入れる。請負金額は現場全体の額（月でもそのまま）で、
+//   実行予算の請負の行のその会社の合計（工種をまたぐ）、無ければ現場の協力会社の請負金額（2026-11-11）。
 //   外注の支払いは期間末までの外注の買掛（繰越の基準日は作業員ごとなので見ない）
 // - ③ は工期全体なら日報のある月ごと、月なら日報のある週ごと（月曜始まり。月をまたぐ週はその月の中に切り詰める）
 //
 // 粗利・粗利率・進捗率（② と ③）の基準額は、契約が確定なら請負金額、未確定なら概算金額（profitBasis）。
 // 進捗率は、確定なら累計出来高 ÷ 請負金額、未確定なら累計原価 ÷ 概算金額（概算に対する見込み）。
 // ② の追加・増・変更・減の精算額は変更増減の一覧（change-model.ts の buildChangeLedger）の精算と同じ計算で、期間末までの累計。
+//
+// 出来高（②の累計出来高・進捗率、③の出来高・進捗率、⑦）は作業内容の出来高（output_total）＋ 外注の支払いのうち出来高に数える分
+// （2026-11-11。src/lib/report/subcontract-output.ts：件なしは契約内、件ありは追加・増・変更、減・やり直しの件は数えない）。
+// ⑦ は外注を工種・支払先ごとの行（「タイル（外注・東北建興）」）にして、合計が期間の出来高と一致する。
 
 function round2(x: number): number {
   return Math.round(x * 100) / 100;
@@ -85,12 +92,24 @@ const maxDate = (a: string, b: string) => (a > b ? a : b);
 const minDate = (a: string, b: string) => (a < b ? a : b);
 
 /** 日報 1 件を集計画面と同じ DayTotals にする（区分別の合計は明細の保存値 amount）。 */
-function toDayTotals(r: ReportWithLines, ctx: LaborCostContext): DayTotals {
+function toDayTotals(r: ReportWithLines, ctx: LaborCostContext, kinds: IssueKindLookup): DayTotals {
   // 買掛（credit）は仕入＋外注（外注は 1 回だけ）。subcontract はそのうちの外注（2026-11-17）。労務費は原価に数える分。
   const c = dayCostOf(r.lines, (l) => (l.kind === 'labor' ? laborCountedCost(l, ctx) : l.stored.amount));
   // 名前なし（会社と人数）の行は人数分を人数に数える（2026-11-19）。
   const workerCount = r.lines.reduce((n, l) => (l.kind === 'labor' ? n + laborHeadcount(l) : n), 0);
-  return { ...r, labor: c.labor, fuel: c.fuel, lease: c.lease, cash: c.cash, credit: c.credit + c.subcontract, subcontract: c.subcontract, workerCount };
+  // 外注の支払いのうち出来高に数える分（2026-11-11）
+  const subOutput = subcontractOutput(subcontractOutputLines(r.lines, (l) => l.stored.amount), kinds).total;
+  return {
+    ...r,
+    labor: c.labor,
+    fuel: c.fuel,
+    lease: c.lease,
+    cash: c.cash,
+    credit: c.credit + c.subcontract,
+    subcontract: c.subcontract,
+    workerCount,
+    subcontractOutput: subOutput,
+  };
 }
 
 /** 労務の行 → 作業員別の明細（人工は出面、労務費は原価に数える分）。 */
@@ -179,7 +198,7 @@ function buildProfit(
     totalCost: s.cost,
     grossProfit: s.grossProfit,
     grossMargin: s.grossMargin,
-    cumulativeOutput: cumulativeDays.reduce((sum, d) => sum + d.outputTotal, 0),
+    cumulativeOutput: cumulativeDays.reduce((sum, d) => sum + dayOutput(d), 0),
     // 契約確定：累計出来高 ÷ 請負金額。未確定：累計原価（総原価）÷ 概算金額
     progress: base.amount === null ? null : base.basis === 'estimate' ? s.cost / base.amount : s.progress,
     totalManDays,
@@ -427,6 +446,11 @@ function buildAffiliations(input: CostReportInput, labor: AffiliatedLabor[], cum
     if (row.label === UNKNOWN_PARTNER_LABEL && name) row.label = name;
     row.partnerAmount = p.amount;
   }
+  // 請負金額は実行予算の請負の行（その会社の工種をまたいだ合計）を先に使う（2026-11-11）。無い会社は現場の協力会社の額のまま。
+  for (const [supplierId, amount] of Object.entries(input.budgetSubcontractAmounts ?? {})) {
+    const row = ensure(affiliationGroup({ affiliation: 'partner', supplierId }, { [supplierId]: supplierNames.get(supplierId) ?? '' }));
+    row.partnerAmount = amount;
+  }
 
   const rows = [...map.values()]
     .map((r) => {
@@ -586,17 +610,41 @@ function buildEquipment(input: CostReportInput, periodReports: ReportWithLines[]
 
 // ─── ⑦ 工種別出来高 ───
 
-function buildTrades(periodReports: ReportWithLines[]): TradeSection {
-  const map = new Map<string, { manDays: number; output: number; qty: QtyByUnit; descriptions: Map<string, number> }>();
+/** ⑦ の外注の行の名前：「工種（外注・支払先）」。工種が無ければ「工種なし」、支払先が無ければ「（外注）」だけ。 */
+export function subcontractTradeLabel(tradeName: string | null, supplierName: string): string {
+  const supplier = supplierName.trim();
+  return `${tradeName?.trim() || '工種なし'}（外注${supplier === '' ? '' : `・${supplier}`}）`;
+}
+
+interface TradeAcc { subcontract: boolean; manDays: number; output: number; qty: QtyByUnit; descriptions: Map<string, number>; }
+
+function buildTrades(input: CostReportInput, periodReports: ReportWithLines[], kinds: IssueKindLookup): TradeSection {
+  const map = new Map<string, TradeAcc>();
+  const acc = (key: string, subcontract: boolean): TradeAcc => {
+    let v = map.get(key);
+    if (!v) {
+      v = { subcontract, manDays: 0, output: 0, qty: new QtyByUnit(), descriptions: new Map() };
+      map.set(key, v);
+    }
+    return v;
+  };
+  const supplierNames = new Map(input.suppliers.map((sp) => [sp.id, sp.name]));
+  const tradeNames = input.tradeNames ?? {};
   for (const r of periodReports) {
     for (const l of r.lines) {
-      if (l.kind !== 'work') continue;
-      const trade = l.trade.trim();
-      let v = map.get(trade);
-      if (!v) {
-        v = { manDays: 0, output: 0, qty: new QtyByUnit(), descriptions: new Map() };
-        map.set(trade, v);
+      if (l.kind === 'credit' && l.purchaseKind === 'subcontract') {
+        // 出来高に数える外注だけ（減・やり直しの件・読めない件は数えない）。工種・支払先ごとの行（2026-11-11）
+        if (subcontractOutputCategory(l.issueId, kinds) === null) continue;
+        const supplier = (l.supplierId !== null ? supplierNames.get(l.supplierId) : undefined) ?? l.vendor;
+        const v = acc(subcontractTradeLabel(l.siteTradeId !== null ? (tradeNames[l.siteTradeId] ?? null) : null, supplier), true);
+        v.output += l.stored.amount;
+        v.qty.add(l.qty, l.unit);
+        const desc = l.itemName.trim();
+        if (desc !== '') v.descriptions.set(desc, (v.descriptions.get(desc) ?? 0) + 1);
+        continue;
       }
+      if (l.kind !== 'work') continue;
+      const v = acc(l.trade.trim(), false);
       v.manDays = round2(v.manDays + l.stored.manDays);
       v.output += l.stored.amount;
       v.qty.add(l.qty, l.unit);
@@ -606,8 +654,9 @@ function buildTrades(periodReports: ReportWithLines[]): TradeSection {
   }
 
   const totalOutput = [...map.values()].reduce((s, v) => s + v.output, 0);
-  // 出てきた順。工種なし（''）は最後。
-  const entries = [...map.entries()].sort(([a], [b]) => Number(a === '') - Number(b === ''));
+  // 作業内容の工種（出てきた順）→ 外注の行（出てきた順）→ 工種なし（''）。
+  const order = ([trade, v]: [string, TradeAcc]) => (trade === '' && !v.subcontract ? 2 : v.subcontract ? 1 : 0);
+  const entries = [...map.entries()].sort((a, b) => order(a) - order(b));
   const rows: TradeRow[] = entries.map(([trade, v]) => {
     let mainDescription = '';
     let best = 0;
@@ -627,6 +676,7 @@ function buildTrades(periodReports: ReportWithLines[]): TradeSection {
       productivity: qty === null || v.manDays === 0 ? null : qty / v.manDays,
       output: v.output,
       share: totalOutput === 0 ? 0 : v.output / totalOutput,
+      ...(v.subcontract ? { subcontract: true } : {}),
     };
   });
   return { rows, total: { manDays: round2(rows.reduce((s, r) => s + r.manDays, 0)), output: totalOutput } };
@@ -644,7 +694,8 @@ export function buildCostReport(input: CostReportInput, period: CostReportPeriod
   const periodReports = allReports.filter((r) => inPeriod(r.reportDate));
   const cumulativeReports = periodEnd === null ? allReports : allReports.filter((r) => r.reportDate <= periodEnd);
 
-  const allDays = allReports.map((r) => toDayTotals(r, input.laborCost));
+  const kinds = issueKindMap(input.issues);
+  const allDays = allReports.map((r) => toDayTotals(r, input.laborCost, kinds));
   const periodDays = allDays.filter((d) => inPeriod(d.reportDate));
   const cumulativeDays = periodEnd === null ? allDays : allDays.filter((d) => d.reportDate <= periodEnd);
   const periodMonths = [...new Set(periodDays.map((d) => monthKey(d.reportDate)))];
@@ -664,7 +715,7 @@ export function buildCostReport(input: CostReportInput, period: CostReportPeriod
     affiliations: buildAffiliations(input, labor, cumulativeReports),
     vendors: buildVendors(input, periodReports),
     equipment: buildEquipment(input, periodReports),
-    trades: buildTrades(periodReports),
+    trades: buildTrades(input, periodReports, kinds),
     signature: { createdBy: now.by, checkedBy: null, approvedBy: null },
     footer: { reportCount: header.reportCount, approvedCount: header.approvedCount, outputDate: now.date, outputAt: header.outputAt },
   };

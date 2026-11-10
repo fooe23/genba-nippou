@@ -2,6 +2,7 @@ import type { ChangeTotals } from '@/lib/calc/change';
 import { yen } from '@/lib/calc/format';
 import { progressRate } from '@/lib/calc/report';
 import { outputBreakdown } from '@/lib/report/contract-work';
+import { EMPTY_SUBCONTRACT_OUTPUT, changesWithSubcontract, type SubcontractOutput } from '@/lib/report/subcontract-output';
 import type { ReportTotals } from '@/lib/types';
 import { ContractWorkWarning } from './ContractWorkWarning';
 import { decimal, money } from './form-state';
@@ -21,7 +22,8 @@ function signed(n: number): string {
 }
 
 /** 「追加 +12,000 ／ 増 +2,000 ／ 変更 +3,000 ／ 減 −5,000」（0 の区分は出さない。全部 0 なら null）。 */
-function changeText(c: ChangeTotals): string | null {
+function changeText(c: ChangeTotals | null): string | null {
+  if (!c) return null;
   const parts = [
     ['追加', c.extra],
     ['増', c.increase],
@@ -32,8 +34,19 @@ function changeText(c: ChangeTotals): string | null {
   return shown.length === 0 ? null : shown.join(' ／ ');
 }
 
+/** 出来高の行の下に出す小さな内訳の行（「うち外注 ¥170,000」）。 */
+function SubLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 pb-1 text-sm text-gray-600 dark:text-gray-400">
+      <dt>{label}</dt>
+      <dd className="tabular-nums">{value}</dd>
+    </div>
+  );
+}
+
 /**
  * 本日原価集計（5項目と合計）・本日出来高（契約内／追加・変更（精算が必要）／合計）・進捗率（この日までの累計出来高 ÷ 総請負金額）。
+ * 外注の支払い（2026-11-11）は出来高に入れる：件を選んでいない外注は契約内（「うち外注」）、件を選んだ外注はその件の区分。
  * 契約が未確定の現場は「総請負金額（未確定）」と「概算金額」を出す（進捗率の基準は請負金額のまま。日報 PDF と同じ）。
  */
 export function ReportSummary({
@@ -45,6 +58,7 @@ export function ReportSummary({
   estimatedAmount = null,
   showMoney,
   workWarnings = [],
+  subcontract = EMPTY_SUBCONTRACT_OUTPUT,
 }: {
   totals: ReportTotals;
   /** 作業内容の区分ごとの金額（減は負）。 */
@@ -59,10 +73,12 @@ export function ReportSummary({
   showMoney: boolean;
   /** 作業内容が無い・契約外だけ・人工のずれの知らせ（編集できる画面だけ。1 つ 1 行で出す）。 */
   workWarnings?: readonly string[];
+  /** 外注の支払いのうち出来高に数える分（社員・管理者だけ。協力会社には外注の行が無いので 0）。 */
+  subcontract?: SubcontractOutput;
 }) {
-  const cumulative = outputBefore + totals.output;
-  const changeLine = changeText(changes);
-  const split = outputBreakdown(totals.output, changes);
+  const split = outputBreakdown(totals.output, changes, subcontract);
+  const cumulative = outputBefore + split.total;
+  const changeLine = changeText(changesWithSubcontract(changes, subcontract));
   const rate = showMoney && contractAmount ? progressRate(cumulative, contractAmount) * 100 : null;
   return (
     <section aria-label="本日の集計" className="mb-8 grid gap-4 md:grid-cols-2">
@@ -100,6 +116,7 @@ export function ReportSummary({
         <h2 className="mb-1 text-lg font-bold">出来高</h2>
         <dl>
           <Line label="契約内の出来高" value={money(split.contract)} />
+          {split.subcontractContract !== 0 && <SubLine label="うち外注" value={money(split.subcontractContract)} />}
           {/* 契約外（追加・増・変更・減）は区分ごとに出す（減は負）。あとで件ごとに精算する分。 */}
           <div
             className={`flex flex-wrap items-baseline justify-between gap-x-3 py-1 ${changeLine ? 'rounded bg-amber-50 px-1 text-amber-950 dark:bg-amber-950 dark:text-amber-50' : ''}`}
@@ -107,6 +124,7 @@ export function ReportSummary({
             <dt>追加・変更（精算が必要）</dt>
             <dd className="font-bold tabular-nums">{changeLine ?? 'なし'}</dd>
           </div>
+          {split.subcontractChanges !== 0 && <SubLine label="うち外注" value={signed(split.subcontractChanges)} />}
           <Line label="本日出来高 合計" value={money(split.total)} />
           <Line label="累計出来高（この日まで）" value={money(cumulative)} />
           {showMoney && (

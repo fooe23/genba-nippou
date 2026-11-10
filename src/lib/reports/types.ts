@@ -4,6 +4,7 @@ import type { Carryover, Site, SitePartner } from '@/lib/db/sites';
 import type { AffiliationKind, AffiliationManDays } from '@/lib/reports/affiliation-breakdown';
 import type { ChangeTotals } from '@/lib/calc/change';
 import type { LaborCostContext, LaborCostKind } from '@/lib/calc/labor-cost';
+import type { SubcontractOutput } from '@/lib/report/subcontract-output';
 import type { ChangeKind, InstructionMethod, IssueKind, ReportLine, SettlementMethod, TimeSpec } from '@/lib/types';
 
 // 帳票（第2計画（改）Task 2〜5）の型。モデルは数値だけを持ち、文字列の整形（#,##0・%・「—」・「（手入力）」）は
@@ -49,6 +50,13 @@ export interface CostReportInput {
    * （社員・管理者だけ）。労務費はすべて「原価に数える分」（請負の行はうち常用の時間の分だけ）。人工（出面）は全部。
    */
   laborCost: LaborCostContext;
+  /**
+   * 実行予算の請負の行（gn_budget_lines の項目 'subcontract'）の会社ごとの金額の合計（工種をまたいで足す。2026-11-11）。
+   * ④-2 所属別の請負金額はこれを先に使い、無い会社は現場の協力会社の請負金額（sitePartners.amount）。社員・管理者だけ（省略は空）。
+   */
+  budgetSubcontractAmounts?: Record<string, number>;
+  /** 実行予算の工種 id → 名前（⑦ 工種別出来高の外注の行の工種名。2026-11-11）。省略・無い工種は「工種なし」。 */
+  tradeNames?: Record<string, string>;
 }
 
 export type CostReportPeriod = { kind: 'all' } | { kind: 'month'; month: string };
@@ -216,7 +224,10 @@ export interface AffiliationRow {
   manDays: number;
   /** 原価に数える労務費（＝ jouyouCost）。 */
   cost: number;
-  /** 現場の協力会社の請負金額（gn_site_partners.amount。現場全体の額で、月の帳票でもそのまま）。協力会社以外・未入力は null。 */
+  /**
+   * 請負金額（現場全体の額で、月の帳票でもそのまま）。実行予算の請負の行のその会社の金額の合計（2026-11-11）、無ければ
+   * 現場の協力会社の請負金額（gn_site_partners.amount）。協力会社以外・どちらも無ければ null。
+   */
   partnerAmount: number | null;
   /** 請負金額 − 外注の支払い。請負金額が無ければ null。 */
   difference: number | null;
@@ -289,6 +300,11 @@ export interface TradeRow {
   output: number;
   /** 出来高 ÷ 工種別出来高の合計（合計 0 なら 0）。 */
   share: number;
+  /**
+   * 外注の支払いの行（2026-11-11。工種・支払先ごと。trade は「タイル（外注・東北建興）」）。出来高に数える外注
+   * （件なし＝契約内、件ありは追加・増・変更）の支払金額。投入人工・歩掛は持たない（manDays 0・productivity null）。
+   */
+  subcontract?: boolean;
 }
 
 export interface TradeSection {
@@ -343,8 +359,16 @@ export interface DailyReportInput {
   issues: Issue[];
   /** profiles.id → 表示名（createdBy・reviewedBy・approvedBy）。読めない id は入れない。 */
   names: Record<string, string>;
-  /** この日より前の日報の output_total の合計（進捗率 =（これ + 本日出来高）÷ 請負金額）。 */
+  /**
+   * この日より前の日報の出来高の合計（output_total ＋ 外注の支払いのうち出来高に数える分。2026-11-11）。
+   * 進捗率 =（これ + 本日出来高）÷ 請負金額。
+   */
   cumulativeOutputBefore: number;
+  /**
+   * この日報の外注の行が根拠に選んだ件のうち、issues に無い件（ほかの日報の件）の id → 種別（2026-11-11）。
+   * 外注の出来高を契約内・追加・増・変更に分けるのに使う。読めない件の外注は数えない。省略は空。
+   */
+  subcontractIssueKinds?: Record<string, IssueKind>;
   /** 実行予算の工種 id → 名前（外注の買掛の品名の頭【外注・工種名】に使う。2026-11-17）。省略・無い工種は【外注】だけ。 */
   tradeNames?: Record<string, string>;
   /** 労務費の決まりの材料（2026-11-17）。作業員の行の労務費・本日原価の労務費は原価に数える分。 */
@@ -484,7 +508,12 @@ export interface DailyReportModel {
    * 概算金額（確定の現場は null）。進捗率の基準は未確定でも請負金額のまま（累計原価 ÷ 概算は次の計画）。
    */
   output: {
+    /** 本日出来高 合計 = work + subcontract.total。 */
     today: number;
+    /** 作業内容の出来高（output_total）。 */
+    work: number;
+    /** 外注の支払いのうち出来高に数える分（2026-11-11。件なし＝契約内、件ありは区分ごと）。協力会社には 0。 */
+    subcontract: SubcontractOutput;
     cumulative: number | null;
     contractAmount: number | null;
     progress: number | null;
@@ -741,7 +770,7 @@ export interface ChangeLedgerModel {
   };
   /** 期間末までの、件に紐づかない行の提案額の合計（区分ごと。減は負）。客先用の精算額（clientSettlement）で使う。 */
   unlinkedByKind: Record<ChangeLedgerKind, number>;
-  /** 集計期間の契約内の作業内容の出来高（保存値 amount の合計）。 */
+  /** 集計期間の契約内の出来高（契約内の作業内容の行の保存値 amount ＋ 件を選んでいない外注の支払い。2026-11-11）。 */
   contractOutput: number;
   /**
    * 精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 増 ＋ 変更 ＋ 減（減は負）。各区分は精算額

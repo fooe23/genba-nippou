@@ -753,3 +753,18 @@ describe('所属別の人工（行・件ごと・件なし）', () => {
     expect(pairs(noNames.rows[0].affiliationManDays)).toEqual([['自社', 1], ['協力会社', 0.5]]);
   });
 });
+
+describe('外注の支払いと契約内の出来高（2026-11-11）', () => {
+  it('件を選んでいない外注は契約内の出来高に入り、件を選んだ外注は件の精算（外注）に入る', () => {
+    const r = report('2026-11-10', [
+      work('contract', 0.5, 1, 20_000),
+      work('increase', 0.5, 1, 25_000, { issueId: 'iInc' }),
+      credit(170_000, { purchaseKind: 'subcontract', supplierId: 'pT' }),
+      credit(30_000, { purchaseKind: 'subcontract', issueId: 'iInc' }),
+      credit(5_000), // 仕入（件なし）は出来高に入れない
+    ]);
+    const m = buildChangeLedger(input([r], { issues: [issue('iInc', '2026-11-10', '目地 増', { kind: 'increase' })] }), RATES, ALL);
+    expect(m.contractOutput).toBe(190_000);
+    expect(m.issues.find((i) => i.id === 'iInc')?.breakdown.subcontract).toBe(30_000);
+  });
+});

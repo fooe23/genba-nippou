@@ -9,8 +9,8 @@ export const COST_REPORT_TITLE = '工事原価集計表';
 export const NO_REPORTS = '日報がありません';
 /**
  * ④-2 の見出しの補足（PDF では見出しの横に 1 行で出すので短く。2026-11-17）。請負人工は出面だけで労務費に入れない
- * （請負の行のうち常用の時間の分は常用に入る）。外注の支払いはその会社への外注の買掛。請負金額は現場の協力会社の欄の額
- * （現場全体。月の帳票でもそのまま）。差額は請負金額を入れた会社だけ。
+ * （請負の行のうち常用の時間の分は常用に入る）。外注の支払いはその会社への外注の買掛。請負金額は実行予算の請負の行の
+ * その会社の合計、無ければ現場の協力会社の欄の額（現場全体。月の帳票でもそのまま。2026-11-11）。差額は請負金額のある会社だけ。
  */
 export const AFFILIATION_NOTES = ['繰越初期値は自社の常用', '請負人工は出面だけ（労務費に入れない）', '差額＝請負金額−外注支払い'] as const;
 
@@ -314,6 +314,8 @@ export function costSections(model: CostReportModel): CostSection[] {
     },
     {
       title: '⑦ 工種別出来高',
+      // 外注の行（2026-11-11）があるときだけ、出来高が支払金額であることを添える
+      note: trades.rows.some((r) => r.subcontract) ? '外注は支払金額（工種・支払先ごと）' : undefined,
       tables: [
         {
           columns: [
@@ -331,8 +333,9 @@ export function costSections(model: CostReportModel): CostSection[] {
             r.mainDescription,
             qty(r.qty),
             r.qty === null ? '' : (r.unit ?? ''),
-            dec1(r.manDays),
-            dec1(r.productivity),
+            // 外注の行（2026-11-11）は投入人工・歩掛を持たないので空欄
+            r.subcontract ? '' : dec1(r.manDays),
+            r.subcontract ? '' : dec1(r.productivity),
             yen(r.output),
             pct(r.share),
           ]),

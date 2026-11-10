@@ -21,6 +21,7 @@ import {
 import { canRequestReportFix, canReviewSite } from '@/lib/report/issue-status';
 import { loadSiteTrades, loadTradeAliases, loadUkeoiSupplierIds } from '@/lib/db/budget';
 import { loadLaborCostContext } from '@/lib/db/labor-cost';
+import { loadSubcontractOutputs } from '@/lib/db/subcontract-output';
 import { getSettings } from '@/lib/db/settings';
 import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-signature';
 import { NO_SIGNATURE, type ClientSignatureView } from '@/lib/report/client-signature';
@@ -294,7 +295,9 @@ export async function loadReportFormProps(
 
   const showMoney = isEmployeeOrAdmin(profile);
   const allDates = heads.map((h) => h.reportDate);
-  const outputBefore = heads.filter((h) => h.reportDate < date).reduce((s, h) => s + h.outputTotal, 0);
+  // 前日までの出来高は外注の支払いのうち出来高に数える分も入れる（2026-11-11。協力会社には外注の行が無いので 0）。
+  const subcontract = await loadSubcontractOutputs(heads.map((h) => h.id));
+  const outputBefore = heads.filter((h) => h.reportDate < date).reduce((s, h) => s + h.outputTotal + (subcontract.byReport.get(h.id)?.total ?? 0), 0);
 
   return {
     siteId,
@@ -313,6 +316,7 @@ export async function loadReportFormProps(
     contractTentative: site.contractStatus === 'tentative',
     estimatedAmount: showMoney && site.contractStatus === 'tentative' ? site.estimatedAmount : null,
     outputBefore,
+    subcontractIssueKinds: subcontract.issueKinds,
     hasPrevious: allDates.some((d) => d < date),
     initial,
     masters,
