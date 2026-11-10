@@ -3,6 +3,7 @@ import {
   MISSING_CONTRACT_WORK_ALL_CHANGES,
   MISSING_CONTRACT_WORK_NONE,
   contractWorkWarning,
+  hasWorkContent,
   manDaysMismatchWarning,
   manDaysText,
   missingSettlementAmount,
@@ -12,7 +13,10 @@ import {
 } from '@/lib/report/contract-work';
 import type { ChangeKind } from '@/lib/types';
 
-const w = (changeKind: ChangeKind) => ({ changeKind });
+/** 中身のある作業内容の行（施工内容あり）。 */
+const line = (changeKind: ChangeKind, manDays: number | null = null) => ({ changeKind, description: '作業', manDays, qty: null, unitPrice: null });
+const w = (changeKind: ChangeKind) => line(changeKind);
+const empty = (changeKind: ChangeKind = 'contract') => ({ changeKind, description: '  ', manDays: null, qty: null, unitPrice: null });
 
 describe('contractWorkWarning（作業内容が無い・契約外だけの日の知らせ）', () => {
   it('人工のある作業員がいて、作業内容の行が無い → (a)', () => {
@@ -36,6 +40,19 @@ describe('contractWorkWarning（作業内容が無い・契約外だけの日の
   });
   it('人工が数でない（入力途中）の行は数えない', () => {
     expect(contractWorkWarning([Number.NaN], [])).toBeNull();
+  });
+  it('足したばかりの空の行（施工内容・投入人工・金額が無い）は作業内容に数えない', () => {
+    expect(contractWorkWarning([1], [empty()])).toBe(MISSING_CONTRACT_WORK_NONE);
+    expect(contractWorkWarning([1], [w('extra'), empty()])).toBe(MISSING_CONTRACT_WORK_ALL_CHANGES);
+    expect(workWarnings([1], [empty()])).toEqual([MISSING_CONTRACT_WORK_NONE]);
+    expect(manDaysMismatchWarning([1], [empty()])).toBeNull();
+  });
+  it('施工内容・投入人工・金額のどれかがあれば中身のある行', () => {
+    expect(hasWorkContent({ description: '床', manDays: null, qty: null, unitPrice: null })).toBe(true);
+    expect(hasWorkContent({ description: '', manDays: 0.5, qty: null, unitPrice: null })).toBe(true);
+    expect(hasWorkContent({ description: '', manDays: 0, qty: 2, unitPrice: 1000 })).toBe(true);
+    expect(hasWorkContent({ description: '', manDays: 0, qty: 2, unitPrice: null })).toBe(false);
+    expect(contractWorkWarning([1], [{ ...empty(), manDays: 1 }])).toBeNull();
   });
 });
 
@@ -61,7 +78,7 @@ describe('outputBreakdown（本日出来高を契約内と追加・変更に分�
 });
 
 describe('manDaysMismatchWarning（作業員と作業内容の人工のずれ）', () => {
-  const m = (manDays: number | null, changeKind: ChangeKind = 'contract') => ({ changeKind, manDays });
+  const m = (manDays: number | null, changeKind: ChangeKind = 'contract') => line(changeKind, manDays);
   it('作業員の人工の合計と作業内容の投入人工の合計が 0.01 以上ずれていれば知らせる', () => {
     expect(manDaysMismatchWarning([1], [m(0.5)])).toBe('作業員の人工（1.0 人工）と作業内容の投入人工（0.5 人工）が合っていません。');
     expect(manDaysMismatchWarning([0.5, 1], [m(1), m(1.25, 'extra')])).toBe('作業員の人工（1.5 人工）と作業内容の投入人工（2.25 人工）が合っていません。');
@@ -85,14 +102,14 @@ describe('workWarnings（当てはまる知らせを全部）', () => {
     expect(workWarnings([1], [])).toEqual([MISSING_CONTRACT_WORK_NONE]);
   });
   it('(b) 契約外だけで人工もずれていれば両方', () => {
-    expect(workWarnings([2], [{ changeKind: 'extra', manDays: 1 }])).toEqual([
+    expect(workWarnings([2], [line('extra', 1)])).toEqual([
       MISSING_CONTRACT_WORK_ALL_CHANGES,
       '作業員の人工（2.0 人工）と作業内容の投入人工（1.0 人工）が合っていません。',
     ]);
   });
   it('人工のずれだけ、何も無ければ空', () => {
-    expect(workWarnings([1], [{ changeKind: 'contract', manDays: 2 }])).toEqual(['作業員の人工（1.0 人工）と作業内容の投入人工（2.0 人工）が合っていません。']);
-    expect(workWarnings([1], [{ changeKind: 'contract', manDays: 1 }])).toEqual([]);
+    expect(workWarnings([1], [line('contract', 2)])).toEqual(['作業員の人工（1.0 人工）と作業内容の投入人工（2.0 人工）が合っていません。']);
+    expect(workWarnings([1], [line('contract', 1)])).toEqual([]);
     expect(workWarnings([], [])).toEqual([]);
   });
 });

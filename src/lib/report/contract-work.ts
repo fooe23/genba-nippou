@@ -26,12 +26,30 @@ export function needsSettlement(changeKind: ChangeKind): boolean {
   return changeKind !== 'contract';
 }
 
+/** 知らせで見る作業内容の行の項目。 */
+export interface WorkWarningLine {
+  changeKind: ChangeKind;
+  description: string;
+  manDays: number | null;
+  qty: number | null;
+  unitPrice: number | null;
+}
+
+/** 中身のある作業内容の行か（施工内容がある、投入人工が 0 より大きい、または金額＝数量 × 施工単価がある）。足したばかりの空の行は数えない。 */
+export function hasWorkContent(l: Omit<WorkWarningLine, 'changeKind'>): boolean {
+  if (l.description.trim() !== '') return true;
+  if (l.manDays !== null && Number.isFinite(l.manDays) && l.manDays > 0) return true;
+  const amount = (l.qty ?? 0) * (l.unitPrice ?? 0);
+  return Number.isFinite(amount) && amount !== 0;
+}
+
 /**
  * 作業員の人工に対して、契約内の作業内容が無いときの知らせ（保存は止めない）。
- * laborManDays は作業員の行ごとの人工。人工が 0 より大きい行が 1 つも無ければ出さない。
+ * laborManDays は作業員の行ごとの人工。人工が 0 より大きい行が 1 つも無ければ出さない。作業内容は中身のある行だけ数える（hasWorkContent）。
  */
-export function contractWorkWarning(laborManDays: readonly number[], work: readonly { changeKind: ChangeKind }[]): string | null {
+export function contractWorkWarning(laborManDays: readonly number[], lines: readonly WorkWarningLine[]): string | null {
   if (!laborManDays.some((d) => Number.isFinite(d) && d > 0)) return null;
+  const work = lines.filter(hasWorkContent);
   if (work.length === 0) return MISSING_CONTRACT_WORK_NONE;
   if (work.every((l) => needsSettlement(l.changeKind))) return MISSING_CONTRACT_WORK_ALL_CHANGES;
   return null;
@@ -39,10 +57,11 @@ export function contractWorkWarning(laborManDays: readonly number[], work: reado
 
 /**
  * 作業員の人工の合計（人工が 0 より大きい行だけ）と作業内容の投入人工の合計（空欄は 0）がずれているときの知らせ（保存は止めない）。
- * 作業員の人工が 0・作業内容の行が無いときは出さない（(a) の知らせのほうを出す）。差が 0.01 人工未満なら出さない。
+ * 作業員の人工が 0・中身のある作業内容の行が無いときは出さない（(a) の知らせのほうを出す）。差が 0.01 人工未満なら出さない。
  */
-export function manDaysMismatchWarning(laborManDays: readonly number[], work: readonly { manDays: number | null }[]): string | null {
+export function manDaysMismatchWarning(laborManDays: readonly number[], lines: readonly WorkWarningLine[]): string | null {
   const workers = laborManDays.filter((d) => Number.isFinite(d) && d > 0).reduce((s, d) => s + d, 0);
+  const work = lines.filter(hasWorkContent);
   if (workers <= 0 || work.length === 0) return null;
   const planned = work.reduce((s, l) => s + (l.manDays !== null && Number.isFinite(l.manDays) ? l.manDays : 0), 0);
   // 浮動小数の誤差（0.1 ＋ 0.2 など）を落としてから比べる
@@ -51,7 +70,7 @@ export function manDaysMismatchWarning(laborManDays: readonly number[], work: re
 }
 
 /** 作業員と作業内容の知らせ（当てはまるものを全部。(a)・(b) のどちらかと人工のずれ）。無ければ空。 */
-export function workWarnings(laborManDays: readonly number[], work: readonly { changeKind: ChangeKind; manDays: number | null }[]): string[] {
+export function workWarnings(laborManDays: readonly number[], work: readonly WorkWarningLine[]): string[] {
   return [contractWorkWarning(laborManDays, work), manDaysMismatchWarning(laborManDays, work)].filter((m): m is string => m !== null);
 }
 
