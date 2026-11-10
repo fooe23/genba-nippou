@@ -94,7 +94,7 @@ export function MembersSection({
                 onChange={(e) => {
                   if (isRole(e.target.value)) changeRole(m.userId, e.target.value);
                 }}
-                className={`${inputClass} w-28`}
+                className={`${inputClass} w-28! shrink-0`}
               >
                 {SITE_ROLES.map((r) => (
                   <option key={r} value={r}>

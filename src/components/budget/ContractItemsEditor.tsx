@@ -157,7 +157,7 @@ export function ContractItemsEditor({
                     value={r.section}
                     disabled={readOnly || pending}
                     onChange={(e) => update(r.key, { section: e.target.value as ContractSection })}
-                    className={`${inputClass} w-24 shrink-0`}
+                    className={`${inputClass} w-24! shrink-0`}
                   >
                     {CONTRACT_SECTIONS.map((s) => (
                       <option key={s} value={s}>
