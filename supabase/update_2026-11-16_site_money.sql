@@ -23,27 +23,20 @@
 -- 1. 列の権限 -----------------------------------------------------------------------------
 -- 表の SELECT を外すと、その表の列ごとの SELECT も一緒に外れる（付け直すので何度実行しても同じ結果）。
 revoke select on public.gn_sites from authenticated, anon;
-grant select (
-  id,
-  name,
-  client_name,
-  project_name,
-  project_no,
-  overview,
-  start_date,
-  end_date,
-  contract_type,
-  status,
-  deleted_at,
-  deleted_by,
-  common_start,
-  common_end,
-  common_break_min,
-  common_gap_min,
-  contract_status,
-  created_at,
-  updated_at
-) on public.gn_sites to authenticated;
+-- 付け直す列は、いまの表の列からお金の 3 列を除いたもの全部（DB に実際にある列から作るので、列の書き漏れが起きない）
+do $$
+declare
+  cols text;
+begin
+  select string_agg(quote_ident(column_name), ', ' order by ordinal_position)
+    into cols
+    from information_schema.columns
+   where table_schema = 'public'
+     and table_name = 'gn_sites'
+     and column_name not in ('contract_amount', 'estimated_amount', 'default_daily_rate');
+  execute format('grant select (%s) on public.gn_sites to authenticated', cols);
+end
+$$;
 
 -- 2. お金の列を読む関数 ---------------------------------------------------------------------
 create or replace function public.gn_site_money(p_site_ids uuid[])
