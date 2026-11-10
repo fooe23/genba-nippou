@@ -53,7 +53,8 @@ export function clientDailyHeaderRows(m: DailyReportModel): [string, string | nu
  * 件の表は clientIssueTable（確認していただく件）。
  */
 export function clientDailyTables(m: DailyReportModel): { work: SectionTable; workersLine: string | null } {
-  const n = m.workers.rows.length;
+  // 名前なし（会社と人数）の行は人数分を数える（2026-11-19）。
+  const n = m.workers.rows.reduce((s, r) => s + r.headcount, 0);
   return {
     work: {
       columns: [col.text('区分', 1.1), col.text('工種', 1.8), col.text('施工内容', 5.2), col.num('数量', 1.2), col.text('単位', 1), col.num('人工', 1.1)],

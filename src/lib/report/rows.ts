@@ -1,5 +1,6 @@
 import { amount, fuelCost, laborLineValues, productivity, workAmount } from '@/lib/calc/report';
 import { EMPTY_WORK_CHANGE, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
+import { isUnnamedLabor } from '@/lib/report/unnamed-workers';
 import type { Affiliation, ChangeKind, InstructionMethod, LaborContract, LaborLine, LaborRule, LaborSaved, PurchaseKind, ReportLine, TimeSpec } from '@/lib/types';
 import type { SaveInput } from '@/lib/report/schema';
 
@@ -57,6 +58,11 @@ export interface LineRow {
   purchase_kind: PurchaseKind | null;
   /** 作業員の行のうち常用の時間（H。2026-11-17）。作業員以外は null。 */
   jouyou_hours: number | null;
+  /**
+   * 人数（2026-11-19）。名前なし（会社と人数）の作業員の行だけ（1 以上）。それ以外は null（DB も null にする）。
+   * 人工・残業・金額は人数分、実働（hours）は 1 人あたり（src/lib/report/unnamed-workers.ts）。
+   */
+  headcount: number | null;
 }
 
 /** gn_save_report の p_report。 */
@@ -82,7 +88,7 @@ const EMPTY_ROW: Omit<LineRow, 'kind' | 'sort_order'> = {
   productivity: null, source: null, note: null, overtime_hours: null, overtime_rate: null,
   change_kind: null, instructed_by: null, instruction_method: null, instructed_on: null, issue_id: null,
   labor_contract: null, affiliation: null, supplier_id: null, site_trade_id: null,
-  purchase_kind: null, jouyou_hours: null,
+  purchase_kind: null, jouyou_hours: null, headcount: null,
 };
 
 function text(v: string | null | undefined): string | null {
@@ -126,6 +132,8 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number,
         affiliation: line.affiliation ?? null,
         supplier_id: text(line.supplierId),
         jouyou_hours: num(line.jouyouHours),
+        // 人数は名前なしの行（作業員を選んでいない行）だけ。
+        headcount: !line.workerId && isUnnamedLabor(line) ? num(line.headcount) : null,
       };
     }
     case 'fuel':
@@ -258,6 +266,11 @@ function savedValues(r: LineRowRead): { saved?: LaborSaved } {
   return { saved: { hours, manDays, overtimeHours, cost } };
 }
 
+function headcountOf(r: LineRowRead): { headcount?: number } {
+  const n = rNum(r.headcount);
+  return n === null ? {} : { headcount: n };
+}
+
 /** 種類が不明な行は null（読み飛ばす）。 */
 export function fromLineRow(r: LineRowRead): ReportLine | null {
   switch (r.kind) {
@@ -276,6 +289,8 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         supplierId: rId(r.supplier_id),
         // 列の無い・移行前の行は null（全部が請負。常用の行では使わない）。
         jouyouHours: rNum(r.jouyou_hours),
+        // 人数は名前なし（会社と人数）の行だけ持つ（列の無い・移行前の行・名前のある行は項目なし＝1 人）。
+        ...headcountOf(r),
         ...savedValues(r),
       };
     case 'fuel':
@@ -364,6 +379,7 @@ export function withoutSaved(l: LaborLine): LaborLine {
 
 /**
  * 前回コピー: 作業員・車両・リースだけを複写。作業員の個別時間・うち常用の時間と車両の走行距離は空にする（リースの数量・残業単価はそのまま）。
+ * 名前なし（会社と人数）の行は会社・人数・常用請負をそのまま複写する。
  * 根拠の件はその日のものなので持ち込まない。
  */
 export function copyableLines(lines: ReportLine[]): ReportLine[] {

@@ -25,6 +25,11 @@ export interface LaborLine  {
    * 保存時に、区分が請負でない行は null にそろえる（src/lib/report/snapshots.ts）。
    */
   jouyouHours?: number | null;
+  /**
+   * 人数（2026-11-19）。名前なし（会社と人数）の行だけ入る（1 以上の整数。画面で空にしている間は 0）。
+   * null・省略は名前のある行（1 人）。src/lib/report/unnamed-workers.ts。
+   */
+  headcount?: number | null;
 }
 // 燃料・リース・現金・買掛の issueId は根拠の件（gn_report_issues.id。2026-11-17。null＝根拠なし＝通常の工事の分）。
 export interface FuelLine   { kind: 'fuel';   vehicleId: string | null; vehicleName: string; kmPerL: number | null; distanceKm: number | null; pricePerL: number | null; note: string; issueId: string | null; }

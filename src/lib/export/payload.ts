@@ -17,6 +17,7 @@ import type {
   ExportWorkRow,
 } from '@/lib/export/types';
 import { withChangeKindPrefix } from '@/lib/report/change-labels';
+import { laborHeadcount } from '@/lib/report/unnamed-workers';
 import type { LaborLine, LeaseLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 
 // Excel 出力用の payload を組み立てる（純関数。Supabase に依存しない）。
@@ -304,7 +305,12 @@ export function buildExportPayload(input: ExportInput): ExportResult {
     const credit = r.lines.filter((l) => l.kind === 'credit');
     const work = r.lines.filter((l) => l.kind === 'work');
 
-    const counts = { labor: labor.length, fuel: fuel.length, lease: lease.length, cash: cash.length, credit: credit.length, work: work.length };
+    // 名前なし（会社と人数）の行は人数分の行に分けて書く（雛形の式は 1 行 1 人で人工・労務費を出すので、人数分の行で保存値と同じになる）。
+    const laborRows = labor.flatMap((l) => {
+      const row = laborRow(l, r.common, workers, dupWorkers, workerRate);
+      return Array.from({ length: laborHeadcount(l) }, () => row);
+    });
+    const counts = { labor: laborRows.length, fuel: fuel.length, lease: lease.length, cash: cash.length, credit: credit.length, work: work.length };
     for (const key of Object.keys(TABLE_ROWS) as (keyof typeof TABLE_ROWS)[]) {
       const max = tableRows(index, key);
       if (counts[key] > max)
@@ -322,7 +328,7 @@ export function buildExportPayload(input: ExportInput): ExportResult {
       weather: text(r.weather),
       supervisor: text(r.supervisor),
       common: { start: r.common.start, end: r.common.end, break_min: r.common.breakMin, gap_min: r.common.gapMin },
-      labor: labor.map((l) => laborRow(l, r.common, workers, dupWorkers, workerRate)),
+      labor: laborRows,
       fuel: fuel.map((l) => ({ name: l.vehicleName, distance_km: l.distanceKm, price_per_l: l.pricePerL, note: text(l.note) })),
       lease: lease.map((l) => leaseRow(l, leaseItems, dupLease, leaseRate)),
       cash: cash.map(purchaseRow),

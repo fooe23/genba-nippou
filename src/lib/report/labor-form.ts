@@ -18,6 +18,7 @@ export function laborCostLineOf(line: LaborLine, v: LaborValues, stored: StoredL
     jouyouHours: line.jouyouHours ?? null,
     dailyRate: line.dailyRate,
     overtimeRate: line.overtimeRate,
+    headcount: line.headcount ?? null,
     stored: { amount: v.cost, manDays: v.manDays, overtimeHours: v.overtimeHours, hours: v.hours },
   };
 }

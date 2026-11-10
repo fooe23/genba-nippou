@@ -3,6 +3,7 @@ import { dateSchema } from '@/lib/db/masters-schemas';
 import { CHANGE_KINDS, INSTRUCTION_METHODS } from '@/lib/report/change-labels';
 import { jouyouHoursWarning } from '@/lib/calc/labor-cost';
 import { effectiveHours } from '@/lib/calc/report';
+import { isUnnamedLabor, laborDisplayName } from '@/lib/report/unnamed-workers';
 import type { CashLine, CreditLine, LineKind, ReportLine, TimeSpec } from '@/lib/types';
 
 // 日報の入力検証（保存を止めるエラー）と警告（保存は止めない注意）。
@@ -108,6 +109,9 @@ const noteSchema = textSchema('備考', 200);
 const unitSchema = textSchema('単位', 50);
 const specSchema = textSchema('規格', 200);
 
+const MSG_HEADCOUNT = '人数は1以上の整数で入れてください';
+const MSG_UNNAMED_COMPANY = '名前なしの行は会社を選んでください';
+
 const laborSchema = z.object({
   kind: z.literal('labor'),
   workerId: refIdSchema,
@@ -127,6 +131,17 @@ const laborSchema = z.object({
   jouyouHours: z
     .preprocess(emptyToNull, z.number({ error: MSG_JOUYOU_HOURS }).min(0, MSG_JOUYOU_HOURS).max(24, MSG_JOUYOU_HOURS).nullable())
     .default(null),
+  // 人数（2026-11-19）。名前なし（会社と人数）の行だけ（src/lib/report/unnamed-workers.ts）。省略・null は名前のある行（1 人）。
+  // 画面で空にしている間は 0 が来るので、ここで止める。
+  headcount: z
+    .preprocess(emptyToNull, z.number({ error: MSG_HEADCOUNT }).int(MSG_HEADCOUNT).min(1, MSG_HEADCOUNT).max(999, MSG_HEADCOUNT).nullable())
+    .optional(),
+  // 名前なしの行の会社（協力会社）。名前のある行では使わない（normalizeLine で取り除く。所属はサーバーが決める）。
+  supplierId: refIdSchema.optional(),
+}).superRefine((v, ctx) => {
+  if (isUnnamedLabor(v) && !v.workerId && !v.supplierId) {
+    ctx.addIssue({ code: 'custom', message: MSG_UNNAMED_COMPANY, path: ['supplierId'] });
+  }
 });
 
 // 根拠の件（gn_report_issues.id。2026-11-17 から燃料・リース・現金・買掛にも）。古い下書きには無いので省略は null。
@@ -232,6 +247,13 @@ const lineSchema = z.discriminatedUnion('kind', [laborSchema, fuelSchema, leaseS
 
 /** 金額のみ入力 → qty=1, unitPrice=金額。amountOnly を取り除いて ReportLine にする。 */
 function normalizeLine(line: z.output<typeof lineSchema>): ReportLine {
+  if (line.kind === 'labor') {
+    // 会社は名前なしの行だけ持つ（作業員を選んだ行・手入力の行の会社はサーバーがマスターから決める）。
+    if (isUnnamedLabor(line) && !line.workerId) return line;
+    const { supplierId: _supplierId, ...rest } = line;
+    void _supplierId;
+    return rest;
+  }
   if (line.kind !== 'cash' && line.kind !== 'credit') return line;
   const { amountOnly, ...rest } = line;
   if (amountOnly === null || amountOnly === undefined) return rest;
@@ -295,7 +317,7 @@ export function reportWarnings(
     // 未選択の行は検証エラーで知らせるので、ここでは選択済みの行だけ見る。
     if (line.kind === 'labor') {
       laborCount++;
-      const name = line.workerName || `${laborCount}行目`;
+      const name = line.workerName ? laborDisplayName(line) : `${laborCount}行目`;
       if (isBefore(line.time.start, line.time.end)) w.push(`作業員「${name}」：終了が開始より前です`);
       if (line.workerName && line.dailyRate === null) w.push(`作業員「${name}」：日当が未設定です（労務費が0円になります）`);
       // うち常用の時間が実働を超える（請負の行だけ。2026-11-17。全部を常用として数える）

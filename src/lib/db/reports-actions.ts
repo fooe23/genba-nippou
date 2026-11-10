@@ -22,7 +22,7 @@ import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { listLeaseItems, listVehicles, listWorkers } from '@/lib/db/masters';
-import { getPreviousReport, listIssuesByIds, subcontractColumnsReady } from '@/lib/db/reports';
+import { getPreviousReport, headcountColumnReady, listIssuesByIds, subcontractColumnsReady } from '@/lib/db/reports';
 import { getSettings } from '@/lib/db/settings';
 import {
   copyableLines,
@@ -45,6 +45,12 @@ import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeMessage } fro
 import { applyIssueInstructions } from '@/lib/report/issue-instructions';
 import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots, type StoredAffiliations } from '@/lib/report/snapshots';
 import { validateReport, type SaveInput } from '@/lib/report/schema';
+import {
+  applyUnnamedCompanies,
+  isUnnamedLabor,
+  UNNAMED_NOT_READY_MESSAGE,
+  unnamedCompanyIds,
+} from '@/lib/report/unnamed-workers';
 import { createServerSupabase } from '@/lib/supabase/server';
 import {
   checkSignaturePng,
@@ -131,6 +137,17 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
       if (creditError) return { ok: false, error: creditError };
     }
 
+    // 名前なし（会社と人数）の作業員の行（2026-11-19）：DB に人数の列が無い（SQL の前）ときは止める（人数が捨てられて 1 人として
+    // 保存されないように）。会社は協力会社だけ（この日報で使っている会社は印を外した後でも保存し直せる）。名前は「会社名（名前なし）」。
+    const unnamedIds = unnamedCompanyIds(v.lines);
+    if (v.lines.some((l) => l.kind === 'labor' && !l.workerId && isUnnamedLabor(l))) {
+      if (!(await headcountColumnReady())) return { ok: false, error: UNNAMED_NOT_READY_MESSAGE };
+      const [companies, storedUnnamed] = await Promise.all([loadCompanies(unnamedIds), loadStoredUnnamedCompanies(v.siteId, v.date)]);
+      const named = applyUnnamedCompanies(v.lines, companies, storedUnnamed);
+      if (!named.ok) return { ok: false, error: named.error };
+      v.lines = named.lines;
+    }
+
     // 根拠の件のある作業内容の行：指示者・指示方法・指示日は保存済みの件から入れる（画面から届いた値は使わない）。
     // 見つからない件の行はそのまま（DB の参照の制約が決める）。
     const issueIds = v.lines.flatMap((l) => (l.kind === 'work' && l.issueId ? [l.issueId] : []));
@@ -197,6 +214,36 @@ async function loadStoredCreditSuppliers(siteId: string, date: string, purchaseK
   return ((data as { gn_report_lines: { ref_id: string | null }[] | null } | null)?.gn_report_lines ?? [])
     .map((r) => r.ref_id)
     .filter((id): id is string => !!id);
+}
+
+/** 会社 ID → 名前・協力会社の印（名前なしの行の確認用）。ids が空なら読まない。 */
+async function loadCompanies(ids: string[]): Promise<Map<string, { name: string; isPartner: boolean }>> {
+  if (ids.length === 0) return new Map();
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.from('gn_suppliers').select('id, name, is_partner').in('id', ids);
+  if (error) throw new Error(error.message);
+  return new Map(
+    ((data ?? []) as { id: string; name: string | null; is_partner: boolean | null }[]).map((r) => [
+      r.id,
+      { name: r.name ?? '', isPartner: r.is_partner === true },
+    ]),
+  );
+}
+
+/** その日報に保存済みの名前なしの作業員の行の会社（人数の列がある DB でだけ呼ぶこと）。日報が無ければ空。 */
+async function loadStoredUnnamedCompanies(siteId: string, date: string): Promise<Set<string>> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_daily_reports')
+    .select('gn_report_lines(supplier_id, headcount)')
+    .eq('site_id', siteId)
+    .eq('report_date', date)
+    .eq('gn_report_lines.kind', 'labor')
+    .not('gn_report_lines.headcount', 'is', null)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  const rows = (data as { gn_report_lines: { supplier_id: string | null }[] | null } | null)?.gn_report_lines ?? [];
+  return new Set(rows.flatMap((r) => (r.supplier_id ? [r.supplier_id] : [])));
 }
 
 /** その日報に保存済みの作業員の行の所属の写し（作業員 ID ごと。同じ作業員が複数行あれば最初の行）。日報が無ければ空。 */

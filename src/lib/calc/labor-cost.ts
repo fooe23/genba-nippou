@@ -1,6 +1,7 @@
 import type { BudgetLine } from '@/lib/budget/types';
 import { yen } from '@/lib/calc/format';
 import { DEFAULT_LABOR_RULE, overtimeRate } from '@/lib/calc/report';
+import { laborHeadcount } from '@/lib/report/unnamed-workers';
 import type { Affiliation, LaborContract, LaborRule } from '@/lib/types';
 
 // 労務費の決まり（純関数。2026-11-17。計画 docs/superpowers/plans/2026-11-10-subcontract-issue-costs.md の Task 5、
@@ -14,6 +15,8 @@ import type { Affiliation, LaborContract, LaborRule } from '@/lib/types';
 //     割合 r       = うち常用の時間 ÷ 行の実働（空欄・実働 0 は 0。1 を超えたら 1）
 //     常用の人工   = round2(人工 × r)、請負の人工 = 人工 − 常用の人工
 //     常用の残業 H = min(行の残業 H, うち常用の時間)
+//     名前なし（会社と人数）の行（2026-11-19）：実働・うち常用の時間は 1 人あたり、人工・残業 H・金額は人数分なので、
+//     常用の人工は 人工（人数分）× r、常用の残業 H = 人数 × min(1 人の残業 H, うち常用の時間)
 //     単価         = 実行予算のその会社の常用の行（並びの先頭）の単価 → 無ければ行の日当（設定日当の写し）
 //     原価         = 円未満四捨五入（単価 × 常用の人工 ＋ 常用の残業 H × 残業単価（作業員の上書き → 単価 × 割増率 ÷ 基準時間））
 // DB の amount（労務の行）は出面の金額（人工 × 日当 ＋ 残業）のまま変えない。
@@ -49,6 +52,8 @@ export interface LaborCostLine {
   jouyouHours?: number | null;
   dailyRate: number | null;
   overtimeRate: number | null;
+  /** 人数（名前なしの行。null・省略は 1 人）。stored の hours は 1 人あたり、manDays・overtimeHours・amount は人数分。 */
+  headcount?: number | null;
   stored: { amount: number; manDays: number; overtimeHours: number; hours: number };
 }
 
@@ -91,7 +96,9 @@ export function laborCostSplit(line: LaborCostLine, ctx: LaborCostContext): Labo
   const ratio = jh === null || !(jh > 0) || !(s.hours > 0) ? 0 : Math.min(jh / s.hours, 1);
   const jouyouManDays = round2(s.manDays * ratio);
   const ukeoiManDays = round2(s.manDays - jouyouManDays);
-  const jouyouOvertimeHours = ratio === 0 ? 0 : Math.min(s.overtimeHours, jh ?? 0);
+  const n = laborHeadcount(line);
+  const jouyouOvertimeHours =
+    ratio === 0 ? 0 : n === 1 ? Math.min(s.overtimeHours, jh ?? 0) : round2(Math.min(s.overtimeHours / n, jh ?? 0) * n);
   const rate = (line.supplierId ? ctx.jouyouRates[line.supplierId] : undefined) ?? line.dailyRate ?? 0;
   const otRate = jouyouOvertimeHours > 0 ? overtimeRate(rate, line.overtimeRate, ctx.rule) : 0;
   const countedCost = roundYen(rate * jouyouManDays + jouyouOvertimeHours * otRate);

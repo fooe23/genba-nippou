@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］、20 は積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合［update_2026-11-15］、21 は現場のお金の列［update_2026-11-16］、22 は外注の買掛・行の根拠の件・請負の会社の一覧［update_2026-11-17］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］、20 は積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合［update_2026-11-15］、21 は現場のお金の列［update_2026-11-16］、22 は外注の買掛・行の根拠の件・請負の会社の一覧［update_2026-11-17］、23 は名前なし（会社と人数）の作業員の行［update_2026-11-19］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -2785,6 +2785,63 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 22 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 23. 名前なし（会社と人数）の作業員の行（update_2026-11-19） =====
+  -- 現場 S23（進行中）：A＝協力会社の担当（staff）。会社 P23 は協力会社の印あり。共通時間 8:00〜18:00・休憩 60 分（実働 9H）。
+  declare
+    s23 uuid := '00000000-0000-0000-0000-000000002301';
+    p23 uuid := '00000000-0000-0000-0000-000000002311';
+    r23 uuid;
+    u_md numeric; u_ot numeric; u_amt numeric; u_h numeric; u_hc int;
+    m_md numeric; m_ot numeric; m_amt numeric; m_h numeric; m_hc int;
+    c_hc int;
+  begin
+    insert into public.gn_sites (id, name, status) values (s23, '検証現場S23', 'active');
+    insert into public.gn_site_members (site_id, user_id, role) values (s23, v_a, 'staff');
+    insert into public.gn_suppliers (id, name, is_vendor, is_partner) values (p23, '検証協力会社P23', false, true);
+
+    -- 23-1 協力会社 A は名前なしの行を保存できる。人工・残業・労務費は名前のある行（1 人）の人数倍、実働は同じ。
+    --      作業員以外の行の人数は null
+    begin
+      perform pg_temp.as_user(v_a);
+      select public.gn_save_report(
+        jsonb_build_object('site_id', s23, 'report_date', '2027-03-01', 'weather', '晴れ',
+                           'common_start', '08:00', 'common_end', '18:00', 'common_break_min', 60),
+        jsonb_build_array(
+          jsonb_build_object('kind', 'labor', 'sort_order', 1, 'name', '検証協力会社P23（名前なし）', 'unit_price', 20000,
+                             'headcount', 2, 'affiliation', 'partner', 'supplier_id', p23, 'labor_contract', 'ukeoi', 'jouyou_hours', 4),
+          jsonb_build_object('kind', 'labor', 'sort_order', 2, 'name', '山田', 'unit_price', 20000),
+          jsonb_build_object('kind', 'cash', 'sort_order', 3, 'name', '釘', 'qty', 1, 'unit_price', 100, 'headcount', 3))) into r23;
+      perform pg_temp.as_editor();
+      select man_days, overtime_hours, amount, hours, headcount into u_md, u_ot, u_amt, u_h, u_hc
+        from public.gn_report_lines where report_id = r23 and sort_order = 1;
+      select man_days, overtime_hours, amount, hours, headcount into m_md, m_ot, m_amt, m_h, m_hc
+        from public.gn_report_lines where report_id = r23 and sort_order = 2;
+      select headcount into c_hc from public.gn_report_lines where report_id = r23 and sort_order = 3;
+      if u_hc = 2 and m_hc is null and c_hc is null and u_h = m_h and u_md = m_md * 2 and u_ot = m_ot * 2 and u_amt = m_amt * 2
+         and m_md > 0 and (select man_days_total from public.gn_daily_reports where id = r23) = m_md * 3 then
+        rep := rep || E'PASS 23-1 名前なしの行は人数分の人工・残業・労務費（実働は 1 人あたり。ほかの行の人数は null）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 23-1 名前なし=%s/%s/%s/%s/%s 名前あり=%s/%s/%s/%s/%s 現金=%s\n',
+        u_hc, u_h, u_md, u_ot, u_amt, m_hc, m_h, m_md, m_ot, m_amt, c_hc); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 23-1 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 23-2 人数は 1 以上（gn_report_lines_headcount_ck）
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_report(jsonb_build_object('site_id', s23, 'report_date', '2027-03-02', 'weather', '晴れ'),
+        jsonb_build_array(jsonb_build_object('kind', 'labor', 'sort_order', 1, 'name', 'x（名前なし）', 'unit_price', 20000,
+                                             'headcount', 0, 'affiliation', 'partner', 'supplier_id', p23)));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 23-2 人数 0 を保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%gn_report_lines_headcount_ck%' then rep := rep || E'PASS 23-2 人数は 1 以上\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 23-2 想定外: %s\n', sqlerrm); end if;
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 23 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

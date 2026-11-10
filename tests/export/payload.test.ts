@@ -481,3 +481,16 @@ describe('Python の fixture との形の一致', () => {
     expect(shape(payload)).toEqual(shape({ ...fixture, days: [fixture.days[0]] }));
   });
 });
+
+describe('buildExportPayload: 名前なし（会社と人数）の作業員の行（2026-11-19）', () => {
+  it('人数分の行に分けて書く（雛形の式は 1 行 1 人）', () => {
+    const unnamed = labor(null, '東北建興（名前なし）', { headcount: 3, affiliation: 'partner', supplierId: 'p1', dailyRate: 20000 });
+    const { payload } = buildExportPayload(input({ reports: [report('2026-11-02', [unnamed, labor('w1', '山田 太郎')])] }));
+    expect(payload.days[0].labor.map((l) => [l.name, l.daily_rate])).toEqual([
+      ['東北建興（名前なし）', 20000],
+      ['東北建興（名前なし）', 20000],
+      ['東北建興（名前なし）', 20000],
+      ['山田 太郎', 18000],
+    ]);
+  });
+});

@@ -371,8 +371,10 @@ export interface DailyHeader {
 export interface DailyWorkerRow {
   workerId: string | null;
   name: string;
-  /** workerId が無い（手入力）。レンダラーが名前に「（手入力）」を付ける。 */
+  /** workerId が無い（手入力）。レンダラーが名前に「（手入力）」を付ける。名前なし（会社と人数）の行は false。 */
   manual: boolean;
+  /** 人数（名前なし（会社と人数）の行。それ以外は 1）。時刻・実働は 1 人あたり、人工・残業・労務費は人数分。 */
+  headcount: number;
   start: string | null;
   end: string | null;
   breakMin: number | null;

@@ -903,6 +903,7 @@ function ReportFormBody({
           stored={storedAffiliations}
           laborCost={p.laborCost}
           ukeoiSupplierIds={p.ukeoiSupplierIds}
+          unnamedCompanies={p.masters.unnamedCompanies}
         />
         <FuelTable rows={state.rows.fuel} onChange={setRows('fuel')} vehicles={p.masters.vehicles} issueChoices={issueChoices} />
         <LeaseTable

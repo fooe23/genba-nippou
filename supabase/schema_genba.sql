@@ -339,6 +339,13 @@ alter table public.gn_report_lines add constraint gn_report_lines_purchase_kind_
 alter table public.gn_report_lines drop constraint if exists gn_report_lines_jouyou_hours_ck;
 alter table public.gn_report_lines add constraint gn_report_lines_jouyou_hours_ck
   check (jouyou_hours is null or (jouyou_hours >= 0 and jouyou_hours <= 24));
+-- 人数（2026-11-19。update_2026-11-19_unnamed_workers.sql）。名前なし（会社と人数）の作業員の行（ref_id が null）だけ 1 以上。
+-- それ以外の行は null（名前のある行＝1 人。gn_report_lines_compute がそろえる）。人工・残業時間・労務費は人数分、実働は 1 人あたり。
+-- check は列の定義に書かない（自動の名前 gn_report_lines_headcount_check と重ねないため）。
+alter table public.gn_report_lines add column if not exists headcount integer;
+alter table public.gn_report_lines drop constraint if exists gn_report_lines_headcount_ck;
+alter table public.gn_report_lines add constraint gn_report_lines_headcount_ck
+  check (headcount is null or headcount >= 1);
 -- 既存の労務の行を自社で埋める処理は update_2026-11-07_worker_affiliation.sql にある（承認済みの行も対象にするためガードを外す）。
 
 create table if not exists public.gn_carryovers (
@@ -782,6 +789,8 @@ create policy gn_settings_admin_update on public.gn_settings for update to authe
   using (public.is_admin()) with check (public.is_admin());
 -- insert / delete のポリシーは作らない（行は 1 つだけ）
 
+-- 明細の計算列。作業員の行の人工・残業時間は 1 人分 × 人数（人数 headcount は名前なしの行だけ。null は 1 人。2026-11-19
+-- update_2026-11-19_unnamed_workers.sql）、実働は 1 人あたり。
 create or replace function public.gn_report_lines_compute()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
@@ -794,8 +803,15 @@ declare
   v_minutes int;
   v_hours   numeric;
   v_rate    numeric;
+  v_count   int;
 begin
+  -- 人数（2026-11-19）は名前なし（作業員を選んでいない）作業員の行だけ。それ以外の行は null。
+  if new.kind <> 'labor' or new.ref_id is not null then
+    new.headcount := null;
+  end if;
   if new.kind = 'labor' then
+    -- 人数（null は名前のある行＝1 人）。実働は 1 人あたり、人工・残業時間・労務費は人数分。
+    v_count := coalesce(new.headcount, 1);
     select * into r from public.gn_daily_reports where id = new.report_id;
     select * into s from public.gn_settings where id = 1;
     if public.gn_hhmm_minutes(new.start_time) is not null
@@ -821,12 +837,12 @@ begin
     if coalesce(s.shotei_hours, 7.5) <= 0 then
       new.man_days := 0;
     elsif v_hours <= coalesce(s.shotei_hours, 7.5) then
-      new.man_days := round(v_hours / coalesce(s.shotei_hours, 7.5), 2);
+      new.man_days := round(v_hours / coalesce(s.shotei_hours, 7.5), 2) * v_count;
     else
-      new.man_days := 1;
+      new.man_days := v_count;
     end if;
     -- 残業時間：固定残業の上限を超えた分
-    new.overtime_hours := round(greatest(v_hours - coalesce(s.fixed_overtime_limit, 8), 0), 2);
+    new.overtime_hours := round(greatest(v_hours - coalesce(s.fixed_overtime_limit, 8), 0), 2) * v_count;
     -- 残業単価：作業員の単価（0 は空欄扱い）、無ければ 日当 ÷ 基準時間 × 割増率（円未満四捨五入）
     v_rate := nullif(new.overtime_rate, 0);
     if v_rate is null then
@@ -1014,6 +1030,7 @@ create trigger gn_report_issues_delete_guard before delete on public.gn_report_i
 -- 列と表（gn_site_trades）はこのファイルの末尾の「積算連携」で足す（plpgsql の本体は実行するときに解決されるので、ここで定義してよい）。
 -- 2026-11-17（update_2026-11-17_subcontract.sql）：買掛の区分（purchase_kind）・うち常用の時間（jouyou_hours）を書く。工種は外注の買掛の行にも、
 -- 根拠の件は作業員以外の行に書く。cost_total は外注の買掛を除いた合計（外注を含む原価はアプリが明細から出す）。
+-- 2026-11-19（update_2026-11-19_unnamed_workers.sql）：名前なし（会社と人数）の作業員の行の人数（headcount）を書く。
 create or replace function public.gn_save_report(p_report jsonb, p_lines jsonb)
 returns uuid language plpgsql security invoker set search_path = public as $$
 declare
@@ -1070,7 +1087,8 @@ begin
     change_kind, instructed_by, instruction_method, instructed_on, issue_id,
     labor_contract, affiliation, supplier_id,
     site_trade_id,
-    purchase_kind, jouyou_hours
+    purchase_kind, jouyou_hours,
+    headcount
   )
   select
     v_id, t.kind, coalesce(t.sort_order, e.ord::int), t.ref_id, t.name, t.spec, t.unit,
@@ -1091,7 +1109,9 @@ begin
     -- 買掛の区分（2026-11-17。null・'material'＝仕入、'subcontract'＝外注）は買掛の行だけ。
     case when t.kind = 'credit' then t.purchase_kind end,
     -- うち常用の時間（2026-11-17）は作業員の行だけ。
-    case when t.kind = 'labor' then t.jouyou_hours end
+    case when t.kind = 'labor' then t.jouyou_hours end,
+    -- 人数（2026-11-19）は名前なし（作業員を選んでいない）作業員の行だけ。gn_report_lines_compute も同じくそろえる。
+    case when t.kind = 'labor' and t.ref_id is null then t.headcount end
   from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) with ordinality as e(elem, ord),
        lateral jsonb_populate_record(null::public.gn_report_lines, e.elem) as t
   order by coalesce(t.sort_order, e.ord::int), e.ord;

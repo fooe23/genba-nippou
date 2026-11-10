@@ -7,8 +7,11 @@ import type { Carryover } from '@/lib/db/sites';
 // アプリ内集計（月次・原価・出面・作業員別累計）。純粋関数のみ。
 // 人工は小数 2 桁に丸める（浮動小数の誤差対策）。金額は丸めない。
 
-/** 労務行 1 件の保存値（man_days・amount・overtime_hours）。 */
-export interface LaborEntry { reportDate: string; workerId: string | null; workerName: string; manDays: number; cost: number; overtimeHours: number; }
+/**
+ * 労務行 1 件の保存値（man_days・amount・overtime_hours。名前なしの行は人数分）。headcount は名前なし（会社と人数）の行の人数
+ * （2026-11-19。名前のある行は null・省略）。名前なしの行の workerName は「会社名（名前なし）」なので、名前でまとめると会社ごとになる。
+ */
+export interface LaborEntry { reportDate: string; workerId: string | null; workerName: string; manDays: number; cost: number; overtimeHours: number; headcount?: number | null; }
 /**
  * 日ごとの区分別の合計（明細の保存値）。credit は買掛の全部（仕入＋外注）、subcontract はそのうちの外注（2026-11-17）。
  * 原価 ＝ labor + fuel + lease + cash + credit（外注は credit に 1 回だけ入る）。見出しの costTotal（cost_total）は外注を含まないので
@@ -95,7 +98,15 @@ export function costSummary(days: DayTotals[], contractTotal: number | null): Co
   };
 }
 
-export interface AttendanceRow { workerName: string; byDate: Record<string, { manDays: number; cost: number }>; workDays: number; manDays: number; cost: number; }
+/** 出面一覧の 1 行。名前なし（会社と人数）の行（unnamed）は日ごとの人数（headcount）も持つ。 */
+export interface AttendanceRow {
+  workerName: string;
+  byDate: Record<string, { manDays: number; cost: number; headcount: number }>;
+  workDays: number;
+  manDays: number;
+  cost: number;
+  unnamed: boolean;
+}
 
 /** 作業員名でまとめ、名前順に返す。 */
 export function attendance(entries: LaborEntry[]): AttendanceRow[] {
@@ -103,11 +114,13 @@ export function attendance(entries: LaborEntry[]): AttendanceRow[] {
   for (const e of entries) {
     let row = map.get(e.workerName);
     if (!row) {
-      row = { workerName: e.workerName, byDate: {}, workDays: 0, manDays: 0, cost: 0 };
+      row = { workerName: e.workerName, byDate: {}, workDays: 0, manDays: 0, cost: 0, unnamed: false };
       map.set(e.workerName, row);
     }
-    const cell = row.byDate[e.reportDate] ?? { manDays: 0, cost: 0 };
+    if (e.headcount !== null && e.headcount !== undefined) row.unnamed = true;
+    const cell = row.byDate[e.reportDate] ?? { manDays: 0, cost: 0, headcount: 0 };
     cell.manDays = round2(cell.manDays + e.manDays);
+    cell.headcount += e.headcount ?? 1;
     cell.cost += e.cost;
     row.byDate[e.reportDate] = cell;
     row.manDays = round2(row.manDays + e.manDays);

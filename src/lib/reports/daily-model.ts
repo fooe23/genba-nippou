@@ -1,5 +1,6 @@
 import type { ChangeTotals } from '@/lib/calc/change';
 import { creditItemLabel } from '@/lib/report/purchase-kind';
+import { isUnnamedLabor, laborDisplayName, laborHeadcount } from '@/lib/report/unnamed-workers';
 import { laborCostSplit, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { productivity } from '@/lib/calc/report';
 import { visitNumbers } from '@/lib/calc/visit';
@@ -40,8 +41,10 @@ function workerRow(line: LaborLine & { stored: StoredLineValues }, common: TimeS
   const split = laborCostSplit(line, ctx);
   return {
     workerId: line.workerId,
-    name: line.workerName,
-    manual: line.workerId === null,
+    // 名前なし（会社と人数）の行は「会社名（名前なし）2名」（手入力の印は付けない。2026-11-19）。
+    name: laborDisplayName(line),
+    manual: line.workerId === null && !isUnnamedLabor(line),
+    headcount: laborHeadcount(line),
     ...t,
     hours: line.saved?.hours ?? null,
     manDays: line.stored.manDays,
@@ -172,7 +175,8 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
     workers: {
       rows: workers,
       total: {
-        hours: sum(workers.map((r) => r.hours ?? 0)),
+        // 実働は 1 人あたりなので人数を掛ける（人工・残業は人数分の保存値）。
+        hours: sum(workers.map((r) => (r.hours ?? 0) * r.headcount)),
         manDays: sum(workers.map((r) => r.manDays)),
         ukeoiManDays: Math.round(sum(workers.map((r) => r.ukeoiManDays)) * 100) / 100,
         overtimeHours: sum(workers.map((r) => r.overtimeHours)),

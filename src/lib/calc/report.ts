@@ -1,3 +1,4 @@
+import { laborHeadcount } from '@/lib/report/unnamed-workers';
 import type { TimeSpec, LaborLine, LaborRule, ReportLine, ReportTotals, WorkLine } from '@/lib/types';
 
 function toMinutes(hhmm: string): number {
@@ -97,7 +98,11 @@ export function productivity(qty: number | null, manDays: number | null): number
   return qty / manDays;
 }
 
-export interface LaborValues { hours: number; manDays: number; overtimeHours: number; overtimeRate: number; cost: number; }
+/**
+ * 作業員の行の計算値。hours（実働）は 1 人あたり、manDays・overtimeHours・cost は人数分（headcount 人。名前のある行は 1）。
+ * 名前なし（会社と人数）の行：src/lib/report/unnamed-workers.ts（2026-11-19）。
+ */
+export interface LaborValues { hours: number; manDays: number; overtimeHours: number; overtimeRate: number; cost: number; headcount: number; }
 
 /** preferSaved：保存済みの行（line.saved あり）は DB の計算値を返す。読み取り専用の画面（承認済み・完了現場・承認画面）で使う。 */
 export interface LaborCalcOptions { preferSaved?: boolean; }
@@ -109,15 +114,17 @@ export interface LaborCalcOptions { preferSaved?: boolean; }
 export type LaborSplitOf = (line: LaborLine, values: LaborValues) => { countedCost: number; ukeoiManDays: number };
 
 export function laborLineValues(line: LaborLine, common: TimeSpec, rule: LaborRule, opts?: LaborCalcOptions): LaborValues {
+  const headcount = laborHeadcount(line);
   if (opts?.preferSaved && line.saved) {
     const s = line.saved;
-    return { ...s, overtimeRate: overtimeRate(line.dailyRate, line.overtimeRate, rule) };
+    return { ...s, overtimeRate: overtimeRate(line.dailyRate, line.overtimeRate, rule), headcount };
   }
   const hours = effectiveHours(line.time, common);
-  const days = manDays(hours, rule);
-  const otHours = overtimeHours(hours, rule);
+  // 1 人分を出してから人数を掛ける（DB のトリガーと同じ）。
+  const days = round2(manDays(hours, rule) * headcount);
+  const otHours = round2(overtimeHours(hours, rule) * headcount);
   const otRate = overtimeRate(line.dailyRate, line.overtimeRate, rule);
-  return { hours, manDays: days, overtimeHours: otHours, overtimeRate: otRate, cost: laborCost(line.dailyRate, days, otHours, otRate) };
+  return { hours, manDays: days, overtimeHours: otHours, overtimeRate: otRate, cost: laborCost(line.dailyRate, days, otHours, otRate), headcount };
 }
 
 export function lineAmount(line: ReportLine, common: TimeSpec, rule: LaborRule, opts?: LaborCalcOptions): number {
@@ -149,10 +156,11 @@ export function reportTotals(
     switch (line.kind) {
       case 'labor': {
         const v = laborLineValues(line, common, rule, opts);
-        t.laborHours += v.hours;
+        // 実働は 1 人あたりなので人数を掛ける（人工・残業は人数分の値）。名前なしの行は人数分を人数に数える。
+        t.laborHours += v.hours * v.headcount;
         t.manDays += v.manDays;
         t.overtimeHours += v.overtimeHours;
-        t.workerCount += 1;
+        t.workerCount += v.headcount;
         if (opts?.laborSplit) {
           const s = opts.laborSplit(line, v);
           t.labor += s.countedCost;

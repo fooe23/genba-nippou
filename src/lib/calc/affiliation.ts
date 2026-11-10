@@ -1,3 +1,4 @@
+import { isUnnamedLabor } from '@/lib/report/unnamed-workers';
 import type { Affiliation, LaborContract } from '@/lib/types';
 
 // 作業員の所属（自社／協力会社）の表示・絞り込みと、削除の可否（純関数。画面から使う）。
@@ -94,15 +95,18 @@ export function storedLaborAffiliations(
 
 /**
  * 日報の作業員の行の所属（表示と、常用／請負の欄を出すかの判断）。保存時にサーバーが決める値と同じにする。
+ * - 名前なし（会社と人数）の行：協力会社・行の会社（supplierId）。
  * - 手入力（workerId なし）：所属なし（null）。
  * - この日報に保存済みの作業員：保存済みの所属（後でマスターを変えても動かない）。
  * - それ以外：作業員マスターのいまの所属。マスターにも無ければ所属なし。
  */
 export function laborRowAffiliation(
-  line: { workerId: string | null },
+  line: { workerId: string | null; headcount?: number | null; supplierId?: string | null },
   stored: StoredLaborAffiliations,
   worker: { affiliation?: Affiliation; supplierId?: string | null } | undefined,
 ): { affiliation: Affiliation | null; supplierId: string | null } {
+  // 名前なし（会社と人数）の行（2026-11-19）：協力会社・選んだ会社。
+  if (!line.workerId && isUnnamedLabor(line)) return { affiliation: 'partner', supplierId: line.supplierId ?? null };
   if (!line.workerId) return { affiliation: null, supplierId: null };
   const s = stored.get(line.workerId);
   if (s) return { affiliation: s.affiliation, supplierId: s.affiliation === 'partner' ? s.supplierId : null };

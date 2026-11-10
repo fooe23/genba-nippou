@@ -2,7 +2,7 @@ import { yen } from '@/lib/calc/format';
 import type { AttendanceRow } from '@/lib/calc/aggregate';
 import { manDaysText, tableClass, tableWrapClass, tdClass, tdStickyClass, thClass, thStickyClass } from './table';
 
-/** 出面一覧。作業員 × 日付。セルは上段が人工、下段が労務費。 */
+/** 出面一覧。作業員 × 日付。セルは上段が人工、下段が労務費。名前なし（会社と人数）の行は人工の下に人数（2026-11-19）。 */
 export function AttendanceTable({ rows }: { rows: AttendanceRow[] }) {
   if (rows.length === 0) {
     return <p className="py-6 text-center text-base text-gray-600 dark:text-gray-400">この期間の出面はありません。</p>;
@@ -33,6 +33,7 @@ export function AttendanceTable({ rows }: { rows: AttendanceRow[] }) {
                     {c ? (
                       <>
                         <div>{manDaysText(c.manDays)}</div>
+                        {r.unnamed && <div className="text-xs">{c.headcount}名</div>}
                         <div className="text-xs text-gray-600 dark:text-gray-400">{yen(c.cost)}</div>
                       </>
                     ) : (

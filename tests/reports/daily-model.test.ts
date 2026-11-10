@@ -31,16 +31,16 @@ describe('buildDailyReport', () => {
     const m = sampleDaily();
     expect(m.workers.rows).toEqual([
       {
-        workerId: 'w1', name: '田中', manual: false, start: '08:00', end: '17:30', breakMin: 90, gapMin: 0,
+        workerId: 'w1', name: '田中', manual: false, headcount: 1, start: '08:00', end: '17:30', breakMin: 90, gapMin: 0,
         hours: 8, manDays: 1, overtimeHours: 0, dailyRate: 18000, cost: 18001, contract: 'own', jouyouHours: null, ukeoiManDays: 0, note: '',
       },
       {
-        workerId: null, name: '飛び込み 鈴木', manual: true, start: '07:00', end: '19:00', breakMin: 90, gapMin: 30,
+        workerId: null, name: '飛び込み 鈴木', manual: true, headcount: 1, start: '07:00', end: '19:00', breakMin: 90, gapMin: 30,
         hours: 9, manDays: 1, overtimeHours: 1.5, dailyRate: 15000, cost: 17344, contract: 'own', jouyouHours: null, ukeoiManDays: 0, note: '残業あり',
       },
       {
         // 終了が空 → 実働は共通時間で計算されるので、時刻も共通時間を出す。saved が無いので実働は null。
-        workerId: 'w2', name: '佐藤', manual: false, start: '08:00', end: '17:30', breakMin: 90, gapMin: 0,
+        workerId: 'w2', name: '佐藤', manual: false, headcount: 1, start: '08:00', end: '17:30', breakMin: 90, gapMin: 0,
         hours: null, manDays: 0, overtimeHours: 0, dailyRate: null, cost: 0, contract: 'own', jouyouHours: null, ukeoiManDays: 0, note: '',
       },
     ]);
@@ -230,5 +230,25 @@ describe('労務費の決まり（2026-11-17。村山様邸の 1 日：大江・
       dailyInput({ report: report('2026-11-10', { lines: murayama }), issues: [], laborCost: { ...EMPTY_LABOR_COST_CONTEXT, jouyouRates: { tohoku: 25000 } } }),
     );
     expect(withRate.workers.rows[1].cost).toBe(12500);
+  });
+});
+
+describe('名前なし（会社と人数）の作業員の行（2026-11-19）', () => {
+  const unnamed: SavedReportLine = {
+    kind: 'labor', workerId: null, workerName: '東北建興（名前なし）', time: { start: null, end: null, breakMin: null, gapMin: null },
+    dailyRate: 20000, note: '', overtimeRate: null, affiliation: 'partner', supplierId: 'p9', laborContract: 'jouyou', jouyouHours: null, headcount: 2,
+    saved: { hours: 8, manDays: 2, overtimeHours: 0, cost: 40000 },
+    stored: { amount: 40000, manDays: 2, overtimeHours: 0, hours: 8 },
+  };
+  it('出面は「東北建興（名前なし）2名」（手入力の印なし）、人工・労務費は人数分、合計の実働は人数を掛ける', () => {
+    const m = sampleDaily({ report: report('2026-11-02', { lines: [unnamed] }) });
+    expect(m.workers.rows[0]).toMatchObject({ name: '東北建興（名前なし）2名', manual: false, headcount: 2, hours: 8, manDays: 2, cost: 40000 });
+    expect(m.workers.total.hours).toBe(16);
+    expect(dailyTables(m).workers.rows[0][0]).toBe('東北建興（名前なし）2名');
+  });
+  it('お客様用：作業員の人数は人数分', async () => {
+    const { clientDailyTables } = await import('@/lib/reports/client-daily-sections');
+    const m = sampleDaily({ report: report('2026-11-02', { lines: [unnamed] }) });
+    expect(clientDailyTables(m).workersLine).toBe('作業員 2 名・合計 2.0 人工');
   });
 });

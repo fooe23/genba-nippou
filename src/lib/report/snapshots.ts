@@ -1,4 +1,5 @@
 import { rateAt, type RateHistory } from '@/lib/calc/rates';
+import { isUnnamedLabor } from '@/lib/report/unnamed-workers';
 import type { Affiliation, LaborContract, LaborLine, ReportLine } from '@/lib/types';
 
 // 保存時に、マスターを参照している明細の単価（日当・リース単価・燃費）をサーバー側で決め直す（純関数）。
@@ -17,6 +18,8 @@ import type { Affiliation, LaborContract, LaborLine, ReportLine } from '@/lib/ty
 //   supabase/recalc_2026-11-07_line_affiliation.sql を使う。
 // - 常用・請負（laborContract）：所属が協力会社の行だけ持つ（未選択 null は 'jouyou'。保存済みの作業員で項目が無い（undefined）ときだけ保存済みの区分）。自社・手入力・マスターに無い行は null。
 // - 手入力の作業員（workerId なし）・マスターに無い作業員：所属は null（所属なし）。画面から届いた所属は使わない。
+// - 名前なし（会社と人数）の行（headcount あり・workerId なし。2026-11-19）：所属は協力会社、会社は画面で選んだ会社（supplierId）。
+//   常用・請負は画面の選択（未選択は常用）。作業員を選んだ行・手入力の行の人数は null にする。
 // - うち常用の時間（jouyouHours。2026-11-17）：区分が請負の協力会社の行だけ残し、それ以外の行は null。
 
 export interface SnapshotMasters {
@@ -62,7 +65,14 @@ export function applyMasterSnapshots(
   const workers = new Map(masters.workers.map((w) => [w.id, w]));
   const vehicles = new Map(masters.vehicles.map((v) => [v.id, v]));
   const items = new Map(masters.leaseItems.map((i) => [i.id, i]));
-  return lines.map((l) => {
+  return lines.map((orig) => {
+    // 人数は名前なし（作業員を選んでいない）行だけ。作業員を選んだ行に来た人数は消す。
+    const l: ReportLine = orig.kind === 'labor' && orig.workerId && (orig.headcount ?? null) !== null ? { ...orig, headcount: null } : orig;
+    if (l.kind === 'labor' && !l.workerId && isUnnamedLabor(l)) {
+      // 名前なし（会社と人数）の行：協力会社・選んだ会社。区分は画面の選択（未選択は常用）。会社が協力会社かは保存の処理で確かめる。
+      const contract = l.laborContract ?? 'jouyou';
+      return { ...l, laborContract: contract, affiliation: 'partner', supplierId: l.supplierId ?? null, ...jouyouHoursFor(l, contract) };
+    }
     if (l.kind === 'labor' && l.workerId) {
       const w = workers.get(l.workerId);
       const rates = w ? { dailyRate: rateAt(w.rates, date), overtimeRate: w.overtimeRate } : { dailyRate: null, overtimeRate: null };

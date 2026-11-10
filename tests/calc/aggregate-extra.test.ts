@@ -41,7 +41,7 @@ describe('追加ケース', () => {
     const a = attendance(e);
     expect(a.map((r) => r.workerName)).toEqual(['あべ', 'さとう']);
     expect(a[0].workDays).toBe(1);
-    expect(a[0].byDate['2026-11-02']).toEqual({ manDays: 0.6, cost: 1200 });
+    expect(a[0].byDate['2026-11-02']).toEqual({ manDays: 0.6, cost: 1200, headcount: 2 });
   });
 });
 

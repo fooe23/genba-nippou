@@ -4,6 +4,7 @@ import { laborCountedCost, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { loadLaborCostContext } from '@/lib/db/labor-cost';
 import { listReportHeads } from '@/lib/db/reports';
+import { isUnnamedLabor, laborHeadcount } from '@/lib/report/unnamed-workers';
 import { createServerSupabase } from '@/lib/supabase/server';
 
 // 集計用の読み取り（RLS 前提）。日報の見出し + 明細（gn_report_lines）から区分別の合計を作る。
@@ -27,6 +28,8 @@ interface LineRow {
   /** 買掛の区分・うち常用の時間（2026-11-17）。列の無い DB（SQL の前）では読まない（undefined）。 */
   purchase_kind?: string | null;
   jouyou_hours?: number | string | null;
+  /** 人数（名前なしの作業員の行。2026-11-19）。列の無い DB（SQL の前）では読まない（undefined＝1 人）。 */
+  headcount?: number | string | null;
 }
 
 const LINE_COLUMNS =
@@ -39,14 +42,17 @@ const PAGE_SIZE = 1000;
 
 async function fetchLines(reportIds: string[]): Promise<LineRow[]> {
   if (reportIds.length === 0) return [];
-  try {
-    return await fetchLinesWith(reportIds, `${LINE_COLUMNS}, purchase_kind, jouyou_hours`);
-  } catch (e) {
-    // 買掛の区分・うち常用の時間の列が無い（update_2026-11-17_subcontract.sql の前。42703）ときは、区分なし（全部が仕入）・
-    // うち常用の時間なしで読み直す。
-    if (e instanceof MissingColumnError) return fetchLinesWith(reportIds, LINE_COLUMNS);
-    throw e;
+  // 新しい列が無い DB（SQL の前。42703）では、無い列を外して読み直す：人数（update_2026-11-19_unnamed_workers.sql の前は 1 人）→
+  // 買掛の区分・うち常用の時間（update_2026-11-17_subcontract.sql の前は区分なし＝全部が仕入・うち常用の時間なし）。
+  const tries = [`${LINE_COLUMNS}, purchase_kind, jouyou_hours, headcount`, `${LINE_COLUMNS}, purchase_kind, jouyou_hours`, LINE_COLUMNS];
+  for (const [i, columns] of tries.entries()) {
+    try {
+      return await fetchLinesWith(reportIds, columns);
+    } catch (e) {
+      if (!(e instanceof MissingColumnError) || i === tries.length - 1) throw e;
+    }
   }
+  return [];
 }
 
 class MissingColumnError extends Error {}
@@ -87,6 +93,7 @@ function countedLaborCost(l: LineRow, ctx: LaborCostContext): number {
       jouyouHours: numOrNull(l.jouyou_hours),
       dailyRate: numOrNull(l.unit_price),
       overtimeRate: numOrNull(l.overtime_rate),
+      headcount: numOrNull(l.headcount),
       stored: { amount: Number(l.amount ?? 0), manDays: Number(l.man_days ?? 0), overtimeHours: Number(l.overtime_hours ?? 0), hours: Number(l.hours ?? 0) },
     },
     ctx,
@@ -122,11 +129,14 @@ export async function loadSummaryData(
       case 'labor': {
         const cost = ctx ? countedLaborCost(l, ctx) : amount;
         t.labor += cost;
-        t.workerCount += 1;
+        // 名前なし（会社と人数）の行は人数分を人数に数える。
+        const headcount = laborHeadcount({ headcount: numOrNull(l.headcount) });
+        t.workerCount += headcount;
         entries.push({
           reportDate,
           workerId: l.ref_id,
           workerName: l.name ?? '（名前なし）',
+          headcount: isUnnamedLabor({ headcount: numOrNull(l.headcount) }) ? headcount : null,
           manDays: Number(l.man_days ?? 0),
           cost,
           overtimeHours: Number(l.overtime_hours ?? 0),

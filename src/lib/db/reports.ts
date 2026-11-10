@@ -617,6 +617,19 @@ export async function subcontractColumnsReady(): Promise<boolean> {
   throw new Error(error.message);
 }
 
+/**
+ * 名前なし（会社と人数）の作業員の行の人数の列（gn_report_lines.headcount。update_2026-11-19_unnamed_workers.sql）が DB にあるか。
+ * 無い（SQL の前。42703・PGRST204）なら false。日報で「名前なし」を出すか・保存してよいかに使う
+ * （列が無いと gn_save_report が人数を捨て、1 人として保存されるため）。それ以外のエラーは投げる。
+ */
+export async function headcountColumnReady(): Promise<boolean> {
+  const supabase = await createServerSupabase();
+  const { error } = await supabase.from('gn_report_lines').select('headcount').limit(1);
+  if (!error) return true;
+  if (error.code === '42703' || error.code === 'PGRST204') return false;
+  throw new Error(error.message);
+}
+
 interface AdjustmentRow {
   report_id: string;
   kind: string;
@@ -625,6 +638,7 @@ interface AdjustmentRow {
   supplier_id?: string | null;
   labor_contract?: string | null;
   jouyou_hours?: number | string | null;
+  headcount?: number | string | null;
   hours?: number | string | null;
   man_days?: number | string | null;
   overtime_hours?: number | string | null;
@@ -675,15 +689,26 @@ export async function loadCostAdjustments(
         }),
       ),
     ).then((pages) => pages.flat());
-  let rows: AdjustmentRow[];
-  try {
-    rows = await read(
+  // 新しい列が無い DB（SQL の前。42703）では、無い列を外して読み直す：人数（2026-11-19 の前は 1 人）→ 区分・うち常用の時間。
+  const tries: [string, string][] = [
+    [
+      `report_id, kind, amount, purchase_kind, jouyou_hours, headcount, ${ADJUST_LABOR_COLUMNS}`,
+      'and(kind.eq.credit,purchase_kind.eq.subcontract),and(kind.eq.labor,labor_contract.eq.ukeoi)',
+    ],
+    [
       `report_id, kind, amount, purchase_kind, jouyou_hours, ${ADJUST_LABOR_COLUMNS}`,
       'and(kind.eq.credit,purchase_kind.eq.subcontract),and(kind.eq.labor,labor_contract.eq.ukeoi)',
-    );
-  } catch (e) {
-    if ((e as { code?: string }).code !== '42703') throw e;
-    rows = await read(`report_id, kind, amount, ${ADJUST_LABOR_COLUMNS}`, 'and(kind.eq.labor,labor_contract.eq.ukeoi)');
+    ],
+    [`report_id, kind, amount, ${ADJUST_LABOR_COLUMNS}`, 'and(kind.eq.labor,labor_contract.eq.ukeoi)'],
+  ];
+  let rows: AdjustmentRow[] = [];
+  for (const [i, [columns, filter]] of tries.entries()) {
+    try {
+      rows = await read(columns, filter);
+      break;
+    } catch (e) {
+      if ((e as { code?: string }).code !== '42703' || i === tries.length - 1) throw e;
+    }
   }
   for (const r of rows) {
     const amount = Number(r.amount ?? 0);
@@ -698,6 +723,7 @@ export async function loadCostAdjustments(
           jouyouHours: adjNum(r.jouyou_hours),
           dailyRate: adjNum(r.unit_price),
           overtimeRate: adjNum(r.overtime_rate),
+          headcount: adjNum(r.headcount),
           stored: { amount, manDays: adjNum(r.man_days) ?? 0, overtimeHours: adjNum(r.overtime_hours) ?? 0, hours: adjNum(r.hours) ?? 0 },
         },
         ctx,

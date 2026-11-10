@@ -14,6 +14,7 @@ import {
   listOpenFixRequestsForReport,
   listOpenIssues,
   listReportHeads,
+  headcountColumnReady,
   subcontractColumnsReady,
   type ReportDetail,
 } from '@/lib/db/reports';
@@ -25,6 +26,7 @@ import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-sign
 import { NO_SIGNATURE, type ClientSignatureView } from '@/lib/report/client-signature';
 import { getSiteMasters, listSitePartners, type Site } from '@/lib/db/sites';
 import { vendorSuppliers } from '@/lib/calc/supplier-roles';
+import { isUnnamedLabor, unnamedCompanyChoices } from '@/lib/report/unnamed-workers';
 import type { SaveInput } from '@/lib/report/schema';
 import type { ReportFormProps } from '@/components/report/ReportForm';
 import { newReportCommon, type ReportMasters } from '@/components/report/form-state';
@@ -188,7 +190,12 @@ export async function loadReportFormProps(
   ]);
   // 労務費の決まり（2026-11-17）：設定と実行予算の常用の単価（単価は社員・管理者だけ）、新しい行の常用・請負の既定に使う
   // 請負の会社の一覧（協力会社のアカウントも読める。金額は無い）。
-  const [laborCost, ukeoiSupplierIds] = await Promise.all([loadLaborCostContext(siteId), loadUkeoiSupplierIds(siteId)]);
+  // 名前なし（会社と人数）の作業員の行（2026-11-19）は、DB に人数の列があるときだけ出す。
+  const [laborCost, ukeoiSupplierIds, unnamedReady] = await Promise.all([
+    loadLaborCostContext(siteId),
+    loadUkeoiSupplierIds(siteId),
+    headcountColumnReady(),
+  ]);
   // 外注の買掛の支払先（現場の協力会社）と、DB に区分の列があるか。社員・管理者だけ読む（協力会社には区分の欄を出さない）。
   const [sitePartners, subcontractReady] = staff
     ? await Promise.all([listSitePartners(siteId), subcontractColumnsReady()])
@@ -202,11 +209,13 @@ export async function loadReportFormProps(
     workers: new Set<string>(),
     suppliers: new Set<string>(),
     subcontractSuppliers: new Set<string>(),
+    unnamedCompanies: new Set<string>(),
     vehicles: new Set<string>(),
     leaseItems: new Set<string>(),
   };
   for (const l of report.lines) {
     if (l.kind === 'labor' && l.workerId) used.workers.add(l.workerId);
+    if (l.kind === 'labor' && !l.workerId && isUnnamedLabor(l) && l.supplierId) used.unnamedCompanies.add(l.supplierId);
     if (l.kind === 'credit' && l.supplierId) {
       if (l.purchaseKind === 'subcontract') used.subcontractSuppliers.add(l.supplierId);
       else used.suppliers.add(l.supplierId);
@@ -215,8 +224,9 @@ export async function loadReportFormProps(
     if (l.kind === 'lease' && l.itemId) used.leaseItems.add(l.itemId);
   }
 
+  const siteWorkers = workersForSiteLabor(workers, selected.workerIds, used.workers);
   const masters: ReportMasters = {
-    workers: workersForSiteLabor(workers, selected.workerIds, used.workers).map((w) => ({
+    workers: siteWorkers.map((w) => ({
       id: w.id,
       name: w.name,
       active: w.active,
@@ -247,6 +257,19 @@ export async function loadReportFormProps(
       sitePartnerIds: sitePartners.map((p) => p.supplierId),
       usedIds: used.subcontractSuppliers,
     })?.map((s) => ({ id: s.id, name: s.name, active: s.active })),
+    // 名前なしの行の会社：現場に関わる協力会社（現場の協力会社［社員・管理者だけ読める］・この現場の協力会社の作業員の会社・
+    // 実行予算で請負の会社）。協力会社のアカウントにも出す。DB に人数の列が無ければ undefined（選択肢を出さない）。
+    unnamedCompanies: unnamedReady
+      ? unnamedCompanyChoices({
+          suppliers,
+          siteCompanyIds: [
+            ...sitePartners.map((p) => p.supplierId),
+            ...siteWorkers.flatMap((w) => (w.affiliation === 'partner' && w.supplierId ? [w.supplierId] : [])),
+            ...ukeoiSupplierIds,
+          ],
+          usedIds: used.unnamedCompanies,
+        }).map((s) => ({ id: s.id, name: s.name, active: s.active }))
+      : undefined,
   };
 
   const head = report.head;

@@ -15,6 +15,7 @@ import { laborCostSplit, laborCountedCost, type LaborCostContext } from '@/lib/c
 import { daysBetween, monthEnd } from '@/lib/calc/calendar';
 import { monthKey } from '@/lib/calc/format';
 import type { Site } from '@/lib/db/sites';
+import { isUnnamedLabor, laborHeadcount } from '@/lib/report/unnamed-workers';
 import { buildChangeLedger, siteBaseAmount } from '@/lib/reports/change-model';
 import { affiliationGroup, compareAffiliation, NONE_GROUP, OWN_GROUP, type AffiliationGroup } from '@/lib/reports/affiliation-breakdown';
 import type {
@@ -87,7 +88,8 @@ const minDate = (a: string, b: string) => (a < b ? a : b);
 function toDayTotals(r: ReportWithLines, ctx: LaborCostContext): DayTotals {
   // 買掛（credit）は仕入＋外注（外注は 1 回だけ）。subcontract はそのうちの外注（2026-11-17）。労務費は原価に数える分。
   const c = dayCostOf(r.lines, (l) => (l.kind === 'labor' ? laborCountedCost(l, ctx) : l.stored.amount));
-  const workerCount = r.lines.filter((l) => l.kind === 'labor').length;
+  // 名前なし（会社と人数）の行は人数分を人数に数える（2026-11-19）。
+  const workerCount = r.lines.reduce((n, l) => (l.kind === 'labor' ? n + laborHeadcount(l) : n), 0);
   return { ...r, labor: c.labor, fuel: c.fuel, lease: c.lease, cash: c.cash, credit: c.credit + c.subcontract, subcontract: c.subcontract, workerCount };
 }
 
@@ -96,7 +98,17 @@ function laborEntries(reports: ReportWithLines[], ctx: LaborCostContext): LaborE
   return reports.flatMap((r) =>
     r.lines.flatMap((l) =>
       l.kind === 'labor'
-        ? [{ reportDate: r.reportDate, workerId: l.workerId, workerName: l.workerName, manDays: l.stored.manDays, cost: laborCountedCost(l, ctx), overtimeHours: l.stored.overtimeHours }]
+        ? [
+            {
+              reportDate: r.reportDate,
+              workerId: l.workerId,
+              workerName: l.workerName,
+              manDays: l.stored.manDays,
+              cost: laborCountedCost(l, ctx),
+              overtimeHours: l.stored.overtimeHours,
+              headcount: !l.workerId && isUnnamedLabor(l) ? laborHeadcount(l) : null,
+            },
+          ]
         : [],
     ),
   );
@@ -314,7 +326,10 @@ function cumulativeLabor(input: CostReportInput, allReports: ReportWithLines[], 
 function buildWorkers(input: CostReportInput, allReports: ReportWithLines[], workerPeriod: Period, labor: AffiliatedLabor[]): WorkerSection {
   const workerNames = Object.fromEntries(input.workers.map((w) => [w.id, w.name]));
   const tradeById = new Map(input.workers.map((w) => [w.id, w.trade]));
-  const cumulative = workerCumulative(laborEntries(allReports, input.laborCost), input.carryovers, workerNames, workerPeriod);
+  const entries = laborEntries(allReports, input.laborCost);
+  const cumulative = workerCumulative(entries, input.carryovers, workerNames, workerPeriod);
+  // 名前なし（会社と人数）の行の名前（「会社名（名前なし）」）。手入力の印は付けない。
+  const unnamedNames = new Set(entries.flatMap((e) => (e.headcount !== null && e.headcount !== undefined ? [e.workerName] : [])));
 
   // 所属の表示名（workerCumulative と同じキー：workerId、手入力は名前）。繰越初期値（自社）→ 行の写しの出てきた順
   const labels = new Map<string, string[]>();
@@ -330,7 +345,7 @@ function buildWorkers(input: CostReportInput, allReports: ReportWithLines[], wor
   const rows: WorkerRow[] = cumulative.map((c) => ({
     workerId: c.workerId,
     workerName: c.workerName,
-    manual: c.workerId === null,
+    manual: c.workerId === null && !unnamedNames.has(c.workerName),
     trade: c.workerId === null ? null : (tradeById.get(c.workerId) ?? null),
     // 期間末までに行の無い作業員（期間より後にだけ出てくる人など）は、手入力なら所属なし、それ以外は繰越だけなので自社
     affiliationLabel:

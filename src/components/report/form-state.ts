@@ -1,6 +1,7 @@
 import { rateAt, type RateHistory } from '@/lib/calc/rates';
 import { yen } from '@/lib/calc/format';
 import { withoutSaved } from '@/lib/report/rows';
+import { isUnnamedLabor } from '@/lib/report/unnamed-workers';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { SiteTrade, TradeAlias } from '@/lib/budget/types';
 import type { CashLineInput, CreditLineInput, ReportLineInput, SaveInput } from '@/lib/report/schema';
@@ -41,6 +42,11 @@ export interface ReportMasters {
    * 外注の買掛の支払先（現場の協力会社。2026-11-17）。undefined は区分の欄を出さない（協力会社のアカウント・SQL の前）。
    */
   subcontractSuppliers?: SupplierOption[];
+  /**
+   * 名前なし（会社と人数）の作業員の行の会社（現場に関わる協力会社。2026-11-19）。undefined は「名前なし」の選択肢を出さない
+   * （DB に人数の列が無い＝SQL の前）。
+   */
+  unnamedCompanies?: SupplierOption[];
 }
 
 /** 表の1行。key は React 用、amountMode は現金・買掛の「金額のみ入力」、manual は作業員・車両・リース品・買掛の仕入先で「（手入力）」を選んだ印。 */
@@ -203,6 +209,12 @@ export function refreshFromMasters(lines: ReportLine[], masters: ReportMasters, 
       const w = masters.workers.find((x) => x.id === l.workerId);
       // 所属の写しは複写元の日のもの。この日報ではサーバーが保存時に決め直すので、写しは持ち込まない。
       // 常用・請負は複写する（いまの所属が自社なら外す）。
+      // 名前なし（会社と人数）の行は、選んだ会社（supplierId）を残す（所属は人数と会社で決まる）。
+      if (isUnnamedLabor(l) && !l.workerId) {
+        const { affiliation: _a, ...keep } = l;
+        void _a;
+        return keep;
+      }
       const { affiliation: _affiliation, supplierId: _supplierId, ...rest } = l;
       void _affiliation;
       void _supplierId;

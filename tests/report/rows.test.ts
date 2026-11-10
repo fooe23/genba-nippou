@@ -17,9 +17,9 @@ const lines: ReportLine[] = [
 
 describe('toLineRows', () => {
   const rows = toLineRows(lines, common, DEFAULT_LABOR_RULE);
-  it('全行が37列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
+  it('全行が38列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
     for (const r of rows) {
-      expect(Object.keys(r)).toHaveLength(37);
+      expect(Object.keys(r)).toHaveLength(38);
       expect(Object.values(r)).not.toContain('');
     }
     expect(rows.map((r) => r.sort_order)).toEqual([0, 1, 2, 3, 4, 5]);
