@@ -8,7 +8,7 @@ import type { LaborCostContext } from '@/lib/calc/labor-cost';
 import { formLaborSplit } from '@/lib/report/labor-form';
 import { jpDate } from '@/lib/calc/format';
 import { changeTotals } from '@/lib/calc/change';
-import { amount, commonHours, laborLineValues, reportTotals, type LaborValues } from '@/lib/calc/report';
+import { commonHours, laborLineValues, reportTotals, type LaborValues } from '@/lib/calc/report';
 import {
   addIssue,
   copyPreviousReport,
@@ -22,7 +22,7 @@ import type { Issue, ReportFixRequest } from '@/lib/db/reports';
 import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import { issueOptions } from '@/lib/report/issue-options';
-import { issueKindMap, subcontractOutput, subcontractOutputLines } from '@/lib/report/subcontract-output';
+import { issueKindMap } from '@/lib/report/subcontract-output';
 import { workWarnings as buildWorkWarnings } from '@/lib/report/contract-work';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeWarning } from '@/lib/report/unlinked-change-lines';
 import {
@@ -38,7 +38,7 @@ import type { DailyClientConfirmation } from '@/lib/reports/types';
 import type { InstructionMethod, IssueKind, IssueStatus, LaborLine, LaborRule, TimeSpec } from '@/lib/types';
 import { canEditIssueContent, issueDatesLine, issueStatusLabel } from '@/lib/report/issue-status';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
-import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
+import { calcLines, decimal, fillMissingRates, formSubcontractOutput, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
 import { ClientConfirmationButton, ClientConfirmationStatus } from './ClientConfirmation';
 import { ContractWorkWarning } from './ContractWorkWarning';
 import { ClientSignatureSection } from './ClientSignature';
@@ -451,7 +451,7 @@ function ReportFormBody({
   // 外注の支払いのうち出来高に数える分（2026-11-11）：件なしは契約内、件ありはその件の区分。外注の行は社員・管理者の画面だけにある。
   const subcontract = useMemo(() => {
     const kinds = new Map([...Object.entries(p.subcontractIssueKinds ?? {}), ...issueKindMap(issueCandidates)]);
-    return subcontractOutput(subcontractOutputLines(input.lines, (l) => (l.kind === 'credit' ? amount(l.qty, l.unitPrice) : 0)), kinds);
+    return formSubcontractOutput(input.lines, kinds);
   }, [input.lines, issueCandidates, p.subcontractIssueKinds]);
 
   const draft = useReportDraft({

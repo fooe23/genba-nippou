@@ -1,6 +1,8 @@
 import { rateAt, type RateHistory } from '@/lib/calc/rates';
 import { yen } from '@/lib/calc/format';
+import { amount } from '@/lib/calc/report';
 import { withoutSaved } from '@/lib/report/rows';
+import { subcontractOutput, subcontractOutputLines, type IssueKindLookup, type SubcontractOutput } from '@/lib/report/subcontract-output';
 import { isUnnamedLabor } from '@/lib/report/unnamed-workers';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { SiteTrade, TradeAlias } from '@/lib/budget/types';
@@ -167,6 +169,17 @@ export function calcLines(lines: ReportLineInput[]): ReportLine[] {
     }
     return l;
   });
+}
+
+/**
+ * 画面の外注の支払いのうち出来高に数える分（2026-11-11）。金額のみ入力の行は calcLines で qty=1・unitPrice=金額にしてから数える
+ * （保存後の DB の amount と同じ。そのまま qty × unitPrice にすると金額のみ入力の行が 0 になる）。
+ */
+export function formSubcontractOutput(lines: ReportLineInput[], kinds: IssueKindLookup): SubcontractOutput {
+  return subcontractOutput(
+    subcontractOutputLines(calcLines(lines), (l) => (l.kind === 'credit' ? amount(l.qty, l.unitPrice) : 0)),
+    kinds,
+  );
 }
 
 export function patchRow<L>(rows: Row<L>[], index: number, patch: Partial<L>): Row<L>[] {

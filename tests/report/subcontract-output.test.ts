@@ -169,3 +169,18 @@ describe('budgetSubcontractAmounts（実行予算の請負の行を会社ごと�
     ).toEqual({ pT: 400_000, pA: 80_000 });
   });
 });
+
+describe('画面の外注の出来高（formSubcontractOutput）', () => {
+  it('金額のみ入力の外注の行も保存後と同じ金額で数える', async () => {
+    const { formSubcontractOutput } = await import('@/components/report/form-state');
+    const base = { kind: 'credit' as const, supplierId: null, vendor: '東北建興', itemName: 'タイル', spec: '', unit: '', note: '', purchaseKind: 'subcontract' as const, siteTradeId: null };
+    const out = formSubcontractOutput(
+      [
+        { ...base, qty: null, unitPrice: null, amountOnly: 170_000, issueId: null },
+        { ...base, qty: 2, unitPrice: 15_000, issueId: 'i-inc' },
+      ] as never,
+      kinds,
+    );
+    expect(out).toEqual({ contract: 170_000, extra: 0, increase: 30_000, change: 0, total: 200_000 });
+  });
+});
