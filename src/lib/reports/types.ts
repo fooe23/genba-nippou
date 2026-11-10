@@ -18,6 +18,8 @@ export interface StoredLineValues {
   manDays: number;
   /** overtime_hours（労務だけ。その他の行は 0）。 */
   overtimeHours: number;
+  /** hours（労務の実働 H。その他の行は 0）。うち常用の時間の割合に使う（2026-11-17）。 */
+  hours: number;
 }
 
 /** 明細 1 行と、その DB の保存値。帳票の金額・人工はすべて stored から計算する。 */

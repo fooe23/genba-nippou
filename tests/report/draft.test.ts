@@ -54,9 +54,22 @@ describe('isValidDraft', () => {
     const up = upgradeDraft(draft as unknown as SaveInput);
     expect(up.lines[0]).toMatchObject({ kind: 'labor', overtimeRate: null });
     expect(Object.keys(up.lines[0]).at(-1)).toBe('overtimeRate');
-    expect(up.lines[1]).toBe(draft.lines[1]);
+    expect(up.lines[1]).toEqual({ ...draft.lines[1], issueId: null }); // 現金の行には根拠なし（2026-11-17）を足す
     const withRate = upgradeDraft({ ...draft, lines: [{ ...draft.lines[0], overtimeRate: 3000 }] } as unknown as SaveInput);
     expect(withRate.lines[0]).toMatchObject({ overtimeRate: 3000 });
+  });
+  it('根拠・区分（2026-11-17）の無い古い下書きは、現金・買掛などに既定（根拠なし・仕入）を末尾に足す', () => {
+    const credit = { kind: 'credit', itemName: 'タイル', spec: '', unit: '', qty: 1, unitPrice: 100, supplierId: null, vendor: '' };
+    const lease = { kind: 'lease', itemId: null, itemName: '足場', spec: '', unit: '', qty: 1, unitPrice: 100, note: '' };
+    const fuel = { kind: 'fuel', vehicleId: null, vehicleName: 'ダンプ', kmPerL: 5, distanceKm: 10, pricePerL: 170, note: '' };
+    const up = upgradeDraft({ ...draft, lines: [draft.lines[1], credit, lease, fuel] } as unknown as SaveInput);
+    expect(up.lines[0]).toEqual({ ...draft.lines[1], issueId: null });
+    expect(up.lines[1]).toEqual({ ...credit, purchaseKind: 'material', siteTradeId: null, issueId: null });
+    expect(Object.keys(up.lines[1]).slice(-3)).toEqual(['purchaseKind', 'siteTradeId', 'issueId']);
+    expect(up.lines[2]).toEqual({ ...lease, issueId: null });
+    expect(up.lines[3]).toEqual({ ...fuel, issueId: null });
+    const filled = upgradeDraft({ ...draft, lines: [{ ...credit, purchaseKind: 'subcontract', siteTradeId: null, issueId: null }] } as unknown as SaveInput);
+    expect(filled.lines[0]).toMatchObject({ purchaseKind: 'subcontract' });
   });
 });
 

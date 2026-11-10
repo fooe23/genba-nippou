@@ -16,7 +16,7 @@ export const SP_TWO = '00000000-0000-4000-8000-0000000000c2'; // △△工業
 export const SP_NONE = '00000000-0000-4000-8000-0000000000c3'; // □□建設
 
 const time = { start: null, end: null, breakMin: null, gapMin: null };
-const stored = (amount: number, manDays = 0) => ({ amount, manDays, overtimeHours: 0 });
+const stored = (amount: number, manDays = 0) => ({ amount, manDays, overtimeHours: 0, hours: manDays * 8 });
 
 export function own(name: string, amount = 20000, manDays = 1): SavedReportLine {
   return { kind: 'labor', workerId: null, workerName: name, time, dailyRate: amount, note: '', overtimeRate: null, affiliation: 'own', supplierId: null, stored: stored(amount, manDays) };
@@ -43,10 +43,10 @@ export function work(opts: { tradeId?: string | null; trade?: string; manDays: n
     stored: stored(0, opts.manDays),
   };
 }
-export const fuel = (amount: number): SavedReportLine => ({ kind: 'fuel', vehicleId: null, vehicleName: '2t', kmPerL: null, distanceKm: null, pricePerL: null, note: '', stored: stored(amount) });
-export const lease = (amount: number): SavedReportLine => ({ kind: 'lease', itemId: null, itemName: '足場材', spec: '', unit: '日', qty: 1, unitPrice: amount, note: '', stored: stored(amount) });
-export const cash = (amount: number): SavedReportLine => ({ kind: 'cash', itemName: 'ウエス', spec: '', unit: '袋', qty: 1, unitPrice: amount, vendor: '', stored: stored(amount) });
-export const credit = (amount: number): SavedReportLine => ({ kind: 'credit', itemName: '塗料', spec: '', unit: '缶', qty: 1, unitPrice: amount, supplierId: null, vendor: '', stored: stored(amount) });
+export const fuel = (amount: number): SavedReportLine => ({ kind: 'fuel', vehicleId: null, vehicleName: '2t', kmPerL: null, distanceKm: null, pricePerL: null, note: '', stored: stored(amount), issueId: null });
+export const lease = (amount: number): SavedReportLine => ({ kind: 'lease', itemId: null, itemName: '足場材', spec: '', unit: '日', qty: 1, unitPrice: amount, note: '', stored: stored(amount), issueId: null });
+export const cash = (amount: number): SavedReportLine => ({ kind: 'cash', itemName: 'ウエス', spec: '', unit: '袋', qty: 1, unitPrice: amount, vendor: '', stored: stored(amount), issueId: null });
+export const credit = (amount: number): SavedReportLine => ({ kind: 'credit', itemName: '塗料', spec: '', unit: '缶', qty: 1, unitPrice: amount, supplierId: null, vendor: '', stored: stored(amount), purchaseKind: 'material', siteTradeId: null, issueId: null });
 
 let seq = 0;
 function ci(p: Partial<ContractItem> & Pick<ContractItem, 'qty' | 'unit' | 'unitPrice'>): ContractItem {

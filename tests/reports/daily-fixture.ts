@@ -7,7 +7,7 @@ import type { DailyReportInput, DailyReportModel, DailyReportSource, SavedReport
 // 日報の帳票（モデル・CSV・PDF）のテスト用：明細の種類がすべてそろった 1 日分の入力。
 // 保存値（stored・saved）は計算で出る値とわざと違えてある（帳票が再計算していないことを確かめるため）。
 
-const stored = (amount: number, manDays = 0, overtimeHours = 0) => ({ amount, manDays, overtimeHours });
+const stored = (amount: number, manDays = 0, overtimeHours = 0) => ({ amount, manDays, overtimeHours, hours: manDays * 8 + overtimeHours });
 const noTime = { start: null, end: null, breakMin: null, gapMin: null };
 
 export const site: Site = {
@@ -30,13 +30,13 @@ export const lines: SavedReportLine[] = [
   },
   // 開始だけ（終了が空）→ 共通時間で計算されるので、表示も共通時間。saved なし。
   { kind: 'labor', workerId: 'w2', workerName: '佐藤', time: { start: '09:00', end: null, breakMin: 0, gapMin: null }, dailyRate: null, note: '', overtimeRate: null, stored: stored(0) },
-  { kind: 'fuel', vehicleId: 'v1', vehicleName: '2t ダンプ', kmPerL: 10, distanceKm: 42, pricePerL: 170, note: '残土運搬', stored: stored(714) },
-  { kind: 'fuel', vehicleId: null, vehicleName: '借用車', kmPerL: null, distanceKm: 10, pricePerL: null, note: '', stored: stored(0) },
-  { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '枠組', unit: '日', qty: 3, unitPrice: 1000, note: '', stored: stored(3000) },
-  { kind: 'lease', itemId: null, itemName: '発電機', spec: '', unit: '台', qty: 1, unitPrice: 5000, note: '持込', stored: stored(5000) },
-  { kind: 'cash', itemName: '釘', spec: 'N65', unit: '箱', qty: 1, unitPrice: 1200, vendor: '=ホームセンター', stored: stored(1200) },
-  { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 10, unitPrice: 1500, supplierId: 'sp1', vendor: '山田商店', stored: stored(15000) },
-  { kind: 'credit', itemName: '金物', spec: '', unit: '式', qty: 1, unitPrice: 800, supplierId: null, vendor: '川村金物', stored: stored(800) },
+  { kind: 'fuel', vehicleId: 'v1', vehicleName: '2t ダンプ', kmPerL: 10, distanceKm: 42, pricePerL: 170, note: '残土運搬', stored: stored(714), issueId: null },
+  { kind: 'fuel', vehicleId: null, vehicleName: '借用車', kmPerL: null, distanceKm: 10, pricePerL: null, note: '', stored: stored(0), issueId: null },
+  { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '枠組', unit: '日', qty: 3, unitPrice: 1000, note: '', stored: stored(3000), issueId: null },
+  { kind: 'lease', itemId: null, itemName: '発電機', spec: '', unit: '台', qty: 1, unitPrice: 5000, note: '持込', stored: stored(5000), issueId: null },
+  { kind: 'cash', itemName: '釘', spec: 'N65', unit: '箱', qty: 1, unitPrice: 1200, vendor: '=ホームセンター', stored: stored(1200), issueId: null },
+  { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 10, unitPrice: 1500, supplierId: 'sp1', vendor: '山田商店', stored: stored(15000), purchaseKind: 'material', siteTradeId: null, issueId: null },
+  { kind: 'credit', itemName: '金物', spec: '', unit: '式', qty: 1, unitPrice: 800, supplierId: null, vendor: '川村金物', stored: stored(800), purchaseKind: 'material', siteTradeId: null, issueId: null },
   { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地, "1 階"', qty: 20, unit: 'm2', manDays: 2, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, stored: stored(100000, 2) },
   { kind: 'work', estimateItemId: null, trade: '', description: '片付け', qty: null, unit: '', manDays: 0.5, unitPrice: null, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, stored: stored(0, 0.5) },
 ];

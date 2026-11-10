@@ -75,10 +75,10 @@ describe('toSaveInput', () => {
       notesText: '明日は雨天中止',
       lines: [
         { kind: 'labor', workerId: id(1), workerName: '山田 太郎', time: { ...NONE, start: '07:00' }, dailyRate: 18000, overtimeRate: 2800, note: '早出' },
-        { kind: 'fuel', vehicleId: id(11), vehicleName: 'ハイエース 1234', kmPerL: 9.5, distanceKm: 40, pricePerL: 165, note: '' },
-        { kind: 'lease', itemId: id(21), itemName: '発電機', spec: '2kVA', unit: '日', qty: 1, unitPrice: 3000, note: '' },
-        { kind: 'cash', itemName: 'ビス', spec: '', unit: '箱', qty: 2, unitPrice: 1200, vendor: 'ホームセンター' },
-        { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 10, unitPrice: 1500, supplierId: id(31), vendor: '○○建材' },
+        { kind: 'fuel', vehicleId: id(11), vehicleName: 'ハイエース 1234', kmPerL: 9.5, distanceKm: 40, pricePerL: 165, note: '', issueId: null },
+        { kind: 'lease', itemId: id(21), itemName: '発電機', spec: '2kVA', unit: '日', qty: 1, unitPrice: 3000, note: '', issueId: null },
+        { kind: 'cash', itemName: 'ビス', spec: '', unit: '箱', qty: 2, unitPrice: 1200, vendor: 'ホームセンター', issueId: null },
+        { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 10, unitPrice: 1500, supplierId: id(31), vendor: '○○建材', purchaseKind: 'material', siteTradeId: null, issueId: null },
         { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地', qty: 20, unit: '㎡', manDays: 1.5, unitPrice: 3000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null },
       ],
     });
@@ -112,14 +112,14 @@ describe('toSaveInput', () => {
       { kind: 'labor', workerId: id(5), workerName: '田中', time: NONE, dailyRate: 16000, overtimeRate: null, note: '' },
     ]);
     expect(input.lines.find((l) => l.kind === 'fuel')).toEqual({
-      kind: 'fuel', vehicleId: null, vehicleName: '軽トラ', kmPerL: null, distanceKm: 10, pricePerL: 170, note: '',
+      kind: 'fuel', vehicleId: null, vehicleName: '軽トラ', kmPerL: null, distanceKm: 10, pricePerL: 170, note: '', issueId: null,
     });
     expect(input.lines.find((l) => l.kind === 'lease')).toEqual({
-      kind: 'lease', itemId: null, itemName: '投光器', spec: 'LED', unit: '日', qty: 2, unitPrice: 800, note: '',
+      kind: 'lease', itemId: null, itemName: '投光器', spec: 'LED', unit: '日', qty: 2, unitPrice: 800, note: '', issueId: null,
     });
     expect(input.lines.filter((l) => l.kind === 'credit')).toEqual([
-      { kind: 'credit', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 500, supplierId: null, vendor: '△△商店' },
-      { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 1, unitPrice: 300, supplierId: null, vendor: '' },
+      { kind: 'credit', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 500, supplierId: null, vendor: '△△商店', purchaseKind: 'material', siteTradeId: null, issueId: null },
+      { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 1, unitPrice: 300, supplierId: null, vendor: '', purchaseKind: 'material', siteTradeId: null, issueId: null },
     ]);
     expect(notes).toEqual([
       '作業員「新人」はマスターに無いので手入力として取り込みました',
@@ -144,7 +144,7 @@ describe('toSaveInput', () => {
     expect(input.lines).toEqual([
       { kind: 'labor', workerId: id(2), workerName: '佐藤', time: NONE, dailyRate: 15000, overtimeRate: null, note: '' },
       // マスターの単価は 2026-01-01 から。ファイルの規格はそのまま。
-      { kind: 'lease', itemId: id(21), itemName: '発電機', spec: '3kVA', unit: '日', qty: 1, unitPrice: 2500, note: '' },
+      { kind: 'lease', itemId: id(21), itemName: '発電機', spec: '3kVA', unit: '日', qty: 1, unitPrice: 2500, note: '', issueId: null },
     ]);
   });
 

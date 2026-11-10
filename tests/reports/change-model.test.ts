@@ -14,22 +14,22 @@ const site = (o: Partial<Site> = {}): Site => ({
   commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null, ...o,
 });
 
-const stored = (amount: number, manDays = 0) => ({ amount, manDays, overtimeHours: 0 });
+const stored = (amount: number, manDays = 0) => ({ amount, manDays, overtimeHours: 0, hours: manDays * 8 });
 const labor = (manDays: number, cost: number): SavedReportLine => ({
   kind: 'labor', workerId: null, workerName: '作業員', time: { start: null, end: null, breakMin: null, gapMin: null },
   dailyRate: 99_999, note: '', overtimeRate: null, stored: stored(cost, manDays),
 });
 const fuel = (cost: number): SavedReportLine => ({
-  kind: 'fuel', vehicleId: null, vehicleName: '車', kmPerL: 10, distanceKm: 1, pricePerL: 1, note: '', stored: stored(cost),
+  kind: 'fuel', vehicleId: null, vehicleName: '車', kmPerL: 10, distanceKm: 1, pricePerL: 1, note: '', stored: stored(cost), issueId: null,
 });
 const lease = (cost: number): SavedReportLine => ({
-  kind: 'lease', itemId: null, itemName: '足場', spec: '', unit: '日', qty: 1, unitPrice: 1, note: '', stored: stored(cost),
+  kind: 'lease', itemId: null, itemName: '足場', spec: '', unit: '日', qty: 1, unitPrice: 1, note: '', stored: stored(cost), issueId: null,
 });
 const cash = (cost: number): SavedReportLine => ({
-  kind: 'cash', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 1, vendor: '', stored: stored(cost),
+  kind: 'cash', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 1, vendor: '', stored: stored(cost), issueId: null,
 });
 const credit = (cost: number): SavedReportLine => ({
-  kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 1, unitPrice: 1, supplierId: null, vendor: '', stored: stored(cost),
+  kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 1, unitPrice: 1, supplierId: null, vendor: '', stored: stored(cost), purchaseKind: 'material', siteTradeId: null, issueId: null,
 });
 /** 作業内容。保存値の amount は DB のトリガーと同じ（減は負）。 */
 const work = (

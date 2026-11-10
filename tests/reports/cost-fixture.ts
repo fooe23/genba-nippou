@@ -11,7 +11,7 @@ type WorkLineSaved = Extract<SavedReportLine, { kind: 'work' }>;
 // 帳票のレンダラー（CSV・Excel・PDF）のテスト用：小さな入力から buildCostReport でモデルを作る。
 
 const touched = { updatedAt: null, updatedBy: null, createdAt: '2026-01-01T00:00:00Z' };
-const stored = (amount: number, manDays = 0, overtimeHours = 0) => ({ amount, manDays, overtimeHours });
+const stored = (amount: number, manDays = 0, overtimeHours = 0) => ({ amount, manDays, overtimeHours, hours: manDays * 8 + overtimeHours });
 const time = { start: null, end: null, breakMin: null, gapMin: null };
 
 const site: Site = {
@@ -23,10 +23,10 @@ const site: Site = {
 const lines: SavedReportLine[] = [
   { kind: 'labor', workerId: 'w1', workerName: '田中', time, dailyRate: 18000, note: '', overtimeRate: null, affiliation: 'own', supplierId: null, stored: stored(18000, 1, 1.5) },
   { kind: 'labor', workerId: null, workerName: '飛び込み 鈴木', time, dailyRate: 15000, note: '', overtimeRate: null, stored: stored(15000, 1) },
-  { kind: 'fuel', vehicleId: 'v1', vehicleName: '2t ダンプ', kmPerL: 10, distanceKm: 42, pricePerL: 170, note: '', stored: stored(714) },
-  { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '', unit: '日', qty: 3, unitPrice: 1000, note: '', stored: stored(3000) },
-  { kind: 'cash', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 1200, vendor: '', stored: stored(1200) },
-  { kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 10, unitPrice: 1500, supplierId: 'sp1', vendor: '山田商店', stored: stored(15000) },
+  { kind: 'fuel', vehicleId: 'v1', vehicleName: '2t ダンプ', kmPerL: 10, distanceKm: 42, pricePerL: 170, note: '', stored: stored(714), issueId: null },
+  { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '', unit: '日', qty: 3, unitPrice: 1000, note: '', stored: stored(3000), issueId: null },
+  { kind: 'cash', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 1200, vendor: '', stored: stored(1200), issueId: null },
+  { kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 10, unitPrice: 1500, supplierId: 'sp1', vendor: '山田商店', stored: stored(15000), purchaseKind: 'material', siteTradeId: null, issueId: null },
   { kind: 'work', estimateItemId: null, trade: '大工', description: '床下地', qty: 20, unit: 'm2', manDays: 2, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, stored: stored(100000, 2) },
   { kind: 'work', estimateItemId: null, trade: '', description: '片付け', qty: null, unit: '', manDays: 0, unitPrice: 0, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, stored: stored(0, 0) },
 ];

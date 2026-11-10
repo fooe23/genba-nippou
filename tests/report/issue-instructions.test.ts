@@ -50,7 +50,7 @@ describe('根拠の件から指示者・指示方法・指示日を入れる', (
     const lines: ReportLine[] = [
       work({ instructedBy: '施主', instructionMethod: 'phone', instructedOn: '2026-11-01' }),
       work({ issueId: UNKNOWN, instructedBy: '施主', instructionMethod: 'phone', instructedOn: '2026-11-01' }),
-      { kind: 'cash', itemName: 'テープ', spec: '', unit: '巻', qty: 1, unitPrice: 100, vendor: '' },
+      { kind: 'cash', itemName: 'テープ', spec: '', unit: '巻', qty: 1, unitPrice: 100, vendor: '', issueId: null },
     ];
     const out = applyIssueInstructions(lines, issues);
     lines.forEach((l, i) => expect(out[i]).toBe(l));

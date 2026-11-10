@@ -25,8 +25,8 @@ const masters: ReportMasters = {
 };
 
 const labor = (workerId: string | null, dailyRate: number | null): ReportLine => ({ kind: 'labor', workerId, workerName: '', time: t, dailyRate, note: '', overtimeRate: null });
-const fuel = (vehicleId: string | null, kmPerL: number | null): ReportLine => ({ kind: 'fuel', vehicleId, vehicleName: '', kmPerL, distanceKm: null, pricePerL: null, note: '' });
-const lease = (itemId: string | null, unitPrice: number | null): ReportLine => ({ kind: 'lease', itemId, itemName: '', spec: '', unit: '', qty: 1, unitPrice, note: '' });
+const fuel = (vehicleId: string | null, kmPerL: number | null): ReportLine => ({ kind: 'fuel', vehicleId, vehicleName: '', kmPerL, distanceKm: null, pricePerL: null, note: '', issueId: null });
+const lease = (itemId: string | null, unitPrice: number | null): ReportLine => ({ kind: 'lease', itemId, itemName: '', spec: '', unit: '', qty: 1, unitPrice, note: '', issueId: null });
 
 describe('fillMissingRates（日報を開いたときの補完）', () => {
   it('null の日当・リース単価・燃費を、その日付に有効なマスターの値で埋める', () => {
@@ -60,7 +60,7 @@ describe('fillMissingRates（日報を開いたときの補完）', () => {
   });
 
   it('他の種類の行や元の配列は変えない', () => {
-    const cash = { kind: 'cash' as const, itemName: 'テープ', spec: '', unit: '巻', qty: 5, unitPrice: null, vendor: '' };
+    const cash = { kind: 'cash' as const, itemName: 'テープ', spec: '', unit: '巻', qty: 5, unitPrice: null, vendor: '', issueId: null };
     const input = [labor(W1, null), cash];
     const r = fillMissingRates(input, masters, '2026-10-31');
     expect(r.lines[1]).toBe(cash);

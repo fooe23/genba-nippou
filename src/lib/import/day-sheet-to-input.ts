@@ -73,7 +73,7 @@ export function toSaveInput(
     const v = m.kind === 'one' ? m.item : null;
     lines.push({
       kind: 'fuel', vehicleId: v?.id ?? null, vehicleName: v?.name ?? l.name, kmPerL: v?.kmPerL ?? null,
-      distanceKm: l.distanceKm, pricePerL: l.pricePerL, note: l.note,
+      distanceKm: l.distanceKm, pricePerL: l.pricePerL, note: l.note, issueId: null,
     });
   }
 
@@ -90,12 +90,12 @@ export function toSaveInput(
     lines.push({
       kind: 'lease', itemId: item?.id ?? null, itemName: item?.name ?? l.name,
       spec: l.spec || (item?.spec ?? ''), unit: l.unit, qty: l.qty,
-      unitPrice: (item ? rateAt(item.rates, date) : null) ?? positive(l.unitPrice), note: l.note,
+      unitPrice: (item ? rateAt(item.rates, date) : null) ?? positive(l.unitPrice), note: l.note, issueId: null,
     });
   }
 
   for (const l of parse.cash) {
-    lines.push({ kind: 'cash', itemName: l.name, spec: l.spec, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, vendor: l.vendor });
+    lines.push({ kind: 'cash', itemName: l.name, spec: l.spec, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice, vendor: l.vendor, issueId: null });
   }
 
   for (const l of parse.credit) {
@@ -111,6 +111,8 @@ export function toSaveInput(
     lines.push({
       kind: 'credit', itemName: l.name, spec: l.spec, unit: l.unit, qty: l.qty, unitPrice: l.unitPrice,
       supplierId: s?.id ?? null, vendor: s?.name ?? l.vendor,
+      // 1 日分の Excel（V34）の買掛は仕入として取り込む（外注の区分・工種・根拠は画面で選ぶ）。
+      purchaseKind: 'material', siteTradeId: null, issueId: null,
     });
   }
 

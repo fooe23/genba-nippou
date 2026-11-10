@@ -17,6 +17,7 @@ import type { Affiliation, LaborContract, LaborLine, ReportLine } from '@/lib/ty
 //   supabase/recalc_2026-11-07_line_affiliation.sql を使う。
 // - 常用・請負（laborContract）：所属が協力会社の行だけ持つ（未選択 null は 'jouyou'。保存済みの作業員で項目が無い（undefined）ときだけ保存済みの区分）。自社・手入力・マスターに無い行は null。
 // - 手入力の作業員（workerId なし）・マスターに無い作業員：所属は null（所属なし）。画面から届いた所属は使わない。
+// - うち常用の時間（jouyouHours。2026-11-17）：区分が請負の協力会社の行だけ残し、それ以外の行は null。
 
 export interface SnapshotMasters {
   workers: { id: string; rates: RateHistory[]; overtimeRate: number | null; affiliation: Affiliation; supplierId: string | null }[];
@@ -33,10 +34,20 @@ export function needsMasterSnapshots(lines: ReportLine[]): boolean {
 /** 参照の無い行に使うマスター（マスターを読まずに applyMasterSnapshots を呼ぶとき）。 */
 export const EMPTY_SNAPSHOT_MASTERS: SnapshotMasters = { workers: [], vehicles: [], leaseItems: [] };
 
-// 手入力の作業員の行：所属なし・常用。値が入っていなければ同じオブジェクトのまま返す。
+// 手入力の作業員の行：所属なし・常用（うち常用の時間なし）。値が入っていなければ同じオブジェクトのまま返す。
 function withoutAffiliation(l: LaborLine): LaborLine {
-  if ((l.laborContract ?? null) === null && (l.affiliation ?? null) === null && (l.supplierId ?? null) === null) return l;
-  return { ...l, laborContract: null, affiliation: null, supplierId: null };
+  if (
+    (l.laborContract ?? null) === null && (l.affiliation ?? null) === null && (l.supplierId ?? null) === null && (l.jouyouHours ?? null) === null
+  ) {
+    return l;
+  }
+  return { ...l, laborContract: null, affiliation: null, supplierId: null, ...(l.jouyouHours === undefined ? {} : { jouyouHours: null }) };
+}
+
+// うち常用の時間は区分が請負の行だけ（項目が無い行には足さない）。
+function jouyouHoursFor(l: LaborLine, contract: LaborContract | null): Pick<LaborLine, 'jouyouHours'> {
+  if (l.jouyouHours === undefined) return {};
+  return { jouyouHours: contract === 'ukeoi' ? (l.jouyouHours ?? null) : null };
 }
 
 /** この日報にすでに保存されている作業員の行の所属の写し（作業員 ID ごと）。保存し直しでは、これを優先する。 */
@@ -59,23 +70,27 @@ export function applyMasterSnapshots(
       const stored = prev.get(l.workerId);
       if (stored && stored.affiliation !== null) {
         const partner = stored.affiliation === 'partner';
+        // 画面から届いた区分を使う。null（常用を選んだ・選び直した）は常用。項目自体が無い（古い下書き・取り込み）ときだけ保存済みの区分。
+        const contract = partner ? (l.laborContract === undefined ? (stored.laborContract ?? 'jouyou') : (l.laborContract ?? 'jouyou')) : null;
         return {
           ...l,
           ...rates,
-          // 画面から届いた区分を使う。null（常用を選んだ・選び直した）は常用。項目自体が無い（古い下書き・取り込み）ときだけ保存済みの区分。
-          laborContract: partner ? (l.laborContract === undefined ? (stored.laborContract ?? 'jouyou') : (l.laborContract ?? 'jouyou')) : null,
+          laborContract: contract,
           affiliation: stored.affiliation,
           supplierId: partner ? stored.supplierId : null,
+          ...jouyouHoursFor(l, contract),
         };
       }
-      if (!w) return { ...l, ...rates, laborContract: null, affiliation: null, supplierId: null };
+      if (!w) return { ...l, ...rates, laborContract: null, affiliation: null, supplierId: null, ...jouyouHoursFor(l, null) };
       const partner = w.affiliation === 'partner';
+      const contract = partner ? (l.laborContract ?? 'jouyou') : null;
       return {
         ...l,
         ...rates,
-        laborContract: partner ? (l.laborContract ?? 'jouyou') : null,
+        laborContract: contract,
         affiliation: w.affiliation,
         supplierId: partner ? w.supplierId : null,
+        ...jouyouHoursFor(l, contract),
       };
     }
     if (l.kind === 'labor') return withoutAffiliation(l);

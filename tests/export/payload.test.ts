@@ -25,7 +25,7 @@ const labor = (workerId: string | null, workerName: string, o: Partial<LaborLine
   kind: 'labor', workerId, workerName, time: { ...NO_TIME }, dailyRate: 18000, note: '', overtimeRate: null, ...o,
 });
 const lease = (itemId: string | null, itemName: string, unitPrice: number): LeaseLine => ({
-  kind: 'lease', itemId, itemName, spec: '2.8kVA', unit: '日', qty: 1, unitPrice, note: '',
+  kind: 'lease', itemId, itemName, spec: '2.8kVA', unit: '日', qty: 1, unitPrice, note: '', issueId: null,
 });
 
 const SITE: Site = {
@@ -119,8 +119,8 @@ describe('buildExportPayload: マスターの並びと上限', () => {
 
   it('取引先・車両・リース品も同じ並び', () => {
     const reports = [report('2026-11-02', [
-      { kind: 'fuel', vehicleId: 'v3', vehicleName: 'ハイエース', kmPerL: 8.5, distanceKm: 40, pricePerL: 170, note: '' },
-      { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p2', vendor: 'B建材' },
+      { kind: 'fuel', vehicleId: 'v3', vehicleName: 'ハイエース', kmPerL: 8.5, distanceKm: 40, pricePerL: 170, note: '', issueId: null },
+      { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p2', vendor: 'B建材', purchaseKind: 'material', siteTradeId: null, issueId: null },
       lease('l2', '発電機', 3000),
     ])];
     const { payload } = buildExportPayload(input({
@@ -403,10 +403,10 @@ describe('buildExportPayload: 日報の項目', () => {
   it('明細・重要事項・連絡事項・作成者などを fixture の形で入れる', () => {
     const r = report('2026-11-01', [
       labor('w1', '山田 太郎', { note: '大工' }),
-      { kind: 'fuel', vehicleId: 'v1', vehicleName: 'ハイエース', kmPerL: 8.5, distanceKm: 40, pricePerL: 170, note: '' },
+      { kind: 'fuel', vehicleId: 'v1', vehicleName: 'ハイエース', kmPerL: 8.5, distanceKm: 40, pricePerL: 170, note: '', issueId: null },
       lease('l1', '発電機', 3000),
-      { kind: 'cash', itemName: 'ビス', spec: '50mm', unit: '箱', qty: 1, unitPrice: 500, vendor: 'ホームセンター' },
-      { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p1', vendor: '○○建材' },
+      { kind: 'cash', itemName: 'ビス', spec: '50mm', unit: '箱', qty: 1, unitPrice: 500, vendor: 'ホームセンター', issueId: null },
+      { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p1', vendor: '○○建材', purchaseKind: 'material', siteTradeId: null, issueId: null },
       { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null },
     ], {
       status: 'approved', outputTotal: 50000, costTotal: 10600,
@@ -467,10 +467,10 @@ describe('Python の fixture との形の一致', () => {
     const fixture = JSON.parse(readFileSync(fileURLToPath(new URL('../../python/tests/fixtures/payload_days.json', import.meta.url)), 'utf8'));
     const r = report('2026-11-01', [
       labor('w1', '山田 太郎'),
-      { kind: 'fuel', vehicleId: 'v1', vehicleName: 'ハイエース', kmPerL: 8.5, distanceKm: 40, pricePerL: 170, note: '' },
+      { kind: 'fuel', vehicleId: 'v1', vehicleName: 'ハイエース', kmPerL: 8.5, distanceKm: 40, pricePerL: 170, note: '', issueId: null },
       lease('l1', '発電機', 3000),
-      { kind: 'cash', itemName: 'ビス', spec: '50mm', unit: '箱', qty: 1, unitPrice: 500, vendor: 'ホームセンター' },
-      { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p1', vendor: '○○建材' },
+      { kind: 'cash', itemName: 'ビス', spec: '50mm', unit: '箱', qty: 1, unitPrice: 500, vendor: 'ホームセンター', issueId: null },
+      { kind: 'credit', itemName: '合板', spec: '12mm', unit: '枚', qty: 2, unitPrice: 1500, supplierId: 'p1', vendor: '○○建材', purchaseKind: 'material', siteTradeId: null, issueId: null },
       { kind: 'work', estimateItemId: null, trade: '解体', description: '外壁撤去', qty: 10, unit: 'm2', manDays: 1.5, unitPrice: 5000, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null },
     ], { issues: ['件'] });
     const { payload } = buildExportPayload(input({

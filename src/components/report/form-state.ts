@@ -77,10 +77,10 @@ export function newReportCommon(site: TimeSpec, company: TimeSpec): TimeSpec {
 
 export const newLine = {
   labor: (): LaborLine => ({ kind: 'labor', workerId: null, workerName: '', time: { ...EMPTY_TIME }, dailyRate: null, note: '', overtimeRate: null }),
-  fuel: (): FuelLine => ({ kind: 'fuel', vehicleId: null, vehicleName: '', kmPerL: null, distanceKm: null, pricePerL: null, note: '' }),
-  lease: (): LeaseLine => ({ kind: 'lease', itemId: null, itemName: '', spec: '', unit: '', qty: null, unitPrice: null, note: '' }),
-  cash: (): CashLineInput => ({ kind: 'cash', itemName: '', spec: '', unit: '', qty: null, unitPrice: null, vendor: '' }),
-  credit: (): CreditLineInput => ({ kind: 'credit', itemName: '', spec: '', unit: '', qty: null, unitPrice: null, supplierId: null, vendor: '' }),
+  fuel: (): FuelLine => ({ kind: 'fuel', vehicleId: null, vehicleName: '', kmPerL: null, distanceKm: null, pricePerL: null, note: '', issueId: null }),
+  lease: (): LeaseLine => ({ kind: 'lease', itemId: null, itemName: '', spec: '', unit: '', qty: null, unitPrice: null, note: '', issueId: null }),
+  cash: (): CashLineInput => ({ kind: 'cash', itemName: '', spec: '', unit: '', qty: null, unitPrice: null, vendor: '', issueId: null }),
+  credit: (): CreditLineInput => ({ kind: 'credit', itemName: '', spec: '', unit: '', qty: null, unitPrice: null, supplierId: null, vendor: '', purchaseKind: 'material', siteTradeId: null, issueId: null }),
   work: (): WorkLine => ({ kind: 'work', estimateItemId: null, trade: '', description: '', qty: null, unit: '', manDays: null, unitPrice: null, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null }),
 };
 

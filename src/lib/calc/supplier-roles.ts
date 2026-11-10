@@ -1,9 +1,12 @@
 // 取引先（買掛の相手先）と協力会社（作業員の所属）の区別（2026-11-06。純関数。画面とサーバーの両方から使う）。
 // どちらも gn_suppliers の行で、is_vendor（取引先）・is_partner（協力会社）の印で分ける。両方に印が付いた会社もある。
-// 外注の作業員は買掛にしないので、協力会社だけの会社は買掛（日報の買掛の行・現場の取引先）の選択肢に出さない。
+// 外注の作業員は買掛にしないので、協力会社だけの会社は買掛の仕入の行・現場の取引先の選択肢に出さない。
+// 外注の買掛（2026-11-17。請負の支払い）は逆に協力会社だけを支払先にする。
 
 export const MSG_NOT_PARTNER = '協力会社として登録された会社を選んでください';
 export const MSG_NOT_VENDOR = '協力会社は買掛にできません。作業員の行で記録してください';
+/** 外注の買掛（2026-11-17）の支払先は協力会社だけ。 */
+export const MSG_SUBCONTRACT_SUPPLIER = '外注の支払先は協力会社から選んでください';
 
 /** 会社 ID → 印。DB から読めなかった会社は入らない。 */
 export type SupplierRoles = ReadonlyMap<string, { isVendor: boolean; isPartner: boolean }>;
@@ -40,6 +43,31 @@ export function nonVendorAdditions(ids: Iterable<string>, roles: SupplierRoles, 
     if (roles.get(id)?.isVendor === false) out.push(id);
   }
   return out;
+}
+
+/**
+ * 取引先の印を確かめる買掛の行の会社：仕入の行（区分が無い古い行を含む）の支払先だけ。外注の行（2026-11-17）は
+ * 協力会社に払うので対象外（subcontractSupplierError で確かめる）。
+ */
+export function materialCreditSupplierIds(
+  lines: readonly { kind: string; purchaseKind?: 'material' | 'subcontract'; supplierId?: string | null }[],
+): string[] {
+  return lines.flatMap((l) => (l.kind === 'credit' && l.purchaseKind !== 'subcontract' && l.supplierId ? [l.supplierId] : []));
+}
+
+/**
+ * 外注の買掛の行の支払先の検証：協力会社の印のある会社でなければ（取引先だけ・読めない会社・手入力）文言、問題なければ null。
+ * 仕入の行は見ない。
+ */
+export function subcontractSupplierError(
+  lines: readonly { purchaseKind?: 'material' | 'subcontract'; supplierId: string | null }[],
+  roles: SupplierRoles,
+): string | null {
+  for (const l of lines) {
+    if (l.purchaseKind !== 'subcontract') continue;
+    if (!l.supplierId || !isPartnerSupplier(roles, l.supplierId)) return MSG_SUBCONTRACT_SUPPLIER;
+  }
+  return null;
 }
 
 /** 日報の買掛の行の会社の検証：新しく協力会社だけの会社を買掛にしていれば文言、問題なければ null。 */

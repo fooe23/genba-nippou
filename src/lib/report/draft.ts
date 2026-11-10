@@ -53,7 +53,7 @@ function missingWorkChange(l: object): Partial<typeof EMPTY_WORK_CHANGE> {
 }
 
 /**
- * 古い形式の下書きを今の形にそろえる。作業員の行に残業単価（overtimeRate）が無ければ null（標準の計算式）を入れる。
+ * 古い形式の下書きを今の形にそろえる。燃料・リース・現金・買掛に根拠の件が無ければ null、買掛に区分・工種が無ければ仕入・null を入れる。作業員の行に残業単価（overtimeRate）が無ければ null（標準の計算式）を入れる。
  * 作業内容の行に区分・指示の項目が無ければ既定（契約内・指示なし）を、実行予算の工種が無ければ null（選んでいない）を入れる。
  * 項目は末尾に足す（サーバーから読んだ行と JSON の並びをそろえ、同じ内容なら復元を促さないため）。
  */
@@ -66,6 +66,21 @@ export function upgradeDraft(data: SaveInput): SaveInput {
         const up = { ...l, ...missingWorkChange(l) };
         // 実行予算の工種（2026-11-15）が無い下書きは選んでいない（null）。サーバーから読んだ行と同じく issueId の後ろに足す。
         return (l as { siteTradeId?: unknown }).siteTradeId === undefined ? { ...up, siteTradeId: null } : up;
+      }
+      // 燃料・リース・現金・買掛の根拠の件と、買掛の区分・工種（2026-11-17）が無い下書きは、根拠なし・仕入（サーバーから読んだ行と同じ並び）。
+      if (l.kind === 'credit') {
+        const o = l as { purchaseKind?: unknown; siteTradeId?: unknown; issueId?: unknown };
+        if (o.purchaseKind !== undefined && o.siteTradeId !== undefined && o.issueId !== undefined) return l;
+        const { purchaseKind, siteTradeId, issueId, ...rest } = l as typeof l & Record<string, unknown>;
+        return {
+          ...rest,
+          purchaseKind: purchaseKind ?? 'material',
+          siteTradeId: siteTradeId ?? null,
+          issueId: issueId ?? null,
+        } as typeof l;
+      }
+      if ((l.kind === 'cash' || l.kind === 'lease' || l.kind === 'fuel') && (l as { issueId?: unknown }).issueId === undefined) {
+        return { ...l, issueId: null };
       }
       return l;
     }),

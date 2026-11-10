@@ -22,9 +22,9 @@ function storedNum(v: unknown): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** DB の保存値（トリガーが計算した amount・man_days・overtime_hours）。帳票はこれだけで集計する。 */
+/** DB の保存値（トリガーが計算した amount・man_days・overtime_hours・hours）。帳票はこれだけで集計する。 */
 function storedValues(r: LineRowRead): StoredLineValues {
-  return { amount: storedNum(r.amount), manDays: storedNum(r.man_days), overtimeHours: storedNum(r.overtime_hours) };
+  return { amount: storedNum(r.amount), manDays: storedNum(r.man_days), overtimeHours: storedNum(r.overtime_hours), hours: storedNum(r.hours) };
 }
 
 /** 見出しに保存値つき明細を付ける（明細は 1 回の問い合わせでまとめて読む）。 */

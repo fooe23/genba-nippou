@@ -20,11 +20,26 @@ export interface LaborLine  {
   laborContract?: LaborContract | null;
   affiliation?: Affiliation | null;
   supplierId?: string | null;
+  /**
+   * うち常用の時間（H。2026-11-17）。区分が請負の行で、請負の外で常用として働いた時間。null・省略は全部が請負。
+   * 保存時に、区分が請負でない行は null にそろえる（src/lib/report/snapshots.ts）。
+   */
+  jouyouHours?: number | null;
 }
-export interface FuelLine   { kind: 'fuel';   vehicleId: string | null; vehicleName: string; kmPerL: number | null; distanceKm: number | null; pricePerL: number | null; note: string; }
-export interface LeaseLine  { kind: 'lease';  itemId: string | null; itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; note: string; }
-export interface CashLine   { kind: 'cash';   itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; vendor: string; }
-export interface CreditLine { kind: 'credit'; itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; supplierId: string | null; vendor: string; }
+// 燃料・リース・現金・買掛の issueId は根拠の件（gn_report_issues.id。2026-11-17。null＝根拠なし＝通常の工事の分）。
+export interface FuelLine   { kind: 'fuel';   vehicleId: string | null; vehicleName: string; kmPerL: number | null; distanceKm: number | null; pricePerL: number | null; note: string; issueId: string | null; }
+export interface LeaseLine  { kind: 'lease';  itemId: string | null; itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; note: string; issueId: string | null; }
+export interface CashLine   { kind: 'cash';   itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; vendor: string; issueId: string | null; }
+/** 買掛の区分：仕入（material。材料など）・外注（subcontract。請負の支払い。2026-11-17）。 */
+export type PurchaseKind = 'material' | 'subcontract';
+/**
+ * 買掛の行。supplierId・vendor は支払先。purchaseKind・siteTradeId・issueId は 2026-11-17 追加。
+ * siteTradeId（実行予算の工種）は外注の行だけ持つ（仕入の行は保存時に null）。外注の行は社員・管理者だけが読み書きできる（RLS）。
+ */
+export interface CreditLine {
+  kind: 'credit'; itemName: string; spec: string; unit: string; qty: number | null; unitPrice: number | null; supplierId: string | null; vendor: string;
+  purchaseKind: PurchaseKind; siteTradeId: string | null; issueId: string | null;
+}
 /**
  * 作業内容の区分（契約内・追加・増・変更・減）。表示名は src/lib/report/change-labels.ts。
  * 追加（extra）は新しく別の仕事が増えたもの、増（increase）は同じ流れの中で数量が増えたもの。計算・集計は増も追加と同じ。

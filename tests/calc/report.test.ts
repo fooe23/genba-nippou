@@ -84,10 +84,10 @@ describe('日報合計', () => {
     const t = reportTotals([
       { kind: 'labor', workerId: 'w1', workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 18000, note: '', overtimeRate: null },
       { kind: 'labor', workerId: 'w2', workerName: '佐藤', time: { start: '08:00', end: '12:00', breakMin: 0, gapMin: 0 }, dailyRate: 15000, note: '', overtimeRate: null },
-      { kind: 'fuel', vehicleId: 'v1', vehicleName: 'ハイエース', kmPerL: 10, distanceKm: 40, pricePerL: 170, note: '' },
-      { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '' },
-      { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'コメリ' },
-      { kind: 'credit', itemName: 'タイル', spec: '', unit: '枚', qty: 50, unitPrice: 250, supplierId: null, vendor: 'ABC建材' },
+      { kind: 'fuel', vehicleId: 'v1', vehicleName: 'ハイエース', kmPerL: 10, distanceKm: 40, pricePerL: 170, note: '', issueId: null },
+      { kind: 'lease', itemId: 'l1', itemName: '足場', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '', issueId: null },
+      { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'コメリ', issueId: null },
+      { kind: 'credit', itemName: 'タイル', spec: '', unit: '枚', qty: 50, unitPrice: 250, supplierId: null, vendor: 'ABC建材', purchaseKind: 'material', siteTradeId: null, issueId: null },
       { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null },
     ], common, rule);
     expect(t.workerCount).toBe(2);

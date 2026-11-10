@@ -20,10 +20,10 @@ describe('保存時のマスター単価の複写（サーバー側）', () => {
     { kind: 'labor', workerId: W1, workerName: '田中', time: t, dailyRate: 999999, note: '', overtimeRate: 99999 },
     { kind: 'labor', workerId: null, workerName: '応援', time: t, dailyRate: 15000, note: '', overtimeRate: 2500 },
     { kind: 'labor', workerId: UNKNOWN, workerName: '偽', time: t, dailyRate: 999999, note: '', overtimeRate: 99999 },
-    { kind: 'fuel', vehicleId: V1, vehicleName: 'ハイエース', kmPerL: 0.01, distanceKm: 40, pricePerL: 170, note: '' },
-    { kind: 'lease', itemId: L1, itemName: '足場', spec: '', unit: '式', qty: 1, unitPrice: 1, note: '' },
-    { kind: 'lease', itemId: null, itemName: '手入力', spec: '', unit: '式', qty: 1, unitPrice: 800, note: '' },
-    { kind: 'cash', itemName: 'テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: '' },
+    { kind: 'fuel', vehicleId: V1, vehicleName: 'ハイエース', kmPerL: 0.01, distanceKm: 40, pricePerL: 170, note: '', issueId: null },
+    { kind: 'lease', itemId: L1, itemName: '足場', spec: '', unit: '式', qty: 1, unitPrice: 1, note: '', issueId: null },
+    { kind: 'lease', itemId: null, itemName: '手入力', spec: '', unit: '式', qty: 1, unitPrice: 800, note: '', issueId: null },
+    { kind: 'cash', itemName: 'テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: '', issueId: null },
   ];
   it('参照のある行は日付に有効なマスターの値、参照の無い行はそのまま、存在しない参照は null', () => {
     const out = applyMasterSnapshots(lines, '2026-10-31', masters);
@@ -44,7 +44,7 @@ describe('保存時のマスター単価の複写（サーバー側）', () => {
   it('手入力の作業員・仕入先の行（参照なし）は同じオブジェクトのまま返す', () => {
     const manual: ReportLine[] = [
       { kind: 'labor', workerId: null, workerName: '飛び込み 鈴木', time: t, dailyRate: 15000, note: '', overtimeRate: null },
-      { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店' },
+      { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店', purchaseKind: 'material', siteTradeId: null, issueId: null },
     ];
     const out = applyMasterSnapshots(manual, '2026-10-31', masters);
     expect(out[0]).toBe(manual[0]);
@@ -113,5 +113,21 @@ describe('保存時の所属の写しと常用・請負（2026-11-07）', () => 
     const out = applyMasterSnapshots([labor(W1), labor(P)], '2026-11-01', m, prev);
     expect(out[0]).toMatchObject({ affiliation: 'own', supplierId: null, laborContract: null });
     expect(out[1]).toMatchObject({ affiliation: 'partner', supplierId: S, laborContract: 'jouyou' });
+  });
+  it('うち常用の時間（2026-11-17）は区分が請負の協力会社の行だけ残し、それ以外は null', () => {
+    const out = applyMasterSnapshots(
+      [
+        labor(P, { laborContract: 'ukeoi', jouyouHours: 4 }),
+        labor(P, { laborContract: 'jouyou', jouyouHours: 4 }),
+        labor(W1, { jouyouHours: 4 }),
+        labor(null, { jouyouHours: 4 }),
+      ],
+      '2026-11-01',
+      m,
+    );
+    expect(out[0]).toMatchObject({ laborContract: 'ukeoi', jouyouHours: 4 });
+    expect(out[1]).toMatchObject({ laborContract: 'jouyou', jouyouHours: null });
+    expect(out[2]).toMatchObject({ affiliation: 'own', jouyouHours: null });
+    expect(out[3]).toMatchObject({ affiliation: null, jouyouHours: null });
   });
 });

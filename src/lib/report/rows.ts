@@ -1,6 +1,6 @@
 import { amount, fuelCost, laborLineValues, productivity, workAmount } from '@/lib/calc/report';
 import { EMPTY_WORK_CHANGE, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
-import type { Affiliation, ChangeKind, InstructionMethod, LaborContract, LaborLine, LaborRule, LaborSaved, ReportLine, TimeSpec } from '@/lib/types';
+import type { Affiliation, ChangeKind, InstructionMethod, LaborContract, LaborLine, LaborRule, LaborSaved, PurchaseKind, ReportLine, TimeSpec } from '@/lib/types';
 import type { SaveInput } from '@/lib/report/schema';
 
 // 日報の明細と gn_report_lines の列の相互変換（純関数。サーバーの読み書きから使う）。
@@ -48,8 +48,15 @@ export interface LineRow {
   labor_contract: LaborContract | null;
   affiliation: Affiliation | null;
   supplier_id: string | null;
-  /** 作業内容の行の実行予算の工種（gn_site_trades.id。null＝選んでいない）。作業内容以外は null（DB も null にする）。 */
+  /**
+   * 実行予算の工種（gn_site_trades.id。null＝選んでいない）。作業内容の行と外注の買掛の行だけ（2026-11-17）。
+   * それ以外は null（DB も null にする）。
+   */
   site_trade_id: string | null;
+  /** 買掛の区分（'material' 仕入・'subcontract' 外注。2026-11-17）。買掛以外は null。DB の null は仕入。 */
+  purchase_kind: PurchaseKind | null;
+  /** 作業員の行のうち常用の時間（H。2026-11-17）。作業員以外は null。 */
+  jouyou_hours: number | null;
 }
 
 /** gn_save_report の p_report。 */
@@ -75,6 +82,7 @@ const EMPTY_ROW: Omit<LineRow, 'kind' | 'sort_order'> = {
   productivity: null, source: null, note: null, overtime_hours: null, overtime_rate: null,
   change_kind: null, instructed_by: null, instruction_method: null, instructed_on: null, issue_id: null,
   labor_contract: null, affiliation: null, supplier_id: null, site_trade_id: null,
+  purchase_kind: null, jouyou_hours: null,
 };
 
 function text(v: string | null | undefined): string | null {
@@ -117,6 +125,7 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number,
         labor_contract: line.laborContract ?? null,
         affiliation: line.affiliation ?? null,
         supplier_id: text(line.supplierId),
+        jouyou_hours: num(line.jouyouHours),
       };
     }
     case 'fuel':
@@ -129,6 +138,7 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number,
         price_per_l: num(line.pricePerL),
         amount: clean(fuelCost(line.distanceKm, line.kmPerL, line.pricePerL)),
         note: text(line.note),
+        issue_id: text(line.issueId),
       };
     case 'lease':
       return {
@@ -141,10 +151,11 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number,
         unit_price: num(line.unitPrice),
         amount: clean(amount(line.qty, line.unitPrice)),
         note: text(line.note),
+        issue_id: text(line.issueId),
       };
     case 'cash':
-    case 'credit':
-      return {
+    case 'credit': {
+      const row: LineRow = {
         ...base,
         ref_id: line.kind === 'credit' ? text(line.supplierId) : null,
         name: text(line.itemName),
@@ -154,7 +165,13 @@ export function toLineRow(line: ReportLine, common: TimeSpec, sortOrder: number,
         unit_price: num(line.unitPrice),
         amount: clean(amount(line.qty, line.unitPrice)),
         vendor: text(line.vendor),
+        issue_id: text(line.issueId),
       };
+      if (line.kind === 'cash') return row;
+      // 工種は外注の行だけ（仕入の行は選んでいても送らない。DB も null にする）。
+      const sub = line.purchaseKind === 'subcontract';
+      return { ...row, purchase_kind: sub ? 'subcontract' : 'material', site_trade_id: sub ? text(line.siteTradeId) : null };
+    }
     case 'work': {
       const p = productivity(line.qty, line.manDays);
       return {
@@ -221,6 +238,9 @@ function rTime(v: unknown): string | null {
 function isLaborContract(v: unknown): v is LaborContract {
   return v === 'jouyou' || v === 'ukeoi';
 }
+function rPurchaseKind(v: unknown): PurchaseKind {
+  return v === 'subcontract' ? 'subcontract' : 'material';
+}
 function isAffiliation(v: unknown): v is Affiliation {
   return v === 'own' || v === 'partner';
 }
@@ -254,6 +274,8 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         laborContract: isLaborContract(r.labor_contract) ? r.labor_contract : null,
         affiliation: isAffiliation(r.affiliation) ? r.affiliation : null,
         supplierId: rId(r.supplier_id),
+        // 列の無い・移行前の行は null（全部が請負。常用の行では使わない）。
+        jouyouHours: rNum(r.jouyou_hours),
         ...savedValues(r),
       };
     case 'fuel':
@@ -265,6 +287,7 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         distanceKm: rNum(r.distance_km),
         pricePerL: rNum(r.price_per_l),
         note: rStr(r.note),
+        issueId: rId(r.issue_id),
       };
     case 'lease':
       return {
@@ -276,6 +299,7 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         qty: rNum(r.qty),
         unitPrice: rNum(r.unit_price),
         note: rStr(r.note),
+        issueId: rId(r.issue_id),
       };
     case 'cash':
       return {
@@ -286,8 +310,11 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         qty: rNum(r.qty),
         unitPrice: rNum(r.unit_price),
         vendor: rStr(r.vendor),
+        issueId: rId(r.issue_id),
       };
-    case 'credit':
+    case 'credit': {
+      // 列の無い・移行前の行・null は仕入（工種なし）。
+      const purchaseKind = rPurchaseKind(r.purchase_kind);
       return {
         kind: 'credit',
         itemName: rStr(r.name),
@@ -297,7 +324,11 @@ export function fromLineRow(r: LineRowRead): ReportLine | null {
         unitPrice: rNum(r.unit_price),
         supplierId: rId(r.ref_id),
         vendor: rStr(r.vendor),
+        purchaseKind,
+        siteTradeId: purchaseKind === 'subcontract' ? rId(r.site_trade_id) : null,
+        issueId: rId(r.issue_id),
       };
+    }
     case 'work':
       return {
         kind: 'work',
@@ -331,13 +362,18 @@ export function withoutSaved(l: LaborLine): LaborLine {
   return rest;
 }
 
-/** 前回コピー: 作業員・車両・リースだけを複写。作業員の個別時間と車両の走行距離は空にする（リースの数量・残業単価はそのまま）。 */
+/**
+ * 前回コピー: 作業員・車両・リースだけを複写。作業員の個別時間・うち常用の時間と車両の走行距離は空にする（リースの数量・残業単価はそのまま）。
+ * 根拠の件はその日のものなので持ち込まない。
+ */
 export function copyableLines(lines: ReportLine[]): ReportLine[] {
   const out: ReportLine[] = [];
   for (const l of lines) {
-    if (l.kind === 'labor') out.push({ ...withoutSaved(l), time: { start: null, end: null, breakMin: null, gapMin: null } });
-    else if (l.kind === 'fuel') out.push({ ...l, distanceKm: null });
-    else if (l.kind === 'lease') out.push({ ...l });
+    if (l.kind === 'labor') {
+      const base = { ...withoutSaved(l), time: { start: null, end: null, breakMin: null, gapMin: null } };
+      out.push(l.jouyouHours === undefined ? base : { ...base, jouyouHours: null });
+    } else if (l.kind === 'fuel') out.push({ ...l, distanceKm: null, issueId: null });
+    else if (l.kind === 'lease') out.push({ ...l, issueId: null });
   }
   return out;
 }
@@ -361,6 +397,8 @@ export function saveErrorMessage(dbMessage: string | null | undefined): string {
   if (m.includes('not_reviewer')) return 'この現場の確認者・承認者ではありません';
   // 作業内容の行の工種がこの現場に無い（他の端末で消された・別の現場の工種）。gn_report_lines_trade。
   if (m.includes('trade_not_in_site')) return '選んだ工種がこの現場の実行予算にありません。画面を再読み込みして選び直してください';
+  // 行の根拠の件がこの現場に無い（別の現場の件）。gn_report_lines_issue（2026-11-17）。
+  if (m.includes('issue_not_in_site')) return '選んだ件がこの現場にありません。画面を再読み込みして選び直してください';
   return '保存に失敗しました。通信状況を確認してもう一度お試しください。';
 }
 

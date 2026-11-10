@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   creditSupplierError,
+  materialCreditSupplierIds,
+  MSG_SUBCONTRACT_SUPPLIER,
+  subcontractSupplierError,
   isPartnerSupplier,
   MSG_NOT_PARTNER,
   MSG_NOT_VENDOR,
@@ -64,5 +67,29 @@ describe('日報の保存：買掛の行の会社', () => {
   });
   it('買掛の行が無ければ通す', () => {
     expect(creditSupplierError([], roles, [])).toBeNull();
+  });
+});
+
+describe('日報の保存：外注の買掛の支払先（2026-11-17）', () => {
+  it('外注 × 協力会社は通す（両方の印の会社も）', () => {
+    expect(subcontractSupplierError([{ purchaseKind: 'subcontract', supplierId: 'p' }, { purchaseKind: 'subcontract', supplierId: 'b' }], roles)).toBeNull();
+  });
+  it('外注 × 取引先だけの会社・手入力（支払先なし）は止める', () => {
+    expect(subcontractSupplierError([{ purchaseKind: 'subcontract', supplierId: 'v' }], roles)).toBe(MSG_SUBCONTRACT_SUPPLIER);
+    expect(subcontractSupplierError([{ purchaseKind: 'subcontract', supplierId: null }], roles)).toBe(MSG_SUBCONTRACT_SUPPLIER);
+    expect(MSG_SUBCONTRACT_SUPPLIER).toBe('外注の支払先は協力会社から選んでください');
+  });
+  it('仕入の行は見ない', () => {
+    expect(subcontractSupplierError([{ purchaseKind: 'material', supplierId: null }, { purchaseKind: 'material', supplierId: 'p' }], roles)).toBeNull();
+  });
+  it('買掛の会社の検査（creditSupplierError）は仕入の行の会社だけ：外注の行の協力会社だけの会社で止めない', () => {
+    const lines = [
+      { kind: 'credit' as const, purchaseKind: 'subcontract' as const, supplierId: 'p' },
+      { kind: 'credit' as const, purchaseKind: 'material' as const, supplierId: 'v' },
+      { kind: 'credit' as const, purchaseKind: 'material' as const, supplierId: null },
+      { kind: 'cash' as const },
+    ];
+    expect(materialCreditSupplierIds(lines)).toEqual(['v']);
+    expect(creditSupplierError(materialCreditSupplierIds(lines), roles, [])).toBeNull();
   });
 });

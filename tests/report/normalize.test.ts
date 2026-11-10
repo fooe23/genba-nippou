@@ -23,8 +23,11 @@ describe('validateReport の正規化', () => {
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    expect(r.value.lines[0]).toEqual({ kind: 'cash', itemName: '雑費', spec: '', unit: '', qty: 1, unitPrice: 1500, vendor: '' });
-    expect(r.value.lines[1]).toEqual({ kind: 'credit', itemName: 'タイル', spec: '', unit: '枚', qty: 50, unitPrice: 250, supplierId: null, vendor: 'ABC建材' });
+    expect(r.value.lines[0]).toEqual({ kind: 'cash', itemName: '雑費', spec: '', unit: '', qty: 1, unitPrice: 1500, vendor: '', issueId: null });
+    expect(r.value.lines[1]).toEqual({
+      kind: 'credit', itemName: 'タイル', spec: '', unit: '枚', qty: 50, unitPrice: 250, supplierId: null, vendor: 'ABC建材',
+      purchaseKind: 'material', siteTradeId: null, issueId: null, // 省略（古い下書き）は仕入・工種なし・根拠なし
+    });
   });
 
   it('現金で数量・単価も金額のみも無ければエラー（行の位置つき）', () => {
@@ -61,6 +64,7 @@ describe('validateReport の正規化', () => {
     expect(r.value.lines[0]).toEqual({
       kind: 'labor', workerId: null, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: null, note: '',
       overtimeRate: null, // 省略（古い下書き）は null ＝ 標準の計算式
+      jouyouHours: null, // 省略は null ＝ 全部が請負（請負の行だけ使う）
     });
   });
 
@@ -99,9 +103,9 @@ describe('reportWarnings（追加）', () => {
     const w = reportWarnings({
       ...base,
       lines: [
-        { kind: 'lease', itemId: null, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: null, note: '' },
+        { kind: 'lease', itemId: null, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: null, note: '', issueId: null },
         { kind: 'labor', workerId: null, workerName: '', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: null, note: '', overtimeRate: null },
-        { kind: 'fuel', vehicleId: null, vehicleName: '', kmPerL: null, distanceKm: null, pricePerL: null, note: '' },
+        { kind: 'fuel', vehicleId: null, vehicleName: '', kmPerL: null, distanceKm: null, pricePerL: null, note: '', issueId: null },
       ],
     });
     expect(w).toEqual(['リース「足場材」：単価が未設定です（リース費が0円になります）']);
@@ -110,8 +114,8 @@ describe('reportWarnings（追加）', () => {
 
 describe('マスターに無い作業員・仕入先（手入力の行）', () => {
   const t = { start: null, end: null, breakMin: null, gapMin: null };
-  const manualLabor = { kind: 'labor', workerId: null, workerName: '飛び込み 鈴木', time: t, dailyRate: 15000, note: '', overtimeRate: null };
-  const manualCredit = { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店' };
+  const manualLabor = { kind: 'labor', workerId: null, workerName: '飛び込み 鈴木', time: t, dailyRate: 15000, note: '', overtimeRate: null, jouyouHours: null };
+  const manualCredit = { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店', purchaseKind: 'material', siteTradeId: null, issueId: null };
 
   it('作業員：参照なし・氏名・日当で通り、値はそのまま', () => {
     const r = validateReport({ ...base, lines: [manualLabor] });

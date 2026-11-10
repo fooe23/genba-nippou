@@ -2,24 +2,24 @@ import { describe, expect, it } from 'vitest';
 import { DEFAULT_LABOR_RULE } from '@/lib/calc/report';
 import { copyableLines, fromLineRow, saveErrorMessage, toLineRow, toLineRows, toReportRow, withoutSaved } from '@/lib/report/rows';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
-import type { LaborLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
+import type { CreditLine, LaborLine, ReportLine, TimeSpec, WorkLine } from '@/lib/types';
 
 const common: TimeSpec = { start: '08:00', end: '17:00', breakMin: 60, gapMin: 0 };
 const W = '11111111-1111-4111-8111-111111111111';
 const lines: ReportLine[] = [
-  { kind: 'labor', workerId: W, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 19000, note: '', overtimeRate: null, laborContract: null, affiliation: 'own', supplierId: null },
-  { kind: 'fuel', vehicleId: W, vehicleName: 'ハイエース', kmPerL: 10, distanceKm: 40, pricePerL: 170, note: '給油' },
-  { kind: 'lease', itemId: W, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '' },
-  { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'ホームセンター' },
-  { kind: 'credit', itemName: 'タイル', spec: '300角', unit: '枚', qty: 50, unitPrice: 250, supplierId: W, vendor: 'ABC建材' },
+  { kind: 'labor', workerId: W, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 19000, note: '', overtimeRate: null, laborContract: null, affiliation: 'own', supplierId: null, jouyouHours: null },
+  { kind: 'fuel', vehicleId: W, vehicleName: 'ハイエース', kmPerL: 10, distanceKm: 40, pricePerL: 170, note: '給油', issueId: null },
+  { kind: 'lease', itemId: W, itemName: '足場材', spec: '', unit: '式', qty: 1, unitPrice: 3500, note: '', issueId: null },
+  { kind: 'cash', itemName: '養生テープ', spec: '', unit: '巻', qty: 5, unitPrice: 280, vendor: 'ホームセンター', issueId: null },
+  { kind: 'credit', itemName: 'タイル', spec: '300角', unit: '枚', qty: 50, unitPrice: 250, supplierId: W, vendor: 'ABC建材', purchaseKind: 'material', siteTradeId: null, issueId: null },
   { kind: 'work', estimateItemId: null, trade: '塗装工事', description: '外壁下塗り', qty: 35, unit: '㎡', manDays: 1.6, unitPrice: 1200, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null },
 ];
 
 describe('toLineRows', () => {
   const rows = toLineRows(lines, common, DEFAULT_LABOR_RULE);
-  it('全行が35列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
+  it('全行が37列ぶんのキーを持ち、空値は null（"" を送らない）', () => {
     for (const r of rows) {
-      expect(Object.keys(r)).toHaveLength(35);
+      expect(Object.keys(r)).toHaveLength(37);
       expect(Object.values(r)).not.toContain('');
     }
     expect(rows.map((r) => r.sort_order)).toEqual([0, 1, 2, 3, 4, 5]);
@@ -56,6 +56,12 @@ describe('toLineRows', () => {
     for (const r of rows.slice(0, 5)) {
       expect(r).toMatchObject({ change_kind: null, instructed_by: null, instruction_method: null, instructed_on: null, issue_id: null });
     }
+  });
+  it('買掛の区分は買掛の行だけ、うち常用の時間は作業員の行だけ（それ以外は null）', () => {
+    expect(rows[4]).toMatchObject({ purchase_kind: 'material' });
+    expect(rows[0]).toMatchObject({ jouyou_hours: null });
+    for (const r of [rows[0], rows[1], rows[2], rows[3], rows[5]]) expect(r.purchase_kind).toBeNull();
+    for (const r of rows.slice(1)) expect(r.jouyou_hours).toBeNull();
   });
   it('読み戻すと元の明細になる（空文字は "" に戻る。労務行は DB の計算値 saved も付く）', () => {
     const back = rows.map((r) => fromLineRow(r));
@@ -172,7 +178,7 @@ describe('手入力の行の保存列', () => {
     expect(toLineRow(nine, common, 0, DEFAULT_LABOR_RULE)).toMatchObject({ overtime_hours: 1, overtime_rate: null, amount: 15000 + 2344 });
   });
   it('買掛：ref_id は null、vendor は仕入先名', () => {
-    const manual: ReportLine = { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店' };
+    const manual: ReportLine = { kind: 'credit', itemName: '砂', spec: '', unit: '袋', qty: 3, unitPrice: 500, supplierId: null, vendor: '近所の資材店', purchaseKind: 'material', siteTradeId: null, issueId: null };
     expect(toLineRow(manual, common, 0, DEFAULT_LABOR_RULE)).toMatchObject({ kind: 'credit', ref_id: null, vendor: '近所の資材店', amount: 1500 });
   });
 });
@@ -200,5 +206,63 @@ describe('労務の行の常用・請負と所属の写し（2026-11-07）', () 
       laborContract: null, affiliation: null, supplierId: null,
     });
     expect(fromLineRow({ kind: 'labor', labor_contract: 'jouyou', affiliation: 'own' })).toMatchObject({ laborContract: 'jouyou', affiliation: 'own' });
+  });
+});
+
+describe('買掛の区分・工種・根拠（2026-11-17）', () => {
+  const T = '44444444-4444-4444-8444-444444444444';
+  const ISSUE = '22222222-2222-4222-8222-222222222222';
+  const credit = lines[4] as CreditLine;
+  it('外注の行は区分・工種・根拠が往復で残る', () => {
+    const sub: CreditLine = { ...credit, purchaseKind: 'subcontract', siteTradeId: T, issueId: ISSUE };
+    const row = toLineRow(sub, common, 0, DEFAULT_LABOR_RULE);
+    expect(row).toMatchObject({ purchase_kind: 'subcontract', site_trade_id: T, issue_id: ISSUE });
+    expect(fromLineRow(row)).toEqual(sub);
+  });
+  it('仕入の行の工種は送らない（null）。根拠は残る', () => {
+    const row = toLineRow({ ...credit, siteTradeId: T, issueId: ISSUE }, common, 0, DEFAULT_LABOR_RULE);
+    expect(row).toMatchObject({ purchase_kind: 'material', site_trade_id: null, issue_id: ISSUE });
+    expect(fromLineRow(row)).toEqual({ ...credit, issueId: ISSUE });
+  });
+  it('列の無い古い行・null の区分は仕入（工種・根拠なし）', () => {
+    expect(fromLineRow({ kind: 'credit', name: 'タイル' })).toMatchObject({ purchaseKind: 'material', siteTradeId: null, issueId: null });
+    expect(fromLineRow({ kind: 'credit', purchase_kind: null, site_trade_id: T })).toMatchObject({ purchaseKind: 'material', siteTradeId: null });
+    expect(fromLineRow({ kind: 'credit', purchase_kind: 'other' })).toMatchObject({ purchaseKind: 'material' });
+  });
+});
+
+describe('現金・リース・燃料の根拠（2026-11-17）', () => {
+  const ISSUE = '22222222-2222-4222-8222-222222222222';
+  it('根拠の件が往復で残る', () => {
+    for (const i of [1, 2, 3]) {
+      const l = { ...lines[i], issueId: ISSUE } as ReportLine;
+      const row = toLineRow(l, common, 0, DEFAULT_LABOR_RULE);
+      expect(row.issue_id).toBe(ISSUE);
+      expect(fromLineRow(row)).toEqual(l);
+    }
+  });
+  it('作業員の行の issue_id は null', () => {
+    expect(toLineRow(lines[0], common, 0, DEFAULT_LABOR_RULE).issue_id).toBeNull();
+  });
+});
+
+describe('作業員のうち常用の時間（2026-11-17）', () => {
+  const labor = lines[0] as LaborLine;
+  it('4 時間が往復で残る。空は null', () => {
+    const row = toLineRow({ ...labor, jouyouHours: 4 }, common, 0, DEFAULT_LABOR_RULE);
+    expect(row.jouyou_hours).toBe(4);
+    expect(fromLineRow(row)).toMatchObject({ jouyouHours: 4 });
+    expect(toLineRow({ ...labor, jouyouHours: null }, common, 0, DEFAULT_LABOR_RULE).jouyou_hours).toBeNull();
+    expect(fromLineRow({ kind: 'labor', jouyou_hours: '' })).toMatchObject({ jouyouHours: null });
+    expect(fromLineRow({ kind: 'labor', jouyou_hours: '3.5' })).toMatchObject({ jouyouHours: 3.5 });
+  });
+  it('前回コピーでは空にする', () => {
+    expect(copyableLines([{ ...labor, jouyouHours: 4 }])[0]).toMatchObject({ jouyouHours: null });
+  });
+});
+
+describe('保存のエラーの文言（根拠の件）', () => {
+  it('issue_not_in_site', () => {
+    expect(saveErrorMessage('issue_not_in_site')).toBe('選んだ件がこの現場にありません。画面を再読み込みして選び直してください');
   });
 });

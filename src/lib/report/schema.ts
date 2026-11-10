@@ -37,6 +37,9 @@ const MSG_MIN = '休憩・中抜は0以上の整数（分）で入力してく�
 const MSG_ID = 'IDの形式が正しくありません';
 /** 常用・請負の値。 */
 export const LABOR_CONTRACTS = ['jouyou', 'ukeoi'] as const;
+/** 買掛の区分（仕入・外注。2026-11-17）。 */
+export const PURCHASE_KINDS = ['material', 'subcontract'] as const;
+const MSG_JOUYOU_HOURS = 'うち常用の時間は0〜24の数値（時間）で入力してください';
 
 const MSG_INSTRUCTED_ON = '指示日は YYYY-MM-DD 形式で入力してください';
 
@@ -118,7 +121,14 @@ const laborSchema = z.object({
   laborContract: z
     .preprocess(emptyToNull, z.enum(LABOR_CONTRACTS, { error: '常用・請負の区分が正しくありません' }).nullable())
     .optional(),
+  // うち常用の時間（H。2026-11-17）。古い下書きには無い項目なので、省略・空欄は null（全部が請負）。
+  jouyouHours: z
+    .preprocess(emptyToNull, z.number({ error: MSG_JOUYOU_HOURS }).min(0, MSG_JOUYOU_HOURS).max(24, MSG_JOUYOU_HOURS).nullable())
+    .default(null),
 });
+
+// 根拠の件（gn_report_issues.id。2026-11-17 から燃料・リース・現金・買掛にも）。古い下書きには無いので省略は null。
+const lineIssueSchema = refIdSchema.default(null);
 
 const fuelSchema = z.object({
   kind: z.literal('fuel'),
@@ -134,6 +144,7 @@ const fuelSchema = z.object({
     z.number({ error: '燃料単価を入力してください' }).min(0, '燃料単価は0以上の数値で入力してください'),
   ),
   note: noteSchema,
+  issueId: lineIssueSchema,
 });
 
 const leaseSchema = z.object({
@@ -145,6 +156,7 @@ const leaseSchema = z.object({
   qty: numSchema('数量'),
   unitPrice: numSchema('単価'),
   note: noteSchema,
+  issueId: lineIssueSchema,
 });
 
 // 現金・買掛: 数量と単価の両方、または金額のみ（amountOnly）のどちらか。
@@ -168,6 +180,7 @@ const cashSchema = z
     qty: numSchema('数量'),
     unitPrice: numSchema('購入単価'),
     vendor: textSchema('購入先', 200),
+    issueId: lineIssueSchema,
     amountOnly: numSchema('金額').optional(),
   })
   .superRefine(purchaseCheck);
@@ -179,9 +192,14 @@ const creditSchema = z
     spec: specSchema,
     unit: unitSchema,
     qty: numSchema('数量'),
-    unitPrice: numSchema('仕入単価'),
+    // 外注（2026-11-17）も入るので、列名は「単価」「支払先」。
+    unitPrice: numSchema('単価'),
     supplierId: refIdSchema,
-    vendor: textSchema('仕入先', 200),
+    vendor: textSchema('支払先', 200),
+    // 区分（仕入・外注）・工種（外注のときだけ使う）・根拠の件。古い下書きには無いので省略は仕入・null。
+    purchaseKind: z.enum(PURCHASE_KINDS, { error: '買掛の区分は仕入・外注から選んでください' }).default('material'),
+    siteTradeId: refIdSchema.default(null),
+    issueId: lineIssueSchema,
     amountOnly: numSchema('金額').optional(),
   })
   .superRefine(purchaseCheck);
@@ -255,8 +273,14 @@ function isBefore(start: string | null, end: string | null): boolean {
   return start !== null && end !== null && start !== '' && end !== '' && end < start;
 }
 
-/** 保存は止めない警告。ctx があれば日付の前後も確認する。 */
-export function reportWarnings(input: SaveInput, ctx?: { siteStartDate: string | null; today: string }): string[] {
+/**
+ * 保存は止めない警告。ctx があれば日付の前後も確認する。
+ * siteHasTrades が false（実行予算の工種の無い現場）なら、外注の買掛の工種の警告は出さない（省略は工種のある現場として扱う）。
+ */
+export function reportWarnings(
+  input: SaveInput,
+  ctx?: { siteStartDate: string | null; today: string; siteHasTrades?: boolean },
+): string[] {
   const w: string[] = [];
   if (ctx) {
     if (ctx.siteStartDate && input.date < ctx.siteStartDate) w.push('日付が着工予定日より前です');
@@ -276,6 +300,10 @@ export function reportWarnings(input: SaveInput, ctx?: { siteStartDate: string |
       if (line.vehicleName && !line.kmPerL) w.push(`車両「${line.vehicleName}」：燃費が未設定です（燃料費が0円になります）`);
     } else if (line.kind === 'lease') {
       if (line.itemName && line.unitPrice === null) w.push(`リース「${line.itemName}」：単価が未設定です（リース費が0円になります）`);
+    } else if (line.kind === 'credit') {
+      if (line.purchaseKind === 'subcontract' && !line.siteTradeId && ctx?.siteHasTrades !== false) {
+        w.push(`外注「${line.itemName || '品目なし'}」：工種が選ばれていません（予算と実績で予算外に入ります）`);
+      }
     }
   }
   if (laborCount === 0) w.push('作業員が0人です（休工日の場合はこのまま保存できます）');

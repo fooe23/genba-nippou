@@ -21,23 +21,23 @@ const supplier = (id: string, name: string): Supplier => ({ id, name, category: 
 const vehicle = (id: string, name: string): Vehicle => ({ id, name, kind: null, kmPerL: 10, note: null, active: true, ...touched });
 const leaseItem = (id: string, name: string): LeaseItem => ({ id, name, spec: null, note: null, active: true, rates: [], ...touched });
 
-const stored = (amount: number, manDays = 0, overtimeHours = 0) => ({ amount, manDays, overtimeHours });
+const stored = (amount: number, manDays = 0, overtimeHours = 0) => ({ amount, manDays, overtimeHours, hours: manDays * 8 + overtimeHours });
 const labor = (workerId: string | null, workerName: string, manDays: number, cost: number, overtimeHours = 0): SavedReportLine => ({
   kind: 'labor', workerId, workerName, time: { start: null, end: null, breakMin: null, gapMin: null },
   // 日当は保存値と合わない値にしておく（再計算していないことの確認）
   dailyRate: 99_999, note: '', overtimeRate: null, stored: stored(cost, manDays, overtimeHours),
 });
 const fuel = (vehicleId: string | null, vehicleName: string, distanceKm: number, cost: number): SavedReportLine => ({
-  kind: 'fuel', vehicleId, vehicleName, kmPerL: 10, distanceKm, pricePerL: 170, note: '', stored: stored(cost),
+  kind: 'fuel', vehicleId, vehicleName, kmPerL: 10, distanceKm, pricePerL: 170, note: '', stored: stored(cost), issueId: null,
 });
 const lease = (itemId: string | null, itemName: string, qty: number, unit: string, cost: number): SavedReportLine => ({
-  kind: 'lease', itemId, itemName, spec: '', unit, qty, unitPrice: 1, note: '', stored: stored(cost),
+  kind: 'lease', itemId, itemName, spec: '', unit, qty, unitPrice: 1, note: '', stored: stored(cost), issueId: null,
 });
 const cash = (vendor: string, cost: number): SavedReportLine => ({
-  kind: 'cash', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 1, vendor, stored: stored(cost),
+  kind: 'cash', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 1, vendor, stored: stored(cost), issueId: null,
 });
 const credit = (supplierId: string | null, vendor: string, cost: number): SavedReportLine => ({
-  kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 1, unitPrice: 1, supplierId, vendor, stored: stored(cost),
+  kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 1, unitPrice: 1, supplierId, vendor, stored: stored(cost), purchaseKind: 'material', siteTradeId: null, issueId: null,
 });
 const work = (trade: string, description: string, qty: number | null, unit: string, manDays: number, output: number, changeKind: ChangeKind = 'contract'): SavedReportLine => ({
   kind: 'work', estimateItemId: null, trade, description, qty, unit, manDays, unitPrice: 1, source: 'extra', ...EMPTY_WORK_CHANGE, siteTradeId: null, changeKind, stored: stored(output, manDays),
