@@ -16,11 +16,21 @@ import {
   type PdfTable,
   type PdfTextItem,
 } from '@/lib/budget/pdf-table';
+import {
+  groupByHeading,
+  initialExpanded,
+  isUntagged,
+  pageSummaries,
+  pagesLabel,
+  setInclude,
+  setTag,
+  summarize,
+} from '@/lib/budget/pdf-bulk';
 import { contractItemInputSchema, lineAmount, type ContractItemInput, type ContractMode } from '@/lib/budget/schemas';
 import { CONTRACT_SECTIONS, CONTRACT_SECTION_LABEL, type ContractCategory, type ContractSection, type SiteTrade } from '@/lib/budget/types';
 import { replaceContractItems } from '@/lib/db/budget-actions';
 import { ErrorText, Field, inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/masters/common';
-import { cardClass, numText, parseNum, rowKey } from './common';
+import { cardClass, numText, parseNum, rowKey, smallButtonClass } from './common';
 
 // 元請けの内訳を文字 PDF から読み取る：PDF を選ぶ → ブラウザで pdf.js が文字と位置を取り出す → 表の行と列を推定（pdf-table.ts）
 // → 列の割り当て・行の取り込む／取り込まない・区分・工種（識別）を直す → replaceContractItems（全部入れ替える／変更の行として足す）。
@@ -159,6 +169,9 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
   const [note, setNote] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [inputKey, setInputKey] = useState(0);
+  /** 見出しの束を開いているか（束の先頭の行の key → 開いている）。 */
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [onlyUntagged, setOnlyUntagged] = useState(false);
   const [pending, startTransition] = useTransition();
   const sortedTrades = useMemo(() => [...trades].sort((a, b) => a.sortOrder - b.sortOrder), [trades]);
 
@@ -175,9 +188,18 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
   // 完了現場では取り込まない（ボタンも出さない）
   if (readOnly) return null;
 
+  /** 読み直した行を入れる（見出しの束の開き方も初めに戻す）。 */
+  function loadRows(next: Row[]) {
+    setRows(next);
+    setExpanded(initialExpanded(next, groupByHeading(next)));
+    setOnlyUntagged(false);
+  }
+
   function reset() {
     setTable(null);
     setRows([]);
+    setExpanded({});
+    setOnlyUntagged(false);
     setRoles([]);
     setFileName('');
     setError(null);
@@ -213,7 +235,7 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
       const r = t.columns.map((c) => c.role);
       setTable(t);
       setRoles(r);
-      setRows(toRows(buildCandidates(t, r), sortedTrades));
+      loadRows(toRows(buildCandidates(t, r), sortedTrades));
       const notes: string[] = [];
       if (!t.headerFound) notes.push('表の見出し（名称・数量・単価・金額など）が見つからなかったので、数の並びから列を推定しました。列の割り当てを確かめてください。');
       if (truncated) notes.push(`${MAX_PAGES} ページまで読み取りました。`);
@@ -235,20 +257,173 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
     if (!table) return;
     const next = roles.map((r, j) => (j === i ? role : r === role && role !== 'ignore' ? 'ignore' : r));
     setRoles(next);
-    setRows(toRows(buildCandidates(table, next), sortedTrades));
+    loadRows(toRows(buildCandidates(table, next), sortedTrades));
   }
 
   function update(key: string, patch: Partial<Row>) {
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
+  /** 当てはまる行の取り込む印をまとめて付け外し（付けるのは明細の行だけ）。 */
+  function includeWhere(match: (r: Row) => boolean, include: boolean) {
+    setRows((prev) => setInclude(prev, match, include));
+  }
+
+  /** 当てはまる取り込む行に工種（識別）をまとめて付ける。 */
+  function tagWhere(match: (r: Row) => boolean, tag: string, onlyEmpty: boolean) {
+    if (tag === '') return;
+    setRows((prev) => setTag(prev, match, tag, onlyEmpty));
+  }
+
+  function toggleOnlyUntagged(on: boolean) {
+    setOnlyUntagged(on);
+    // 工種がまだの行が見えるよう、その行のある束を開く
+    if (on) {
+      const keys = new Set(rows.filter(isUntagged).map((r) => r.key));
+      setExpanded((prev) => {
+        const next = { ...prev };
+        for (const g of groupByHeading(rows)) if (g.keys.some((k) => keys.has(k))) next[g.id] = true;
+        return next;
+      });
+    }
+  }
+
   const included = rows.filter((r) => r.include);
+  const pages = pageSummaries(rows, rowAmount);
+  const groups = groupByHeading(rows);
+  const rowByKey = new Map(rows.map((r, i) => [r.key, { r, i }]));
   const total = included.reduce((s, r) => s + (rowAmount(r) ?? 0), 0);
   const mismatches = included.filter((r) => {
     const a = rowAmount(r);
     return r.pdfAmount !== null && a !== null && a !== r.pdfAmount;
   }).length;
   const untagged = included.filter((r) => r.tag === '').length;
+
+  const tagOptions = (
+    <>
+      {sortedTrades.map((t) => (
+        <option key={t.id} value={t.id}>
+          {t.name}
+        </option>
+      ))}
+      <option value={EXPENSE}>経費</option>
+      <option value={REDUCTION}>減分</option>
+    </>
+  );
+
+  function renderRow(r: Row, i: number) {
+    const label = `PDF の${i + 1}行目`;
+    const amount = rowAmount(r);
+    const mismatch = r.include && r.pdfAmount !== null && amount !== null && amount !== r.pdfAmount;
+    return (
+      <li key={r.key} className={`${cardClass} space-y-2 ${r.include ? '' : 'opacity-70'}`}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <label className="flex min-h-11 items-center gap-2">
+            <input
+              type="checkbox"
+              checked={r.include}
+              disabled={pending}
+              onChange={(e) => update(r.key, { include: e.target.checked })}
+              className="h-5 w-5"
+            />
+            <span className="text-sm font-medium">取り込む</span>
+          </label>
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            {i + 1}行目・{r.page}ページ・{KIND_LABEL[r.kind]}
+          </span>
+        </div>
+        {!r.include ? (
+          <p className="break-words text-sm">{r.cells.filter((s) => s !== '').join('　') || '（空）'}</p>
+        ) : (
+          <>
+            <div className="flex gap-2">
+              {/* 「変更の行として足す」では区分は使わない（全部「変更」になる）ので選ばせない */}
+              {mode !== 'appendChange' && (
+                <select
+                  aria-label={`${label}の区分`}
+                  value={r.section}
+                  disabled={pending}
+                  onChange={(e) => update(r.key, { section: e.target.value as ContractSection })}
+                  className={`${inputClass} w-24! shrink-0`}
+                >
+                  {CONTRACT_SECTIONS.map((s) => (
+                    <option key={s} value={s}>
+                      {CONTRACT_SECTION_LABEL[s]}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <select
+                aria-label={`${label}の工種（識別）`}
+                value={r.tag}
+                disabled={pending}
+                onChange={(e) => update(r.key, { tag: e.target.value })}
+                className={`${inputClass} min-w-0 flex-1 ${r.tag === '' ? 'border-amber-600 dark:border-amber-400' : ''}`}
+              >
+                <option value="">（工種を選ぶ）</option>
+                {tagOptions}
+              </select>
+            </div>
+            <input
+              aria-label={`${label}の名称`}
+              placeholder="名称"
+              value={r.name}
+              maxLength={200}
+              disabled={pending}
+              onChange={(e) => update(r.key, { name: e.target.value })}
+              className={inputClass}
+            />
+            <input
+              aria-label={`${label}の規格・仕様`}
+              placeholder="規格・仕様"
+              value={r.spec}
+              maxLength={200}
+              disabled={pending}
+              onChange={(e) => update(r.key, { spec: e.target.value })}
+              className={inputClass}
+            />
+            <div className="grid grid-cols-[1fr_4.5rem_1fr] gap-2">
+              <input
+                aria-label={`${label}の数量`}
+                placeholder="数量"
+                inputMode="decimal"
+                value={r.qty}
+                disabled={pending}
+                onChange={(e) => update(r.key, { qty: e.target.value })}
+                className={`${inputClass} text-right`}
+              />
+              <input
+                aria-label={`${label}の単位`}
+                placeholder="単位"
+                value={r.unit}
+                maxLength={20}
+                disabled={pending}
+                onChange={(e) => update(r.key, { unit: e.target.value })}
+                className={inputClass}
+              />
+              <input
+                aria-label={`${label}の単価`}
+                placeholder="単価"
+                inputMode="decimal"
+                value={r.unitPrice}
+                disabled={pending}
+                onChange={(e) => update(r.key, { unitPrice: e.target.value })}
+                className={`${inputClass} text-right`}
+              />
+            </div>
+            <p className="text-right text-sm tabular-nums">
+              金額 {amount === null ? '—' : yen(amount)}
+              {mismatch && r.pdfAmount !== null && (
+                <span role="alert" className="block font-medium text-amber-800 dark:text-amber-300">
+                  PDF の金額 {yen(r.pdfAmount)} と合いません（数量 × 単価を確かめてください）
+                </span>
+              )}
+            </p>
+          </>
+        )}
+      </li>
+    );
+  }
 
   function submit() {
     if (included.length === 0 || rowErrors.length > 0) return;
@@ -368,122 +543,124 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
               すべて変更として足します（行ごとの区分は使いません。取り込み方は下で切り替えられます）。
             </p>
           )}
-          <ul className="space-y-2">
-            {rows.map((r, i) => {
-              const label = `PDF の${i + 1}行目`;
-              const amount = rowAmount(r);
-              const mismatch = r.include && r.pdfAmount !== null && amount !== null && amount !== r.pdfAmount;
-              return (
-                <li key={r.key} className={`${cardClass} space-y-2 ${r.include ? '' : 'opacity-70'}`}>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <label className="flex min-h-11 items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={r.include}
-                        disabled={pending}
-                        onChange={(e) => update(r.key, { include: e.target.checked })}
-                        className="h-5 w-5"
-                      />
-                      <span className="text-sm font-medium">取り込む</span>
-                    </label>
-                    <span className="text-sm text-gray-600 dark:text-gray-400">
-                      {i + 1}行目・{r.page}ページ・{KIND_LABEL[r.kind]}
+          {/* まとめて選ぶ：ページ → 全体 → 見出しごと → 1 行ずつ */}
+          <fieldset className="space-y-1">
+            <legend className="text-sm font-bold">ページ</legend>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              印を外すと、そのページの行を全部取り込みません。総括表など、ほかのページと同じ金額が並ぶページは外すと二重に数えません。
+            </p>
+            <ul className="flex flex-wrap gap-x-4">
+              {pages.map((p) => (
+                <li key={p.page}>
+                  <label className="flex min-h-11 items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={p.checked}
+                      disabled={pending}
+                      onChange={(e) => includeWhere((r) => r.page === p.page, e.target.checked)}
+                      className="h-5 w-5"
+                    />
+                    <span className="text-sm tabular-nums">
+                      {p.page} ページ　{p.count} 行　{yen(p.amount)}
                     </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          </fieldset>
+
+          <div className="space-y-2 rounded-lg bg-gray-100 p-3 dark:bg-gray-800">
+            <p className="text-sm font-bold">全部の行</p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" disabled={pending} onClick={() => includeWhere(() => true, true)} className={smallButtonClass}>
+                全部取り込む
+              </button>
+              <button type="button" disabled={pending} onClick={() => includeWhere(() => true, false)} className={smallButtonClass}>
+                全部外す
+              </button>
+            </div>
+            <label className="block">
+              <span className="block text-sm font-medium">工種がまだの行をまとめて（{untagged} 行）</span>
+              <select
+                value=""
+                disabled={pending || untagged === 0}
+                onChange={(e) => tagWhere(() => true, e.target.value, true)}
+                className={inputClass}
+              >
+                <option value="">（選ぶと工種を付けます）</option>
+                {tagOptions}
+              </select>
+            </label>
+            <label className="flex min-h-11 items-center gap-2">
+              <input type="checkbox" checked={onlyUntagged} onChange={(e) => toggleOnlyUntagged(e.target.checked)} className="h-5 w-5" />
+              <span className="text-sm font-medium">工種がまだの行だけ見る</span>
+            </label>
+          </div>
+
+          {onlyUntagged && untagged === 0 && <p className="text-sm font-medium">工種がまだの行はありません。</p>}
+          <ul className="space-y-3">
+            {groups.map((g) => {
+              const groupRows = g.keys.flatMap((k) => {
+                const hit = rowByKey.get(k);
+                return hit ? [hit] : [];
+              });
+              const visible = onlyUntagged ? groupRows.filter(({ r }) => isUntagged(r)) : groupRows;
+              if (visible.length === 0) return null;
+              const inGroup = new Set(g.keys);
+              const match = (r: Row) => inGroup.has(r.key);
+              const sum = summarize(groupRows.map(({ r }) => r), rowAmount);
+              const isOpen = expanded[g.id] ?? false;
+              const listId = `pdf-group-${g.id}`;
+              return (
+                <li key={g.id} className="space-y-2 rounded-lg border-2 border-gray-300 p-2 dark:border-gray-700">
+                  <button
+                    type="button"
+                    aria-expanded={isOpen}
+                    aria-controls={listId}
+                    onClick={() => setExpanded((prev) => ({ ...prev, [g.id]: !isOpen }))}
+                    className="flex min-h-11 w-full items-start gap-2 text-left"
+                  >
+                    <span aria-hidden="true" className="w-4 shrink-0 pt-0.5">
+                      {isOpen ? '▼' : '▶'}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words font-bold">{g.title}</span>
+                      <span className="block text-sm text-gray-600 tabular-nums dark:text-gray-400">
+                        {pagesLabel(g.pages)}・{groupRows.length} 行のうち取り込む {sum.count} 行・{yen(sum.amount)}
+                        {sum.untagged > 0 && <span className="text-amber-800 dark:text-amber-300">・工種がまだ {sum.untagged} 行</span>}
+                      </span>
+                    </span>
+                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" disabled={pending} onClick={() => includeWhere(match, true)} className={smallButtonClass}>
+                      この見出しの行を全部取り込む
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="この見出しの行を全部外す"
+                      disabled={pending}
+                      onClick={() => includeWhere(match, false)}
+                      className={smallButtonClass}
+                    >
+                      全部外す
+                    </button>
                   </div>
-                  {!r.include ? (
-                    <p className="break-words text-sm">{r.cells.filter((s) => s !== '').join('　') || '（空）'}</p>
-                  ) : (
-                    <>
-                      <div className="flex gap-2">
-                        {/* 「変更の行として足す」では区分は使わない（全部「変更」になる）ので選ばせない */}
-                        {mode !== 'appendChange' && (
-                          <select
-                            aria-label={`${label}の区分`}
-                            value={r.section}
-                            disabled={pending}
-                            onChange={(e) => update(r.key, { section: e.target.value as ContractSection })}
-                            className={`${inputClass} w-24! shrink-0`}
-                          >
-                            {CONTRACT_SECTIONS.map((s) => (
-                              <option key={s} value={s}>
-                                {CONTRACT_SECTION_LABEL[s]}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <select
-                          aria-label={`${label}の工種（識別）`}
-                          value={r.tag}
-                          disabled={pending}
-                          onChange={(e) => update(r.key, { tag: e.target.value })}
-                          className={`${inputClass} min-w-0 flex-1 ${r.tag === '' ? 'border-amber-600 dark:border-amber-400' : ''}`}
-                        >
-                          <option value="">（工種を選ぶ）</option>
-                          {sortedTrades.map((t) => (
-                            <option key={t.id} value={t.id}>
-                              {t.name}
-                            </option>
-                          ))}
-                          <option value={EXPENSE}>経費</option>
-                          <option value={REDUCTION}>減分</option>
-                        </select>
-                      </div>
-                      <input
-                        aria-label={`${label}の名称`}
-                        placeholder="名称"
-                        value={r.name}
-                        maxLength={200}
-                        disabled={pending}
-                        onChange={(e) => update(r.key, { name: e.target.value })}
-                        className={inputClass}
-                      />
-                      <input
-                        aria-label={`${label}の規格・仕様`}
-                        placeholder="規格・仕様"
-                        value={r.spec}
-                        maxLength={200}
-                        disabled={pending}
-                        onChange={(e) => update(r.key, { spec: e.target.value })}
-                        className={inputClass}
-                      />
-                      <div className="grid grid-cols-[1fr_4.5rem_1fr] gap-2">
-                        <input
-                          aria-label={`${label}の数量`}
-                          placeholder="数量"
-                          inputMode="decimal"
-                          value={r.qty}
-                          disabled={pending}
-                          onChange={(e) => update(r.key, { qty: e.target.value })}
-                          className={`${inputClass} text-right`}
-                        />
-                        <input
-                          aria-label={`${label}の単位`}
-                          placeholder="単位"
-                          value={r.unit}
-                          maxLength={20}
-                          disabled={pending}
-                          onChange={(e) => update(r.key, { unit: e.target.value })}
-                          className={inputClass}
-                        />
-                        <input
-                          aria-label={`${label}の単価`}
-                          placeholder="単価"
-                          inputMode="decimal"
-                          value={r.unitPrice}
-                          disabled={pending}
-                          onChange={(e) => update(r.key, { unitPrice: e.target.value })}
-                          className={`${inputClass} text-right`}
-                        />
-                      </div>
-                      <p className="text-right text-sm tabular-nums">
-                        金額 {amount === null ? '—' : yen(amount)}
-                        {mismatch && r.pdfAmount !== null && (
-                          <span role="alert" className="block font-medium text-amber-800 dark:text-amber-300">
-                            PDF の金額 {yen(r.pdfAmount)} と合いません（数量 × 単価を確かめてください）
-                          </span>
-                        )}
-                      </p>
-                    </>
+                  <label className="block">
+                    <span className="block text-sm font-medium">この見出しの行の工種をまとめて</span>
+                    <select
+                      value=""
+                      disabled={pending || sum.count === 0}
+                      onChange={(e) => tagWhere(match, e.target.value, false)}
+                      className={inputClass}
+                    >
+                      <option value="">（選ぶと取り込む行に付けます）</option>
+                      {tagOptions}
+                    </select>
+                  </label>
+                  {isOpen && (
+                    <ul id={listId} className="space-y-2">
+                      {visible.map(({ r, i }) => renderRow(r, i))}
+                    </ul>
                   )}
                 </li>
               );
