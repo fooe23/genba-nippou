@@ -1,6 +1,7 @@
 import type { ChangeTotals } from '@/lib/calc/change';
-import { EMPTY_SUBCONTRACT_OUTPUT, type SubcontractOutput } from '@/lib/report/subcontract-output';
-import type { ChangeKind, SettlementMethod } from '@/lib/types';
+import { CHANGE_KIND_LABELS, settlementCategory } from '@/lib/report/change-labels';
+import { EMPTY_SUBCONTRACT_OUTPUT, type IssueKindLookup, type SubcontractOutput } from '@/lib/report/subcontract-output';
+import type { ChangeKind, IssueKind, SettlementMethod } from '@/lib/types';
 
 // 契約内の作業と、契約外（追加・増・変更・減。精算が必要）の作業を分けて見せるための純関数（日報の画面・PDF で共通）と、
 // 作業員と作業内容の人工のずれ・精算の金額の無い行の知らせ。
@@ -108,4 +109,61 @@ export function outputBreakdown(
     subcontractContract: sub.contract,
     subcontractChanges: subChanges,
   };
+}
+
+// ─── 根拠（件）を選んだ燃料・リース・現金・買掛の行（2026-11-11 利用者：件の根拠の付いた費用も契約外＝精算が必要） ───
+
+function issueKindOf(kinds: IssueKindLookup, id: string): IssueKind | undefined {
+  if (kinds instanceof Map) return kinds.get(id);
+  return Object.prototype.hasOwnProperty.call(kinds, id) ? (kinds as Record<string, IssueKind>)[id] : undefined;
+}
+
+/**
+ * 根拠の件を選んだ費用の行の区分。根拠なしは null。件の区分が追加・増・変更なら その区分、件が読めない（種別の分からない）
+ * ときは 'unknown'（契約外として数える）。減・やり直しの件は null（件の精算に数えない。src/lib/reports/change-model.ts）。
+ */
+export function taggedCostCategory(issueId: string | null | undefined, kinds: IssueKindLookup): 'extra' | 'increase' | 'change' | 'unknown' | null {
+  if (!issueId) return null;
+  const kind = issueKindOf(kinds, issueId);
+  if (kind === undefined) return 'unknown';
+  const category = settlementCategory(kind);
+  return category === null || category === 'minus' ? null : category;
+}
+
+/** 根拠の件を選んだ費用の行の「精算が必要」の文言（「契約外（増）の費用です。」）。印を出さない行は null。 */
+export function taggedCostNote(issueId: string | null | undefined, kinds: IssueKindLookup): string | null {
+  const c = taggedCostCategory(issueId, kinds);
+  if (c === null) return null;
+  return c === 'unknown' ? '契約外の費用です。' : `契約外（${CHANGE_KIND_LABELS[c]}）の費用です。`;
+}
+
+/** 費用の行（燃料・リース・現金・買掛）の金額と根拠の件。 */
+export interface TaggedCostLine {
+  kind: string;
+  purchaseKind?: string;
+  issueId?: string | null;
+}
+
+/**
+ * 本日原価集計の「うち精算が必要（件の根拠）」= 根拠の件を選んだ燃料・リース・現金・買掛（仕入・外注）の金額の和
+ * （taggedCostCategory が null でない行）。労務・作業内容の行は入れない。amountOf は行の金額（保存値・画面の計算）。
+ * 協力会社のアカウントには外注の行が来ないので、外注は入らない（includeSubcontract false でも外す）。
+ * includeUnknown false なら種別の分からない件（読めない件）の行を入れない（日報の帳票。件の精算と同じ）。
+ */
+export function taggedCostTotal<L extends TaggedCostLine>(
+  lines: readonly L[],
+  kinds: IssueKindLookup,
+  amountOf: (line: L) => number,
+  opts: { includeSubcontract?: boolean; includeUnknown?: boolean } = {},
+): number {
+  let total = 0;
+  for (const l of lines) {
+    if (l.kind !== 'fuel' && l.kind !== 'lease' && l.kind !== 'cash' && l.kind !== 'credit') continue;
+    if (l.kind === 'credit' && l.purchaseKind === 'subcontract' && opts.includeSubcontract === false) continue;
+    const category = taggedCostCategory(l.issueId, kinds);
+    if (category === null || (category === 'unknown' && opts.includeUnknown === false)) continue;
+    const a = amountOf(l);
+    if (Number.isFinite(a)) total += a;
+  }
+  return total;
 }

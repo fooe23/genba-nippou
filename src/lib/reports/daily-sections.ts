@@ -146,6 +146,9 @@ const kv = (rows: [string, Cell][], total?: [string, Cell]): SectionTable => ({
   total,
 });
 
+/** 合計行の下に続ける行（無ければ付けない）。 */
+const withAfter = (t: SectionTable, after: Cell[][]): SectionTable => (after.length > 0 ? { ...t, after } : t);
+
 /**
  * 日報の表（雛形の並び）。金額・人工・残業・実働は保存値のまま。本日原価集計の合計は明細の保存値の和（外注の買掛を含む）。
  * 手入力の名前には「（手入力）」。作業内容の追加・増・変更・減の行は【区分】つきで太字（boldRows）。行が無い表は rows が空（PDF は「なし」の 1 行を出す）。
@@ -217,19 +220,23 @@ export function dailyTables(m: DailyReportModel): Record<
     },
     cash: purchase('cash', '購入先', '金額(円)'),
     credit: purchase('credit', '支払先', '支払金額(円)'),
-    costs: kv(
-      [
-        ['労務費', yen(c.labor)],
-        // 請負の作業員の人工（うち常用の時間の外。2026-11-17）は出面だけで労務費に入れない。無い日は出さない。
-        ...(w.total.ukeoiManDays > 0 ? [['　うち請負の人工（原価に数えない）', `${Math.round(w.total.ukeoiManDays * 100) / 100}人工`] as [string, Cell]] : []),
-        ['車両費（燃料）', yen(c.fuel)],
-        ['リース費', yen(c.lease)],
-        ['現金購入費', yen(c.cash)],
-        ['買掛費', yen(c.credit)],
-        // 買掛のうち外注（2026-11-17）。外注の無い日は出さない。
-        ...(c.subcontract !== 0 ? [['　うち外注', yen(c.subcontract)] as [string, string]] : []),
-      ],
-      ['合計', yen(c.total)],
+    costs: withAfter(
+      kv(
+        [
+          ['労務費', yen(c.labor)],
+          // 請負の作業員の人工（うち常用の時間の外。2026-11-17）は出面だけで労務費に入れない。無い日は出さない。
+          ...(w.total.ukeoiManDays > 0 ? [['　うち請負の人工（原価に数えない）', `${Math.round(w.total.ukeoiManDays * 100) / 100}人工`] as [string, Cell]] : []),
+          ['車両費（燃料）', yen(c.fuel)],
+          ['リース費', yen(c.lease)],
+          ['現金購入費', yen(c.cash)],
+          ['買掛費', yen(c.credit)],
+          // 買掛のうち外注（2026-11-17）。外注の無い日は出さない。
+          ...(c.subcontract !== 0 ? [['　うち外注', yen(c.subcontract)] as [string, string]] : []),
+        ],
+        ['合計', yen(c.total)],
+      ),
+      // 根拠に件を選んだ費用（契約外。あとで件ごとに精算する分。2026-11-11）。無い日は出さない。
+      c.tagged !== 0 ? [['うち精算が必要（件の根拠）', yen(c.tagged)]] : [],
     ),
     output: {
       columns: [text('項目', 3), num('値', 2)],

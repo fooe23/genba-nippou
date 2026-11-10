@@ -6,7 +6,7 @@ import { decimal, isManualRow, money, newLine, patchRow, removeRow, row, selectR
 import { Computed, NumInput, Select, TextInput } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
 import type { IssueOption } from '@/lib/report/issue-options';
-import { ExtraField, IssuePicker } from './IssuePicker';
+import { ExtraField, IssuePicker, TaggedCostNote } from './IssuePicker';
 
 /** 車両の選択肢の末尾に置く「（手入力）」の値（車両の ID は uuid なので重ならない）。 */
 const MANUAL_VEHICLE = '__manual__';
@@ -103,11 +103,14 @@ export function FuelTable({
       emptyText="車両はまだありません。"
       hint="車両がプルダウンに無いときは「（手入力）」を選んで車両名と燃費（km/L）を入れます。よく使う車両は、管理者にマスターへの登録を頼んでください。"
       rowExtra={(l, i) => (
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-          <ExtraField label="根拠（件）">
-            <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
-          </ExtraField>
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+            <ExtraField label="根拠（件）">
+              <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
+            </ExtraField>
+          </div>
+          <TaggedCostNote issueId={l.issueId} options={issueChoices} />
+        </>
       )}
     />
   );

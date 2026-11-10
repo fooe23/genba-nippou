@@ -17,7 +17,7 @@ import type { CashLineInput, CreditLineInput } from '@/lib/report/schema';
 import { isManualRow, money, newLine, patchRow, removeRow, row, selectRow, type Row, type SupplierOption } from '../form-state';
 import { Computed, fieldClass, NumInput, Select, TextInput } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
-import { ExtraField, IssuePicker } from './IssuePicker';
+import { ExtraField, IssuePicker, TaggedCostNote } from './IssuePicker';
 
 type PurchaseLine = CashLineInput | CreditLineInput;
 
@@ -166,11 +166,14 @@ export function CashTable({
         </label>
       )}
       rowExtra={(l, i) => (
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-          <ExtraField label="根拠（件）">
-            <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
-          </ExtraField>
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+            <ExtraField label="根拠（件）">
+              <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
+            </ExtraField>
+          </div>
+          <TaggedCostNote issueId={l.issueId} options={issueChoices} />
+        </>
       )}
     />
   );
@@ -385,6 +388,7 @@ export function CreditTable({
                 <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
               </ExtraField>
             </div>
+            <TaggedCostNote issueId={l.issueId} options={issueChoices} />
             {p && (
               <SubcontractProgressNote progress={p} names={progressNames(l)} amount={rowAmount(r)} onSetAmount={(a) => setAmount(i, a)} index={i} />
             )}

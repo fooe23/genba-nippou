@@ -38,8 +38,8 @@ describe('根拠の件の選択肢', () => {
   it('「MM/DD 種別 本文の先頭 30 字」、重複は除く', () => {
     const long = 'あ'.repeat(31);
     expect(issueOptions([issue('a', ' 門柱の\nタイル追加 '), issue('a', '重複'), issue('b', long)])).toEqual([
-      { value: 'a', label: '11/05 追加指示 門柱の タイル追加' },
-      { value: 'b', label: `11/05 追加指示 ${'あ'.repeat(30)}…` },
+      { value: 'a', label: '11/05 追加指示 門柱の タイル追加', kind: 'extra' },
+      { value: 'b', label: `11/05 追加指示 ${'あ'.repeat(30)}…`, kind: 'extra' },
     ]);
   });
 });

@@ -1,5 +1,6 @@
 import type { ChangeTotals } from '@/lib/calc/change';
 import { issueTagLabel, withIssueTag } from '@/lib/report/change-labels';
+import { taggedCostTotal } from '@/lib/report/contract-work';
 import { creditItemLabel } from '@/lib/report/purchase-kind';
 import { EMPTY_SUBCONTRACT_OUTPUT, issueKindMap, subcontractOutput, subcontractOutputLines } from '@/lib/report/subcontract-output';
 import { isUnnamedLabor, laborDisplayName, laborHeadcount } from '@/lib/report/unnamed-workers';
@@ -205,7 +206,17 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
     leases: { rows: leases, total: { amount: lease } },
     cash: { rows: cash, total: { amount: cashTotal } },
     credit: { rows: credit, total: { amount: creditTotal } },
-    costs: { labor, fuel, lease, cash: cashTotal, credit: creditTotal, subcontract: subcontractTotal, total: labor + fuel + lease + cashTotal + creditTotal },
+    costs: {
+      labor,
+      fuel,
+      lease,
+      cash: cashTotal,
+      credit: creditTotal,
+      subcontract: subcontractTotal,
+      // 根拠の件を選んだ費用（読めない件は入れない。件の精算と同じ）
+      tagged: taggedCostTotal(report.lines, kinds, (l) => l.stored.amount, { includeUnknown: false }),
+      total: labor + fuel + lease + cashTotal + creditTotal,
+    },
     output: {
       today,
       work: report.outputTotal,
@@ -261,7 +272,7 @@ export function buildEmptyDailyReport(site: Site, date: string): DailyReportMode
     leases: { rows: [], total: { amount: 0 } },
     cash: { rows: [], total: { amount: 0 } },
     credit: { rows: [], total: { amount: 0 } },
-    costs: { labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, total: 0 },
+    costs: { labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, tagged: 0, total: 0 },
     output: {
       today: 0,
       work: 0,

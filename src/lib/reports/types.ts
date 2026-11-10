@@ -505,7 +505,11 @@ export interface DailyReportModel {
    * 本日原価集計。5 費目と total は明細の stored.amount の合計（2026-11-17 から見出しの cost_total は使わない。外注の買掛を含まないため）。
    * credit は買掛の全部（仕入＋外注）、subcontract はそのうちの外注。
    */
-  costs: { labor: number; fuel: number; lease: number; cash: number; credit: number; subcontract: number; total: number };
+  /**
+   * 本日原価集計。tagged は根拠の件を選んだ燃料・リース・現金・買掛（仕入・外注）の合計（「うち精算が必要（件の根拠）」。
+   * 2026-11-11。減・やり直し・読めない件は入れない。協力会社には外注の行が来ないので外注は入らない）。
+   */
+  costs: { labor: number; fuel: number; lease: number; cash: number; credit: number; subcontract: number; tagged: number; total: number };
   /**
    * 本日出来高（output_total）と進捗率。cumulative = 前日までの出来高 + 本日（日報の無い日は null）。
    * progress = cumulative ÷ 請負金額（請負金額が null・0、または日報の無い日は null）。

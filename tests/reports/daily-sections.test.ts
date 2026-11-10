@@ -234,6 +234,14 @@ describe('根拠の件を選んだ燃料・リース・現金・買掛の行（2
     expect(d.cash.rows.at(-1)?.name).toBe('【増】目地材');
     expect(d.credit.rows.slice(-3).map((r) => r.name)).toEqual(['【増】モザイクタイル', '【外注・タイル・増】タイル工事', '【外注・やり直し】外注（工種なし）']);
   });
+  it('本日原価集計の「うち精算が必要（件の根拠）」：根拠の件を選んだ費用の和（やり直しの件は入れない）。合計の下に出す', () => {
+    const d = m();
+    // 170 ＋ 3,000 ＋ 800 ＋ 25,000 ＋ 170,000（外注の増）。やり直しの外注 1,000 は入れない
+    expect(d.costs.tagged).toBe(198970);
+    expect(dailyTables(d).costs.after?.map((r) => r.map(formatCell))).toEqual([['うち精算が必要（件の根拠）', '198,970']]);
+    // 根拠の件の無い日は行を出さない
+    expect(dailyTables(sampleDaily()).costs.after).toBeUndefined();
+  });
   it('件を選んでいない行はそのまま', () => {
     const d = sampleDaily();
     expect(d.credit.rows.map((r) => r.name)).toEqual(['合板', '金物']);

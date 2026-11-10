@@ -45,7 +45,7 @@ function SubLine({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * 本日原価集計（5項目と合計）・本日出来高（契約内／追加・変更（精算が必要）／合計）・進捗率（この日までの累計出来高 ÷ 総請負金額）。
+ * 本日原価集計（5項目と合計、根拠の件を選んだ費用の「うち精算が必要（件の根拠）」）・本日出来高（契約内／追加・変更（精算が必要）／合計）・進捗率（この日までの累計出来高 ÷ 総請負金額）。
  * 外注の支払い（2026-11-11）は出来高に入れる：件を選んでいない外注は契約内（「うち外注」）、件を選んだ外注はその件の区分。
  * 契約が未確定の現場は「総請負金額（未確定）」と「概算金額」を出す（進捗率の基準は請負金額のまま。日報 PDF と同じ）。
  */
@@ -59,6 +59,7 @@ export function ReportSummary({
   showMoney,
   workWarnings = [],
   subcontract = EMPTY_SUBCONTRACT_OUTPUT,
+  taggedCost = 0,
 }: {
   totals: ReportTotals;
   /** 作業内容の区分ごとの金額（減は負）。 */
@@ -75,6 +76,8 @@ export function ReportSummary({
   workWarnings?: readonly string[];
   /** 外注の支払いのうち出来高に数える分（社員・管理者だけ。協力会社には外注の行が無いので 0）。 */
   subcontract?: SubcontractOutput;
+  /** 根拠の件を選んだ燃料・リース・現金・買掛（仕入・外注）の合計（taggedCostTotal。協力会社には外注は入らない）。 */
+  taggedCost?: number;
 }) {
   const split = outputBreakdown(totals.output, changes, subcontract);
   const cumulative = outputBefore + split.total;
@@ -110,6 +113,13 @@ export function ReportSummary({
             <Line label="買掛" value={money(totals.credit)} />
           )}
           <Line label="本日原価 合計" value={money(totals.cost)} strong />
+          {/* 根拠に件を選んだ費用は契約外（あとで件ごとに精算する分。2026-11-11）。労務は入れない。 */}
+          {taggedCost !== 0 && (
+            <div className="flex items-baseline justify-between gap-3 rounded bg-amber-50 px-1 py-1 text-sm text-amber-950 dark:bg-amber-950 dark:text-amber-50">
+              <dt>うち精算が必要（件の根拠）</dt>
+              <dd className="font-bold tabular-nums">{money(taggedCost)}</dd>
+            </div>
+          )}
         </dl>
       </div>
       <div className="rounded-lg border border-gray-300 p-3 dark:border-gray-700">

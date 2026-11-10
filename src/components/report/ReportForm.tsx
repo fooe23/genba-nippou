@@ -8,7 +8,7 @@ import type { LaborCostContext } from '@/lib/calc/labor-cost';
 import { formLaborSplit } from '@/lib/report/labor-form';
 import { jpDate } from '@/lib/calc/format';
 import { changeTotals } from '@/lib/calc/change';
-import { commonHours, laborLineValues, reportTotals, type LaborValues } from '@/lib/calc/report';
+import { commonHours, laborLineValues, lineAmount, reportTotals, type LaborValues } from '@/lib/calc/report';
 import {
   addIssue,
   copyPreviousReport,
@@ -23,7 +23,7 @@ import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import { issueOptions } from '@/lib/report/issue-options';
 import { issueKindMap } from '@/lib/report/subcontract-output';
-import { workWarnings as buildWorkWarnings } from '@/lib/report/contract-work';
+import { workWarnings as buildWorkWarnings, taggedCostTotal } from '@/lib/report/contract-work';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeWarning } from '@/lib/report/unlinked-change-lines';
 import {
   INSTRUCTION_METHODS,
@@ -455,10 +455,16 @@ function ReportFormBody({
   // 燃料・リース・現金・買掛の根拠の件の選択肢（作業内容の行と同じ候補・文言。2026-11-17）。
   const issueChoices = useMemo(() => issueOptions(issueCandidates), [issueCandidates]);
   // 外注の支払いのうち出来高に数える分（2026-11-11）：件なしは契約内、件ありはその件の区分。外注の行は社員・管理者の画面だけにある。
-  const subcontract = useMemo(() => {
-    const kinds = new Map([...Object.entries(p.subcontractIssueKinds ?? {}), ...issueKindMap(issueCandidates)]);
-    return formSubcontractOutput(input.lines, kinds);
-  }, [input.lines, issueCandidates, p.subcontractIssueKinds]);
+  const lineIssueKinds = useMemo(
+    () => new Map([...Object.entries(p.subcontractIssueKinds ?? {}), ...issueKindMap(issueCandidates)]),
+    [issueCandidates, p.subcontractIssueKinds],
+  );
+  const subcontract = useMemo(() => formSubcontractOutput(input.lines, lineIssueKinds), [input.lines, lineIssueKinds]);
+  // 根拠の件を選んだ燃料・リース・現金・買掛の合計（本日原価集計の「うち精算が必要（件の根拠）」。2026-11-11）。
+  const taggedCost = useMemo(
+    () => taggedCostTotal(calcLines(input.lines), lineIssueKinds, (l) => lineAmount(l, input.common, p.rule), { includeSubcontract: p.isStaff }),
+    [input.lines, input.common, lineIssueKinds, p.rule, p.isStaff],
+  );
 
   const draft = useReportDraft({
     siteId: p.siteId,
@@ -965,6 +971,7 @@ function ReportFormBody({
           showMoney={p.isStaff}
           workWarnings={workWarnings}
           subcontract={subcontract}
+          taggedCost={taggedCost}
         />
 
         <section aria-label="重要事項・連絡事項" className="mb-6 grid gap-4 md:grid-cols-2">

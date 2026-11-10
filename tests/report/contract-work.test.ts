@@ -9,6 +9,9 @@ import {
   missingSettlementAmount,
   needsSettlement,
   outputBreakdown,
+  taggedCostCategory,
+  taggedCostNote,
+  taggedCostTotal,
   workWarnings,
 } from '@/lib/report/contract-work';
 import type { ChangeKind } from '@/lib/types';
@@ -134,5 +137,41 @@ describe('missingSettlementAmount（精算の金額（施工単価）が入っ�
     expect(missingSettlementAmount(line('extra', 1, null), { settlementMethod: 'lump_sum' })).toBe(false);
     expect(missingSettlementAmount(line('extra', 1, null), { settlementMethod: 'daily_rate' })).toBe(false);
     expect(missingSettlementAmount(line('extra', 1, null), { settlementMethod: 'undecided' })).toBe(true);
+  });
+});
+
+describe('根拠の件を選んだ費用（2026-11-11：契約外＝精算が必要）', () => {
+  const kinds = new Map([
+    ['iInc', 'increase' as const],
+    ['iSite', 'site_judgment' as const],
+    ['iMinus', 'minus' as const],
+    ['iRework', 'rework' as const],
+  ]);
+  it('区分と文言：件の区分（現場判断は追加）。根拠なし・減・やり直しは印なし、読めない件は区分なし', () => {
+    expect(taggedCostNote('iInc', kinds)).toBe('契約外（増）の費用です。');
+    expect(taggedCostNote('iSite', kinds)).toBe('契約外（追加）の費用です。');
+    expect(taggedCostNote(null, kinds)).toBeNull();
+    expect(taggedCostNote('iMinus', kinds)).toBeNull();
+    expect(taggedCostNote('iRework', kinds)).toBeNull();
+    expect(taggedCostCategory('gone', kinds)).toBe('unknown');
+    expect(taggedCostNote('gone', kinds)).toBe('契約外の費用です。');
+  });
+  const lines = [
+    { kind: 'labor', issueId: null, a: 20000 },
+    { kind: 'work', issueId: 'iInc', a: 25000 },
+    { kind: 'fuel', issueId: 'iInc', a: 170 },
+    { kind: 'lease', issueId: 'iSite', a: 3000 },
+    { kind: 'cash', issueId: null, a: 800 },
+    { kind: 'credit', purchaseKind: 'material', issueId: 'iInc', a: 25000 },
+    { kind: 'credit', purchaseKind: 'subcontract', issueId: 'iInc', a: 170000 },
+    { kind: 'credit', purchaseKind: 'material', issueId: 'iRework', a: 1000 },
+    { kind: 'cash', issueId: 'gone', a: 500 },
+  ];
+  it('和は根拠の件を選んだ燃料・リース・現金・買掛（仕入・外注）だけ。労務・作業内容・根拠なし・減・やり直しは入れない', () => {
+    expect(taggedCostTotal(lines, kinds, (l) => l.a)).toBe(170 + 3000 + 25000 + 170000 + 500);
+  });
+  it('協力会社（includeSubcontract false）は外注を入れない。帳票（includeUnknown false）は読めない件を入れない', () => {
+    expect(taggedCostTotal(lines, kinds, (l) => l.a, { includeSubcontract: false })).toBe(170 + 3000 + 25000 + 500);
+    expect(taggedCostTotal(lines, kinds, (l) => l.a, { includeUnknown: false })).toBe(170 + 3000 + 25000 + 170000);
   });
 });

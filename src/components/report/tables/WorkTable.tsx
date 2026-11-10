@@ -10,7 +10,7 @@ import type { WorkLine } from '@/lib/types';
 import { decimal, isManualRow, money, newLine, patchRow, removeRow, row, selectRow, type Row } from '../form-state';
 import { Computed, fieldClass, NumInput, Select, TextInput, type SelectOption } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
-import { IssuePicker } from './IssuePicker';
+import { IssuePicker, SettlementPill } from './IssuePicker';
 import { LineIssueCreator } from './LineIssueCreator';
 import { issueOptions } from '@/lib/report/issue-options';
 import { missingSettlementAmount } from '@/lib/report/contract-work';
@@ -182,9 +182,7 @@ export function WorkTable({
           <div role="group" aria-label={`${i + 1}行目の${CHANGE_KIND_LABELS[l.changeKind]}の指示`}>
             {/* 契約外の行（あとで件ごとに精算する）を目立たせる。 */}
             <p className="mb-2 flex flex-wrap items-center gap-2 text-sm">
-              <span className="rounded-full border border-amber-600 bg-amber-100 px-2.5 py-0.5 font-bold text-amber-900 dark:border-amber-400 dark:bg-amber-900 dark:text-amber-50">
-                精算が必要
-              </span>
+              <SettlementPill />
               <span className="text-gray-700 dark:text-gray-300">契約外（{CHANGE_KIND_LABELS[l.changeKind]}）の作業です。</span>
             </p>
             {/* 件の精算の労務は施工金額（数量 × 施工単価）から出すので、無ければ知らせる（保存は止めない）。 */}

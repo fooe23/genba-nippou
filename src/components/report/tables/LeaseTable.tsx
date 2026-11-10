@@ -7,7 +7,7 @@ import { isManualRow, money, newLine, patchRow, removeRow, row, selectRow, type 
 import { Computed, NumInput, Select, TextInput } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
 import type { IssueOption } from '@/lib/report/issue-options';
-import { ExtraField, IssuePicker } from './IssuePicker';
+import { ExtraField, IssuePicker, TaggedCostNote } from './IssuePicker';
 
 /** 品目の選択肢の末尾に置く「（手入力）」の値（品目の ID は uuid なので重ならない）。 */
 const MANUAL_ITEM = '__manual__';
@@ -109,11 +109,14 @@ export function LeaseTable({
       emptyText="リース品はまだありません。"
       hint="品目がプルダウンに無いときは「（手入力）」を選んで品目名と単価を入れます。よく使う品目は、管理者にマスターへの登録を頼んでください。"
       rowExtra={(l, i) => (
-        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-          <ExtraField label="根拠（件）">
-            <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
-          </ExtraField>
-        </div>
+        <>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+            <ExtraField label="根拠（件）">
+              <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
+            </ExtraField>
+          </div>
+          <TaggedCostNote issueId={l.issueId} options={issueChoices} />
+        </>
       )}
     />
   );
