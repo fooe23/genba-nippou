@@ -42,12 +42,6 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
   const choosable = allPartners.filter((s) => s.active || usedSuppliers.has(s.id)).map((s) => ({ id: s.id, name: s.name }));
   const partners = allPartners.map((s) => ({ id: s.id, name: s.name }));
 
-  // 保存・取り込みで中身が変わったら、その欄の編集中の状態を作り直す（key を変えて作り直す）。
-  // 工種だけを保存したときは予算・内訳の欄を作り直さない（保存していない編集を消さない。まとまりは props の工種から作る）
-  const tradesKey = data.trades.map((t) => `${t.id}:${t.name}:${t.sortOrder}`).join('|');
-  const linesKey = data.budgetLines.map((l) => l.id).join('|');
-  const itemsKey = data.contractItems.map((i) => i.id).join('|');
-
   return (
     <main className="mx-auto w-full max-w-3xl space-y-8 p-4">
       <div>
@@ -83,9 +77,8 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
       />
       {/* 元請けの内訳だけを文字 PDF から読み取る（完了現場では出さない） */}
       <PdfImport siteId={siteId} trades={data.trades} readOnly={readOnly} />
-      <TradesEditor key={tradesKey} siteId={siteId} trades={data.trades} readOnly={readOnly} />
+      <TradesEditor siteId={siteId} trades={data.trades} readOnly={readOnly} />
       <BudgetLinesEditor
-        key={linesKey}
         siteId={siteId}
         trades={data.trades}
         lines={data.budgetLines}
@@ -93,7 +86,7 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
         dailyRate={dailyRate}
         readOnly={readOnly}
       />
-      <ContractItemsEditor key={itemsKey} siteId={siteId} trades={data.trades} items={data.contractItems} readOnly={readOnly} />
+      <ContractItemsEditor siteId={siteId} trades={data.trades} items={data.contractItems} readOnly={readOnly} />
       <section aria-labelledby="budget-aliases" className="space-y-3">
         <h2 id="budget-aliases" className="text-lg font-bold">
           日報の工種の読み替え

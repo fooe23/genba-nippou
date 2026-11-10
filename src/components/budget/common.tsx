@@ -1,5 +1,7 @@
 'use client';
 
+import { useState } from 'react';
+
 // 実行予算・元請けの内訳の画面で共通の小物。
 
 export const smallButtonClass =
@@ -37,4 +39,16 @@ export function DirtyNote({ dirty }: { dirty: boolean }) {
       保存していない変更があります。
     </p>
   );
+}
+
+/**
+ * 保存・取り込みで元の中身（sig）が変わったら、編集中の状態を作り直す。
+ * key で部品ごと作り直すと、画面の再読み込みのときに古い欄が残って二重に見えることがあったため、部品はそのまま状態だけ入れ替える。
+ */
+export function useResetOnChange(sig: string, reset: () => void) {
+  const [prev, setPrev] = useState(sig);
+  if (prev !== sig) {
+    setPrev(sig);
+    reset();
+  }
 }

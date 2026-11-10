@@ -14,7 +14,7 @@ import {
 } from '@/lib/budget/types';
 import { replaceContractItems } from '@/lib/db/budget-actions';
 import { EmptyText, ErrorText, inputClass, primaryButtonClass, secondaryButtonClass, useRunner } from '@/components/masters/common';
-import { DirtyNote, cardClass, dangerSmallButtonClass, numText, parseNum, rowKey, sectionHeadingClass } from './common';
+import { DirtyNote, useResetOnChange, cardClass, dangerSmallButtonClass, numText, parseNum, rowKey, sectionHeadingClass } from './common';
 
 /** 識別の選択の値：'' ＝まだ識別していない、'expense'・'reduction'、それ以外は工種の id。 */
 const EXPENSE = 'expense';
@@ -89,6 +89,11 @@ export function ContractItemsEditor({
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  useResetOnChange(items.map((i) => i.id).join('|'), () => {
+    setRows(toRows(items));
+    setDirty(false);
+    setLocalError(null);
+  });
   const sortedTrades = [...trades].sort((a, b) => a.sortOrder - b.sortOrder);
   const tradeIds = new Set(trades.map((t) => t.id));
   /** 工種が一覧から消えた行は「未識別」として扱う（画面にも保存にも、消えた工種の id を残さない）。 */

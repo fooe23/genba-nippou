@@ -14,7 +14,7 @@ import {
 } from '@/lib/budget/types';
 import { replaceBudgetLines } from '@/lib/db/budget-actions';
 import { ErrorText, inputClass, primaryButtonClass, secondaryButtonClass, useRunner } from '@/components/masters/common';
-import { DirtyNote, cardClass, dangerSmallButtonClass, numText, parseNum, rowKey, sectionHeadingClass } from './common';
+import { DirtyNote, useResetOnChange, cardClass, dangerSmallButtonClass, numText, parseNum, rowKey, sectionHeadingClass } from './common';
 
 const OWN = 'own';
 
@@ -102,6 +102,11 @@ export function BudgetLinesEditor({
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  useResetOnChange(lines.map((l) => l.id).join('|'), () => {
+    setRows(toRows(lines));
+    setDirty(false);
+    setLocalError(null);
+  });
 
   const tradeIds = useMemo(() => new Set(trades.map((t) => t.id)), [trades]);
   /** 行のまとまり：工種が一覧から消えた行は ORPHAN（黙って落とさず、付け替えるまで保存させない）。 */
@@ -234,14 +239,15 @@ export function BudgetLinesEditor({
                         ))}
                     </select>
                   )}
-                  <div className="flex gap-2">
+                  <div className="flex items-start gap-2">
+                    <div className={`grid min-w-0 flex-1 gap-2 ${siteWide ? '' : 'sm:grid-cols-[1fr_9rem]'}`}>
                     {!siteWide && (
                       <select
                         aria-label={`${label}の施工者`}
                         value={r.performer}
                         disabled={readOnly || pending}
                         onChange={(e) => setPerformer(r, e.target.value)}
-                        className={`${inputClass} min-w-0 flex-1`}
+                        className={`${inputClass} min-w-0`}
                       >
                         <option value={OWN}>自社</option>
                         {partners.map((p) => (
@@ -257,7 +263,7 @@ export function BudgetLinesEditor({
                       value={r.item}
                       disabled={readOnly || pending || itemChoices.length === 1}
                       onChange={(e) => update(r.key, { item: e.target.value as BudgetItem })}
-                      className={`${inputClass} ${siteWide ? 'min-w-0 flex-1' : 'w-28 shrink-0'}`}
+                      className={`${inputClass} min-w-0`}
                     >
                       {itemChoices.map((it) => (
                         <option key={it} value={it}>
@@ -265,6 +271,7 @@ export function BudgetLinesEditor({
                         </option>
                       ))}
                     </select>
+                    </div>
                     {!readOnly && (
                       <button
                         type="button"

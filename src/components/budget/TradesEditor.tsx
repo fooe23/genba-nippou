@@ -6,7 +6,7 @@ import { TRADE_NAME_MAX, firstIssueMessage, tradesInputSchema } from '@/lib/budg
 import type { SiteTrade } from '@/lib/budget/types';
 import { saveTrades } from '@/lib/db/budget-actions';
 import { EmptyText, ErrorText, inputClass, primaryButtonClass, secondaryButtonClass, useRunner } from '@/components/masters/common';
-import { DirtyNote, cardClass, dangerSmallButtonClass, rowKey, sectionHeadingClass, smallButtonClass } from './common';
+import { DirtyNote, useResetOnChange, cardClass, dangerSmallButtonClass, rowKey, sectionHeadingClass, smallButtonClass } from './common';
 
 interface Row {
   key: string;
@@ -29,6 +29,11 @@ export function TradesEditor({ siteId, trades, readOnly }: { siteId: string; tra
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  useResetOnChange(trades.map((t) => `${t.id}:${t.name}:${t.sortOrder}`).join('|'), () => {
+    setRows(toRows(trades));
+    setDirty(false);
+    setLocalError(null);
+  });
 
   function change(next: Row[]) {
     setRows(next);
