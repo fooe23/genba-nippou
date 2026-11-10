@@ -8,7 +8,19 @@ import type { ChangeKind, LaborRule } from '@/lib/types';
 // 予算と実績の集計（純関数。DB・Next に依存しない）。金額・人工はすべて保存値（明細の stored）から計算する。
 // 労務費・人工は労務費の決まり（src/lib/calc/labor-cost.ts。2026-11-17）の「原価に数える分」：自社・常用の行は保存値の
 // まま、請負の行（保存した常用・請負が請負）はうち常用の時間の分の人工と、その分の労務費（実行予算のその会社の常用の単価
-// → 無ければ日当）だけ。請負の人工の出面は第 3 段階で別に出す。
+// → 無ければ日当）だけ。請負の人工（出面だけの分）は、同じ振り分けで工種の出面（attendance）にだけ数える。
+//
+// 外注の買掛（purchaseKind 'subcontract'。2026-11-17 第 3 段階）：
+// - 行の工種（siteTradeId。現場の工種に無ければ null）の、その会社（supplierId。無ければ支払先の文字）の「請負」の施工者の行の
+//   実績（支払い）。工種が無ければ「予算外」の請負の行（subcontractPaid）。どちらも現場全体（掛け）には入れない。
+// - 根拠の件を選んだ外注（追加の発注）も同じ請負の行の実績に入れる（工種の実績・見込みに数える）が、請負額との比べ
+//   （請負額を超えたか・請負の見込み）には入れず issuePaid として別に持つ：
+//     請負の見込み ＝ max(請負額, 件なしの支払い) ＋ 件ありの支払い、overContract ＝ 件なしの支払い > 請負額。
+// - 請負額は実行予算の請負の行（item 'subcontract'）の金額だけ（現場の協力会社の請負金額 gn_site_partners.amount は使わない）。
+// 工種の見込み：
+//   人工の見込み（laborForecast）＝ 労務・常用の行の実績 ÷ (used / 100)。used が null・0 なら null。ただし請負の行がある工種で
+//   労務・常用の予算も実績も 0 なら 0。
+//   見込み ＝ 人工の見込みが null なら null、それ以外は 請負の見込みの合計 ＋ 人工の見込み。
 //
 // 実績の労務費・人工の工種への振り分け（日報 1 件＝1 日ごと。設計書「協力会社の人工の工種への振り分け」）：
 // - 作業内容の行の工種を resolveTradeId（参照 → 読み替え表 → 工種名 → null）で決める。現場の工種に無い id も null。
@@ -27,7 +39,7 @@ import type { ChangeKind, LaborRule } from '@/lib/types';
 // - 労務費は 1 円単位、人工は 0.01 人工単位で比例配分し、端数は重みの最も大きい先（同じなら工種の並びの先、予算外は最後）
 //   に足す。分けた和はその日の労務費・人工と一致する（affiliation-breakdown.ts の apportionManDays と同じやり方）。
 //
-// 現場全体：燃料・リース・現金・掛け（労務・作業内容以外の行）の実績の合計と、実行予算の材料・リース・その他。
+// 現場全体：燃料・リース・現金・掛け（仕入の買掛だけ。外注の買掛は上のとおり工種へ）の実績の合計と、実行予算の材料・リース・その他。
 // 元請けの内訳：工種の識別が付いた行（category 'trade' かつ tradeId あり）だけ工種の内訳の金額に入る。経費・減分・
 // まだ識別していない行は工種に入れず、合計の内訳の金額にだけ数える。
 // 実行予算の労務・請負・常用で工種の無い行（現場全体の労務）は「予算外」の行の予算に入れる。
@@ -39,7 +51,7 @@ import type { ChangeKind, LaborRule } from '@/lib/types';
 //   行が 1 行も無ければ（単位が合わない・数量が空）null（「数量から」は出さない。qty も null）。100 を超えても切らない。
 // - 上書き＝data.progress（工種ごとの最新の上書き。消した工種は含まれない）。
 // - used＝上書き ?? 数量から を 0〜100 に収めたもの。
-// 見込み＝実績の金額 ÷ (used / 100)（円に四捨五入）。used が null・0 なら見込み・見込みの粗利は null、判定は 'none'。
+// 見込み（上の「工種の見込み」。円に四捨五入）が null なら見込みの粗利は null、判定は 'none'。
 // 判定：見込み > 内訳の金額 → 'loss'、そうでなく見込み > 実行予算 → 'overBudget'、それ以外 → 'ok'（実行予算が内訳の金額
 // より大きくても、内訳の金額を超える見込みは 'loss'）。ただし工種に識別した内訳の行が 1 行も無い工種（contractItemCount 0）は
 // 内訳の金額と比べられないので、'loss' の代わりに 'none'、見込みの粗利は null（画面は「内訳の識別がまだです」と添える）。
@@ -49,8 +61,7 @@ import type { ChangeKind, LaborRule } from '@/lib/types';
 // carryover に別に出し（予算外の作業の人工・労務費には入れない）、合計の実績に数える。作業員別累計（workerCumulative）・
 // 原価集計表と同じく、繰越のある作業員の繰越の基準日より前の労務の行は二重に数えないよう、どこにも入れない。
 //
-// 協力会社の請負金額（partnerContract）は現場の協力会社（gn_site_partners.amount）の額で、工種に分けない（2 つの工種に
-// 入っている会社はどちらの行にも同じ額が出る）。
+// 施工者の行（PerformerRow）は 請負（会社ごと）→ 自社・労務 → 常用（会社ごと）の順。同じ会社でも請負と常用は別の行。
 
 export interface BudgetModelInput {
   data: BudgetData;
@@ -60,7 +71,7 @@ export interface BudgetModelInput {
   dailyRate: number;
   /** 集計の基準日（YYYY-MM-DD）。この日までの日報を数える。 */
   asOf: string;
-  /** 現場の協力会社（gn_site_partners）。amount は請負金額。 */
+  /** 現場の協力会社（gn_site_partners）。名前に使う（amount は使わない：請負額は実行予算の請負の行から）。 */
   sitePartners: { supplierId: string; name: string; amount: number | null }[];
   /** 取引先の名前（施工者の表示名。sitePartners に無い会社のため）。 */
   supplierNames?: SupplierNames;
@@ -70,16 +81,50 @@ export interface BudgetModelInput {
   laborRule?: LaborRule;
 }
 
+export type PerformerItem = 'labor' | 'jouyou' | 'subcontract';
+
 export interface PerformerRow {
   performer: 'own' | 'partner';
+  /** 自社・労務（labor）・協力会社の常用（jouyou）・協力会社の請負（subcontract）。 */
+  item: PerformerItem;
   supplierId: string | null;
+  /** 会社の名前（自社は「自社」。外注の支払先が手入力なら支払先の文字）。 */
   name: string;
+  /** 請負の行は請負額（実行予算の請負の行の金額）。 */
   budgetAmount: number;
   /** 労務（自社）・常用（協力会社）の数量（人工）の合計。どちらの行も無ければ null。 */
   budgetManDays: number | null;
+  /** 労務・常用の行は原価に数える労務費、請負の行は支払い（外注の買掛の合計。件ありを含む）。 */
   actualAmount: number;
   actualManDays: number;
-  partnerContract: number | null;
+  /** 請負の行：支払いのうち根拠の件を選んだ外注（追加の発注）。ほかの行は 0。 */
+  issuePaid: number;
+  /** このままの見込み。請負の行は max(請負額, 件なしの支払い) ＋ issuePaid、労務・常用の行は実績 ÷ 進み具合（出せなければ null）。予算外は null。 */
+  forecast: number | null;
+  /** 請負の行：件なしの支払いが請負額を超えた（請負額 0 で支払いがある行も true）。 */
+  overContract: boolean;
+  /** 常用の行：同じ工種にその会社の請負の行もある（「常用（請負外）」）。 */
+  outsideContract: boolean;
+}
+
+/** 出面（区分にかかわらず全部の人工。うち請負＝原価に数えない分、うち常用＝原価に数える分）。自社は 1 行。 */
+export interface AttendanceRow {
+  supplierId: string | null;
+  name: string;
+  manDays: number;
+  ukeoiManDays: number;
+  jouyouManDays: number;
+}
+
+/** 工種の請負の合計（請負の行の和）。 */
+export interface TradeSubcontract {
+  budget: number;
+  /** 件なしの支払い。 */
+  paid: number;
+  /** 件ありの支払い（追加の発注）。 */
+  issuePaid: number;
+  forecast: number;
+  overContract: boolean;
 }
 
 export interface WorkLineDetail {
@@ -100,6 +145,8 @@ export interface TradeDay {
   manDays: number;
   /** 振り分けた労務費。 */
   amount: number;
+  /** その日の外注の支払い（この工種の外注の買掛。件ありを含む）。 */
+  subcontract: number;
   /** その工種の作業内容の行の投入人工の合計。 */
   workManDays: number;
   /** 進み具合の単位の施工数量の合計（その単位の行が無ければ null）。 */
@@ -118,10 +165,15 @@ export interface TradeRow {
   /** qty・unit は進み具合の単位の日報の施工数量、contractQty はその単位の内訳の数量（当初＋変更。数量からの分母。単位が無ければ null）。 */
   actual: { amount: number; manDays: number; byPerformer: PerformerRow[]; qty: number | null; unit: string | null; contractQty: number | null };
   progress: { used: number | null; fromQty: number | null; override: number | null };
+  /** 請負の合計（請負の行が無ければ 0・false）。 */
+  subcontract: TradeSubcontract;
+  /** 人工（労務・常用）の見込み。 */
+  laborForecast: number | null;
   forecast: number | null;
   forecastProfit: number | null;
   status: 'ok' | 'overBudget' | 'loss' | 'none';
   days: TradeDay[];
+  attendance: AttendanceRow[];
 }
 
 /** 工種の付かない人工・労務費（予算外の作業）。 */
@@ -135,12 +187,16 @@ export interface OutsideRow {
   workLineCount: number;
   workManDays: number;
   days: TradeDay[];
+  attendance: AttendanceRow[];
+  /** 工種を選んでいない外注の支払い（amount・byPerformer の請負の行に含む）。 */
+  subcontractPaid: number;
   /** 繰越初期値の合計（工種なし）。繰越が無ければ null。amount・manDays には含めない。 */
   carryover: { manDays: number; amount: number } | null;
 }
 
 export interface SiteWideRow {
   budget: { material: number; lease: number; other: number; amount: number };
+  /** credit は仕入の買掛だけ（外注の買掛は工種・予算外の請負の行）。 */
   actual: { fuel: number; lease: number; cash: number; credit: number; amount: number };
   /** 元請けの内訳の経費の金額。 */
   contractExpense: number;
@@ -223,12 +279,24 @@ function addTo(map: Map<string, number>, key: string, v: number) {
 interface Acc {
   amount: number;
   manDays: number;
+  /** 請負の行：件ありの支払い。 */
+  issuePaid: number;
+  /** 請負の行：支払先の名前（会社の無い行）。 */
+  name?: string;
+}
+
+interface AttendanceAcc {
+  supplierId: string | null;
+  partner: boolean;
+  jouyou: number;
+  ukeoi: number;
 }
 
 interface DayAcc {
   date: string;
   manDays: number;
   amount: number;
+  subcontract: number;
   workManDays: number;
   qty: number | null;
   lines: WorkLineDetail[];
@@ -245,9 +313,11 @@ function countsAsManDays(b: BudgetLine): boolean {
   return (b.item === 'labor' || b.item === 'jouyou') && MAN_DAY_UNITS.has(normalizeUnit(b.unit));
 }
 
-function performerKey(supplierId: string | null): string {
-  return supplierId === null ? 'own' : `partner:${supplierId}`;
-}
+// 施工者の行の鍵：自社 'own'、常用 'jouyou:<会社 id>'（会社の写しの無い協力会社は 'jouyou:'）、
+// 請負 'sub:<会社 id>'（支払先が手入力の外注は 'subv:<支払先の文字>'）。
+const OWN_KEY = 'own';
+const jouyouKey = (supplierId: string | null) => `jouyou:${supplierId ?? ''}`;
+const subKey = (supplierId: string | null, vendor = '') => (supplierId !== null ? `sub:${supplierId}` : `subv:${vendor.trim()}`);
 
 // ─── 本体 ───
 
@@ -303,6 +373,8 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
   const tradeQty = new Map<string, number>(); // 進み具合の単位の施工数量
   const qtyMatched = new Set<string>(); // 進み具合の単位で数量を入れた行のある工種
   const siteActual = { fuel: 0, lease: 0, cash: 0, credit: 0 };
+  const attendance = new Map<string, Map<string, AttendanceAcc>>(); // 工種（または OUTSIDE）→ 施工者 → 出面
+  let outsideSubcontractPaid = 0;
   let outsideWorkLineCount = 0;
   let outsideWorkManDays = 0;
 
@@ -310,15 +382,24 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
     let m = days.get(bucket);
     if (!m) days.set(bucket, (m = new Map()));
     let d = m.get(date);
-    if (!d) m.set(date, (d = { date, manDays: 0, amount: 0, workManDays: 0, qty: null, lines: [] }));
+    if (!d) m.set(date, (d = { date, manDays: 0, amount: 0, subcontract: 0, workManDays: 0, qty: null, lines: [] }));
     return d;
   };
-  const addActual = (bucket: string, perf: string, amount: number, manDays: number) => {
+  const addActual = (bucket: string, perf: string, amount: number, manDays: number, issuePaid = 0, name?: string) => {
     let m = tradeActual.get(bucket);
     if (!m) tradeActual.set(bucket, (m = new Map()));
-    const cur = m.get(perf) ?? { amount: 0, manDays: 0 };
+    const cur = m.get(perf) ?? { amount: 0, manDays: 0, issuePaid: 0, name };
     cur.amount += amount;
     cur.manDays += manDays;
+    cur.issuePaid += issuePaid;
+    m.set(perf, cur);
+  };
+  const addAttendance = (bucket: string, perf: string, supplierId: string | null, partner: boolean, jouyou: number, ukeoi: number) => {
+    let m = attendance.get(bucket);
+    if (!m) attendance.set(bucket, (m = new Map()));
+    const cur = m.get(perf) ?? { supplierId, partner, jouyou: 0, ukeoi: 0 };
+    cur.jouyou += jouyou;
+    cur.ukeoi += ukeoi;
     m.set(perf, cur);
   };
 
@@ -371,7 +452,7 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
     }
 
     // 労務の行 → 施工者ごと（自社＋所属なし／協力会社ごと）にまとめる
-    const labor = new Map<string, { supplierId: string | null; partner: boolean; amount: number; manDays: number }>();
+    const labor = new Map<string, { supplierId: string | null; partner: boolean; amount: number; manDays: number; ukeoiManDays: number }>();
     for (const l of r.lines) {
       switch (l.kind) {
         case 'labor': {
@@ -380,19 +461,34 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
           if (before !== undefined && r.date < before) break;
           const partner = l.affiliation === 'partner';
           const supplierId = partner ? (l.supplierId ?? null) : null;
-          const key = partner ? `partner:${supplierId ?? ''}` : 'own';
-          const cur = labor.get(key) ?? { supplierId, partner, amount: 0, manDays: 0 };
-          // 原価に数える分（請負の行はうち常用の時間の分だけ）
+          const key = partner ? jouyouKey(supplierId) : OWN_KEY;
+          const cur = labor.get(key) ?? { supplierId, partner, amount: 0, manDays: 0, ukeoiManDays: 0 };
+          // 原価に数える分（請負の行はうち常用の時間の分だけ）。請負の人工は出面だけ
           const split = laborCostSplit(l, laborCtx);
           cur.amount += split.countedCost;
           cur.manDays += split.jouyouManDays;
+          cur.ukeoiManDays += split.ukeoiManDays;
           labor.set(key, cur);
           break;
         }
         case 'fuel': siteActual.fuel += l.stored.amount; break;
         case 'lease': siteActual.lease += l.stored.amount; break;
         case 'cash': siteActual.cash += l.stored.amount; break;
-        case 'credit': siteActual.credit += l.stored.amount; break;
+        case 'credit': {
+          if (l.purchaseKind !== 'subcontract') {
+            siteActual.credit += l.stored.amount;
+            break;
+          }
+          // 外注の買掛 → 工種（無ければ予算外）の請負の行
+          const tradeId = l.siteTradeId !== null && tradeIds.has(l.siteTradeId) ? l.siteTradeId : null;
+          const bucket = tradeId ?? OUTSIDE;
+          const supplierId = l.supplierId ?? null;
+          const amount = l.stored.amount;
+          addActual(bucket, subKey(supplierId, l.vendor), amount, 0, l.issueId ? amount : 0, supplierId === null ? l.vendor.trim() : undefined);
+          dayOf(bucket, r.date).subcontract += amount;
+          if (tradeId === null) outsideSubcontractPaid += amount;
+          break;
+        }
         default: break;
       }
     }
@@ -409,6 +505,7 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
       }
       const amounts = apportion(g.amount, weights, 1);
       const manDays = apportion(round9(g.manDays), weights, 0.01);
+      const ukeoiManDays = apportion(round9(g.ukeoiManDays), weights, 0.01);
       for (const bucket of new Set([...amounts.keys(), ...manDays.keys()])) {
         const a = amounts.get(bucket) ?? 0;
         const m = manDays.get(bucket) ?? 0;
@@ -416,6 +513,9 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
         const d = dayOf(bucket, r.date);
         d.amount += a;
         d.manDays += m;
+      }
+      for (const bucket of new Set([...manDays.keys(), ...ukeoiManDays.keys()])) {
+        addAttendance(bucket, perfKey, g.supplierId, g.partner, manDays.get(bucket) ?? 0, ukeoiManDays.get(bucket) ?? 0);
       }
     }
   }
@@ -447,51 +547,88 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
 
   const performerRows = (budgetLines: BudgetLine[], actual: Map<string, Acc> | undefined, includeOwn: boolean): PerformerRow[] => {
     const rows = new Map<string, PerformerRow>();
-    const rowOf = (key: string, supplierId: string | null, partner: boolean): PerformerRow => {
+    const rowOf = (key: string, item: PerformerItem, supplierId: string | null, name?: string): PerformerRow => {
       let row = rows.get(key);
       if (!row) {
+        const own = item === 'labor';
         row = {
-          performer: partner ? 'partner' : 'own',
+          performer: own ? 'own' : 'partner',
+          item,
           supplierId,
-          name: partner ? partnerName(supplierId) : OWN_LABEL,
+          name: own ? OWN_LABEL : name || partnerName(supplierId),
           budgetAmount: 0,
           budgetManDays: null,
           actualAmount: 0,
           actualManDays: 0,
-          partnerContract: partner && supplierId ? (partnerById.get(supplierId)?.amount ?? null) : null,
+          issuePaid: 0,
+          forecast: null,
+          overContract: false,
+          outsideContract: false,
         };
         rows.set(key, row);
       }
       return row;
     };
-    if (includeOwn) rowOf('own', null, false);
+    if (includeOwn) rowOf(OWN_KEY, 'labor', null);
     for (const b of budgetLines) {
       const partner = b.performer === 'partner';
-      const row = rowOf(partner ? performerKey(b.supplierId) : 'own', partner ? b.supplierId : null, partner);
+      const row = !partner
+        ? rowOf(OWN_KEY, 'labor', null)
+        : b.item === 'subcontract'
+          ? rowOf(subKey(b.supplierId), 'subcontract', b.supplierId)
+          : rowOf(jouyouKey(b.supplierId), 'jouyou', b.supplierId);
       row.budgetAmount += b.amount;
       if (countsAsManDays(b)) row.budgetManDays = round9((row.budgetManDays ?? 0) + b.qty);
     }
     for (const [key, acc] of actual ?? []) {
-      const partner = key !== 'own';
-      const supplierId = partner ? key.slice('partner:'.length) || null : null;
-      const row = rowOf(key, supplierId, partner);
+      let row: PerformerRow;
+      if (key === OWN_KEY) row = rowOf(key, 'labor', null);
+      else if (key.startsWith('jouyou:')) row = rowOf(key, 'jouyou', key.slice('jouyou:'.length) || null);
+      else if (key.startsWith('sub:')) row = rowOf(key, 'subcontract', key.slice('sub:'.length));
+      else row = rowOf(key, 'subcontract', null, acc.name);
       row.actualAmount += acc.amount;
       row.actualManDays = round9(row.actualManDays + acc.manDays);
+      row.issuePaid += acc.issuePaid;
     }
     const list = [...rows.values()];
-    const own = list.filter((r) => r.performer === 'own');
-    const partners = list.filter((r) => r.performer === 'partner').sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-    return [...own, ...partners];
+    const byName = (a: PerformerRow, b: PerformerRow) => a.name.localeCompare(b.name, 'ja');
+    const subs = list.filter((r) => r.item === 'subcontract').sort(byName);
+    const subSuppliers = new Set(subs.map((r) => r.supplierId).filter((id): id is string => id !== null));
+    for (const r of subs) {
+      const paid = r.actualAmount - r.issuePaid;
+      r.overContract = paid > r.budgetAmount;
+      r.forecast = Math.max(r.budgetAmount, paid) + r.issuePaid;
+    }
+    const jouyou = list.filter((r) => r.item === 'jouyou').sort(byName);
+    for (const r of jouyou) r.outsideContract = r.supplierId !== null && subSuppliers.has(r.supplierId);
+    return [...subs, ...list.filter((r) => r.item === 'labor'), ...jouyou];
+  };
+
+  const attendanceOf = (bucket: string): AttendanceRow[] => {
+    const list = [...(attendance.get(bucket)?.values() ?? [])]
+      .map((a) => ({
+        supplierId: a.partner ? a.supplierId : null,
+        name: a.partner ? partnerName(a.supplierId) : OWN_LABEL,
+        manDays: round9(a.jouyou + a.ukeoi),
+        ukeoiManDays: round9(a.ukeoi),
+        jouyouManDays: round9(a.jouyou),
+        own: !a.partner,
+      }))
+      .filter((a) => a.manDays !== 0);
+    const own = list.filter((a) => a.own);
+    const partners = list.filter((a) => !a.own).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    return [...own, ...partners].map(({ own: _own, ...a }) => a);
   };
 
   const daysOf = (bucket: string, unit: string | null): TradeDay[] =>
     [...(days.get(bucket)?.values() ?? [])]
-      .filter((d) => d.lines.length > 0 || d.amount !== 0 || d.manDays !== 0)
+      .filter((d) => d.lines.length > 0 || d.amount !== 0 || d.manDays !== 0 || d.subcontract !== 0)
       .sort((a, b) => a.date.localeCompare(b.date))
       .map((d) => ({
         date: d.date,
         manDays: round9(d.manDays),
         amount: d.amount,
+        subcontract: d.subcontract,
         workManDays: round9(d.workManDays),
         qty: d.qty === null ? null : round9(d.qty),
         unit: d.qty === null ? null : unit,
@@ -510,18 +647,35 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
     const actualAmount = byPerformer.reduce((s, p) => s + p.actualAmount, 0);
     const actualManDays = round9(byPerformer.reduce((s, p) => s + p.actualManDays, 0));
 
+    const subs = byPerformer.filter((p) => p.item === 'subcontract');
+    const subcontract: TradeSubcontract = {
+      budget: subs.reduce((s, p) => s + p.budgetAmount, 0),
+      paid: subs.reduce((s, p) => s + p.actualAmount - p.issuePaid, 0),
+      issuePaid: subs.reduce((s, p) => s + p.issuePaid, 0),
+      forecast: subs.reduce((s, p) => s + (p.forecast ?? 0), 0),
+      overContract: subs.some((p) => p.overContract),
+    };
+    const laborRows = byPerformer.filter((p) => p.item !== 'subcontract');
+    const laborActual = laborRows.reduce((s, p) => s + p.actualAmount, 0);
+    const laborBudget = laborRows.reduce((s, p) => s + p.budgetAmount, 0);
+
     const pu = progressUnit.get(t.id);
     const qty = pu && qtyMatched.has(t.id) ? round9(tradeQty.get(t.id) ?? 0) : null;
     const fromQty = pu && pu.denominator !== 0 && qty !== null ? (qty / pu.denominator) * 100 : null;
     const override = overrideOf.get(t.id) ?? null;
     const raw = override ?? fromQty;
     const used = raw === null ? null : Math.min(100, Math.max(0, raw));
+    const hasUsed = used !== null && used > 0;
+    for (const p of laborRows) p.forecast = hasUsed ? Math.round(p.actualAmount / (used / 100)) : null;
 
-    let forecast: number | null = null;
+    let laborForecast: number | null = null;
+    if (hasUsed) laborForecast = Math.round(laborActual / (used / 100));
+    else if (subs.length > 0 && laborActual === 0 && laborBudget === 0) laborForecast = 0;
+    const forecast = laborForecast === null ? null : subcontract.forecast + laborForecast;
+
     let forecastProfit: number | null = null;
     let status: TradeRow['status'] = 'none';
-    if (used !== null && used > 0) {
-      forecast = Math.round(actualAmount / (used / 100));
+    if (forecast !== null) {
       const hasContract = contractItems.length > 0;
       forecastProfit = hasContract ? contractAmount - forecast : null;
       if (forecast > contractAmount) status = hasContract ? 'loss' : 'none';
@@ -536,16 +690,19 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
       budget: { amount: budgetAmount, manDays: budgetManDays, byPerformer },
       actual: { amount: actualAmount, manDays: actualManDays, byPerformer, qty, unit: pu ? pu.label : null, contractQty: pu ? pu.denominator : null },
       progress: { used, fromQty, override },
+      subcontract,
+      laborForecast,
       forecast,
       forecastProfit,
       status,
       days: daysOf(t.id, pu ? pu.label : null),
+      attendance: attendanceOf(t.id),
     };
   });
 
-  const outsidePerformers = performerRows([], tradeActual.get(OUTSIDE), false).filter(
-    (p) => p.actualAmount !== 0 || p.actualManDays !== 0,
-  );
+  const outsidePerformers = performerRows([], tradeActual.get(OUTSIDE), false)
+    .filter((p) => p.actualAmount !== 0 || p.actualManDays !== 0)
+    .map((p) => ({ ...p, forecast: null, overContract: false }));
   const outside: OutsideRow = {
     budget: { amount: outsideBudget.amount, manDays: round9(outsideBudget.manDays) },
     amount: outsidePerformers.reduce((s, p) => s + p.actualAmount, 0),
@@ -554,6 +711,8 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
     workLineCount: outsideWorkLineCount,
     workManDays: round9(outsideWorkManDays),
     days: daysOf(OUTSIDE, null),
+    attendance: attendanceOf(OUTSIDE),
+    subcontractPaid: outsideSubcontractPaid,
     carryover:
       carryovers.length === 0
         ? null

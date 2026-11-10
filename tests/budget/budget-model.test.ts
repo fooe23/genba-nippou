@@ -4,6 +4,7 @@ import {
   SP_NONE, SP_PAINT, SP_TWO, T_BLAST, T_PAINT, T_SCAFF, T_SEAL,
   nakanoData, nakanoInput, noAffiliation, own, partner, work,
 } from './fixture-nakano';
+import { SP_TOHOKU, T_TILE, murayamaData, murayamaInput, subcontract } from './fixture-murayama';
 import type { BudgetLine } from '@/lib/budget/types';
 import type { SavedReportLine } from '@/lib/reports/types';
 
@@ -13,7 +14,9 @@ const trade = (m: BudgetModel, id: string): TradeRow => {
   return t;
 };
 const day = (t: { days: { date: string; amount: number; manDays: number }[] }, date: string) => t.days.find((d) => d.date === date);
-const performer = (t: TradeRow, supplierId: string | null) => t.actual.byPerformer.find((p) => p.supplierId === supplierId);
+/** 施工者の行（労務・常用。請負の行は subcontractRow）。 */
+const performer = (t: TradeRow, supplierId: string | null) => t.actual.byPerformer.find((p) => p.supplierId === supplierId && p.item !== 'subcontract');
+const subcontractRow = (t: TradeRow, supplierId: string | null) => t.actual.byPerformer.find((p) => p.supplierId === supplierId && p.item === 'subcontract');
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 /** 日ごとに、工種＋予算外の労務費・人工の和がその日の労務の行の和と一致すること。 */
@@ -83,7 +86,7 @@ describe('buildBudgetModel（中野橋）', () => {
 
   it('どこにも入っていない協力会社はその日の行の比', () => {
     // 10/03：□□建設 21000 → ブラスト 2：塗装 1
-    expect(performer(trade(m, T_BLAST), SP_NONE)).toMatchObject({ actualAmount: 14000, actualManDays: 0.67, name: '□□建設', partnerContract: 300000 });
+    expect(performer(trade(m, T_BLAST), SP_NONE)).toMatchObject({ actualAmount: 14000, actualManDays: 0.67, name: '□□建設', item: 'jouyou' });
     expect(performer(trade(m, T_PAINT), SP_NONE)).toMatchObject({ actualAmount: 7000, actualManDays: 0.33 });
   });
 
@@ -121,9 +124,11 @@ describe('buildBudgetModel（中野橋）', () => {
     expect(day(paint, '2026-10-03')).toMatchObject({ qty: null, unit: null });
   });
 
-  it('上書きがあれば used＝上書き', () => {
+  it('上書きがあれば used＝上書き。請負の行のある工種の見込み＝請負額 ＋ 労務・常用の実績 ÷ 進み具合', () => {
     expect(trade(m, T_PAINT).progress).toMatchObject({ override: 40, used: 40 });
-    expect(trade(m, T_PAINT).forecast).toBe(Math.round(81666 / 0.4));
+    expect(trade(m, T_PAINT).laborForecast).toBe(Math.round(81666 / 0.4));
+    expect(trade(m, T_PAINT).forecast).toBe(2500000 + Math.round(81666 / 0.4));
+    expect(trade(m, T_PAINT).status).toBe('overBudget');
   });
 
   it('見込み＝実績 ÷ (used/100)、見込みの粗利＝内訳の金額 − 見込み', () => {
@@ -178,13 +183,20 @@ describe('buildBudgetModel（中野橋）', () => {
     expect(m.total.budgetAmount).toBe(1420000 + 2500000 + 110000 + 40000 + 600000);
   });
 
-  it('協力会社の請負金額が partnerContract に出る、施工者の行（自社 → 協力会社）', () => {
+  it('施工者の行（請負 → 自社・労務 → 常用）。請負額は実行予算の請負の行（現場の協力会社の請負金額は使わない）', () => {
     const paint = trade(m, T_PAINT);
-    expect(paint.budget.byPerformer[0]).toMatchObject({ performer: 'own', supplierId: null, name: '自社', budgetAmount: 0, budgetManDays: null, actualAmount: 30666 });
-    expect(performer(paint, SP_PAINT)).toMatchObject({ performer: 'partner', name: '〇〇塗装', budgetAmount: 2500000, budgetManDays: null, partnerContract: 2600000 });
+    expect(paint.budget.byPerformer.map((p) => [p.item, p.name])).toEqual([
+      ['subcontract', '〇〇塗装'],
+      ['labor', '自社'],
+      ['jouyou', '□□建設'],
+      ['jouyou', '〇〇塗装'],
+    ]);
+    expect(paint.budget.byPerformer[1]).toMatchObject({ performer: 'own', supplierId: null, name: '自社', budgetAmount: 0, budgetManDays: null, actualAmount: 30666 });
+    expect(subcontractRow(paint, SP_PAINT)).toMatchObject({ performer: 'partner', budgetAmount: 2500000, actualAmount: 0, forecast: 2500000, overContract: false });
+    expect(performer(paint, SP_PAINT)).toMatchObject({ item: 'jouyou', budgetAmount: 0, actualAmount: 44000, outsideContract: true });
     const blast = trade(m, T_BLAST);
     expect(performer(blast, null)).toMatchObject({ budgetAmount: 1200000, budgetManDays: 60 });
-    expect(performer(blast, SP_TWO)).toMatchObject({ name: '△△工業', budgetAmount: 220000, budgetManDays: 10, partnerContract: null });
+    expect(performer(blast, SP_TWO)).toMatchObject({ name: '△△工業', item: 'jouyou', budgetAmount: 220000, budgetManDays: 10, outsideContract: false });
     // 予算に無い工種（シール）も自社の行は出る
     expect(trade(m, T_SEAL).budget.byPerformer).toHaveLength(1);
   });
@@ -449,5 +461,105 @@ describe('労務費の決まり（2026-11-17）：請負の行は、うち常用
     const a = performer(trade(withRate, T_PAINT), SP_PAINT)!;
     const b = performer(trade(withRateBase, T_PAINT), SP_PAINT)!;
     expect(b.actualAmount - a.actualAmount).toBe(44000 - 15000);
+  });
+});
+
+describe('請負の実績と見込み（村山様邸。2026-11-17 第 3 段階）', () => {
+  const m = buildBudgetModel(murayamaInput());
+  const tile = trade(m, T_TILE);
+
+  it('タイル：実行予算 ¥310,000、実績 ¥141,000、見込み ¥372,500、見込みの粗利 ¥410,500、予算超え', () => {
+    expect(tile.contractAmount).toBe(783000);
+    expect(tile.budget.amount).toBe(310000);
+    expect(tile.actual.amount).toBe(141000);
+    expect(tile.actual.manDays).toBe(2);
+    expect(tile.laborForecast).toBe(102500);
+    expect(tile.forecast).toBe(372500);
+    expect(tile.forecastProfit).toBe(410500);
+    expect(tile.status).toBe('overBudget');
+    expect(tile.subcontract).toEqual({ budget: 270000, paid: 100000, issuePaid: 0, forecast: 270000, overContract: false });
+  });
+
+  it('施工者の行：東北建興・請負 → 自社・労務 → 東北建興・常用（請負外）', () => {
+    expect(tile.actual.byPerformer).toEqual([
+      expect.objectContaining({ item: 'subcontract', supplierId: SP_TOHOKU, name: '東北建興', budgetAmount: 270000, actualAmount: 100000, issuePaid: 0, forecast: 270000, overContract: false }),
+      expect.objectContaining({ item: 'labor', supplierId: null, name: '自社', budgetAmount: 40000, budgetManDays: 2, actualAmount: 30000, actualManDays: 1.5, forecast: 75000 }),
+      expect.objectContaining({ item: 'jouyou', supplierId: SP_TOHOKU, name: '東北建興', budgetAmount: 0, actualAmount: 11000, actualManDays: 0.5, forecast: 27500, outsideContract: true }),
+    ]);
+  });
+
+  it('出面：東北建興 2.0 人工（請負 1.5・常用 0.5）、自社 1.5 人工', () => {
+    expect(tile.attendance).toEqual([
+      { supplierId: null, name: '自社', manDays: 1.5, ukeoiManDays: 0, jouyouManDays: 1.5 },
+      { supplierId: SP_TOHOKU, name: '東北建興', manDays: 2, ukeoiManDays: 1.5, jouyouManDays: 0.5 },
+    ]);
+  });
+
+  it('外注の買掛は現場全体に入らない（現場全体の買掛は仕入の ¥18,000）。合計の実績 ¥159,000', () => {
+    expect(m.siteWide.actual).toMatchObject({ credit: 18000, amount: 18000 });
+    expect(m.total.actualAmount).toBe(159000);
+    expect(m.outside.subcontractPaid).toBe(0);
+  });
+
+  it('日の行に外注の支払いを出す', () => {
+    expect(day(tile, '2026-11-09')).toMatchObject({ amount: 31000, subcontract: 100000 });
+    expect(day(tile, '2026-11-10')).toMatchObject({ amount: 10000, subcontract: 0 });
+  });
+
+  it('外注の支払いが請負額を超えたら、請負の見込み＝支払い・「請負額を超えています」', () => {
+    const input = murayamaInput();
+    input.reports[1].lines.push(subcontract(200000));
+    const t = trade(buildBudgetModel(input), T_TILE);
+    expect(t.subcontract).toMatchObject({ paid: 300000, forecast: 300000, overContract: true });
+    expect(subcontractRow(t, SP_TOHOKU)).toMatchObject({ actualAmount: 300000, forecast: 300000, overContract: true });
+    expect(t.forecast).toBe(402500);
+  });
+
+  it('件を選んだ外注（追加の発注）は工種の実績・見込みに足すが、請負額との比べには入れない', () => {
+    const input = murayamaInput();
+    input.reports[1].lines.push(subcontract(200000, { issueId: 'issue-1' }));
+    const t = trade(buildBudgetModel(input), T_TILE);
+    expect(t.subcontract).toEqual({ budget: 270000, paid: 100000, issuePaid: 200000, forecast: 470000, overContract: false });
+    expect(subcontractRow(t, SP_TOHOKU)).toMatchObject({ actualAmount: 300000, issuePaid: 200000, forecast: 470000, overContract: false });
+    expect(t.actual.amount).toBe(341000);
+    expect(t.forecast).toBe(572500);
+  });
+
+  it('工種を選んでいない外注は予算外（工種なしの外注）に入り、現場全体にも工種にも入らない', () => {
+    const input = murayamaInput();
+    input.reports[1].lines.push(subcontract(50000, { tradeId: null }));
+    const mm = buildBudgetModel(input);
+    expect(mm.outside.subcontractPaid).toBe(50000);
+    expect(mm.outside.amount).toBe(50000);
+    expect(mm.outside.byPerformer).toEqual([expect.objectContaining({ item: 'subcontract', supplierId: SP_TOHOKU, actualAmount: 50000, forecast: null })]);
+    expect(trade(mm, T_TILE).actual.amount).toBe(141000);
+    expect(mm.siteWide.actual.credit).toBe(18000);
+    expect(mm.total.actualAmount).toBe(209000);
+  });
+
+  it('実行予算に請負の行が無い会社への外注：請負額 0、見込み＝支払い', () => {
+    const input = murayamaInput();
+    input.reports[1].lines.push(subcontract(30000, { supplierId: null, vendor: '手入力の工務店' }));
+    const t = trade(buildBudgetModel(input), T_TILE);
+    const row = t.actual.byPerformer.find((p) => p.item === 'subcontract' && p.supplierId === null);
+    expect(row).toMatchObject({ name: '手入力の工務店', budgetAmount: 0, actualAmount: 30000, forecast: 30000, overContract: true });
+  });
+
+  it('進み具合が無い（上書きを外す・数量も無い）→ 見込み null・判定 none', () => {
+    const data = murayamaData();
+    data.progress = [];
+    const t = trade(buildBudgetModel(murayamaInput({ data })), T_TILE);
+    expect(t.progress.used).toBeNull();
+    expect(t).toMatchObject({ forecast: null, laborForecast: null, forecastProfit: null, status: 'none' });
+    expect(subcontractRow(t, SP_TOHOKU)).toMatchObject({ forecast: 270000 });
+  });
+
+  it('請負だけの工種（労務・常用の予算も実績も無い）：進み具合が無くても見込み＝請負の見込み', () => {
+    const data = murayamaData();
+    data.progress = [];
+    data.budgetLines = data.budgetLines.filter((b) => b.item === 'subcontract');
+    const input = murayamaInput({ data, reports: [{ date: '2026-11-09', lines: [subcontract(100000)] }] });
+    const t = trade(buildBudgetModel(input), T_TILE);
+    expect(t).toMatchObject({ laborForecast: 0, forecast: 270000, forecastProfit: 513000, status: 'ok' });
   });
 });

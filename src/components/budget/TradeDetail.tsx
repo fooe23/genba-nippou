@@ -16,16 +16,9 @@ export function performerActualText(p: PerformerRow): string {
   return `${yenText(p.actualAmount)}（${manDaysText(p.actualManDays)}）`;
 }
 
-/** 施工者の名前と、協力会社の請負金額の注記（現場全体の額。工種に分けていない）。 */
+/** 施工者の名前。 */
 export function PerformerName({ p }: { p: PerformerRow }) {
-  return (
-    <>
-      <span className="font-medium">{p.performer === 'partner' ? `${p.name}（協力会社）` : p.name}</span>
-      {p.partnerContract !== null && (
-        <span className={smallTextClass}>請負金額 {yenText(p.partnerContract)}（現場全体の額。工種に分けていません）</span>
-      )}
-    </>
-  );
+  return <span className="font-medium">{p.performer === 'partner' ? `${p.name}（協力会社）` : p.name}</span>;
 }
 
 /** 施工者ごとの予算と実績（カード・予算外の行で使う一覧）。 */

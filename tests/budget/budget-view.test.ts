@@ -69,7 +69,7 @@ describe('判定の札', () => {
 
 describe('予算の人工の内わけ', () => {
   const p = (name: string, budgetManDays: number | null): PerformerRow => ({
-    performer: 'own', supplierId: null, name, budgetAmount: 0, budgetManDays, actualAmount: 0, actualManDays: 0, partnerContract: null,
+    performer: 'own', supplierId: null, name, budgetAmount: 0, budgetManDays, actualAmount: 0, actualManDays: 0, item: 'labor', issuePaid: 0, forecast: null, overContract: false, outsideContract: false,
   });
   it('人工のある施工者だけ', () => {
     expect(budgetManDaysSummary([p('自社', 80), p('〇〇塗装', null), p('△△工業', 10)])).toBe('自社 80.0 人工・△△工業 10.0 人工');

@@ -140,7 +140,7 @@ function performerRow(trade: string, p: PerformerRow): Cell[] {
     qty(p.actualManDays),
     yen(p.actualAmount),
     yen(p.budgetAmount - p.actualAmount),
-    p.performer === 'partner' ? yen(p.partnerContract) : '',
+    '',
   ];
 }
 
