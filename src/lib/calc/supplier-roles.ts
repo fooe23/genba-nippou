@@ -57,15 +57,19 @@ export function materialCreditSupplierIds(
 
 /**
  * 外注の買掛の行の支払先の検証：協力会社の印のある会社でなければ（取引先だけ・読めない会社・手入力）文言、問題なければ null。
- * 仕入の行は見ない。
+ * 仕入の行は見ない。storedIds（この日報の外注の行に保存済みの会社）は、印を外した後も保存し直せる（仕入の行と同じ規則。
+ * 画面も保存済みの会社を選択肢に残す）。
  */
 export function subcontractSupplierError(
   lines: readonly { purchaseKind?: 'material' | 'subcontract'; supplierId: string | null }[],
   roles: SupplierRoles,
+  storedIds: Iterable<string> = [],
 ): string | null {
+  const stored = new Set(storedIds);
   for (const l of lines) {
     if (l.purchaseKind !== 'subcontract') continue;
-    if (!l.supplierId || !isPartnerSupplier(roles, l.supplierId)) return MSG_SUBCONTRACT_SUPPLIER;
+    if (!l.supplierId) return MSG_SUBCONTRACT_SUPPLIER;
+    if (!isPartnerSupplier(roles, l.supplierId) && !stored.has(l.supplierId)) return MSG_SUBCONTRACT_SUPPLIER;
   }
   return null;
 }

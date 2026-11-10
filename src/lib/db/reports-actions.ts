@@ -110,8 +110,11 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
       const staff = isEmployeeOrAdmin(profile);
       const inputError = subcontractInputError(v.lines, { isStaff: staff, ready: staff ? await subcontractColumnsReady() : false });
       if (inputError) return { ok: false, error: inputError };
-      const roles = await loadSupplierRoles(await createServerSupabase(), subLines.flatMap((l) => (l.supplierId ? [l.supplierId] : [])));
-      const subError = subcontractSupplierError(subLines, roles);
+      const [roles, storedSub] = await Promise.all([
+        loadSupplierRoles(await createServerSupabase(), subLines.flatMap((l) => (l.supplierId ? [l.supplierId] : []))),
+        loadStoredCreditSuppliers(v.siteId, v.date, 'subcontract'),
+      ]);
+      const subError = subcontractSupplierError(subLines, roles, storedSub);
       if (subError) return { ok: false, error: subError };
     }
 
@@ -176,16 +179,20 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
   }
 }
 
-/** その日報に保存済みの買掛の行の会社（gn_report_lines.ref_id）。日報が無ければ空。 */
-async function loadStoredCreditSuppliers(siteId: string, date: string): Promise<string[]> {
+/**
+ * その日報に保存済みの買掛の行の会社（gn_report_lines.ref_id）。日報が無ければ空。
+ * purchaseKind に 'subcontract' を渡すと外注の行だけ（区分の列がある DB でだけ呼ぶこと。2026-11-17）。
+ */
+async function loadStoredCreditSuppliers(siteId: string, date: string, purchaseKind?: 'subcontract'): Promise<string[]> {
   const supabase = await createServerSupabase();
-  const { data, error } = await supabase
+  let query = supabase
     .from('gn_daily_reports')
     .select('gn_report_lines(ref_id)')
     .eq('site_id', siteId)
     .eq('report_date', date)
-    .eq('gn_report_lines.kind', 'credit')
-    .maybeSingle();
+    .eq('gn_report_lines.kind', 'credit');
+  if (purchaseKind) query = query.eq('gn_report_lines.purchase_kind', purchaseKind);
+  const { data, error } = await query.maybeSingle();
   if (error) throw new Error(error.message);
   return ((data as { gn_report_lines: { ref_id: string | null }[] | null } | null)?.gn_report_lines ?? [])
     .map((r) => r.ref_id)

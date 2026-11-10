@@ -79,6 +79,11 @@ describe('日報の保存：外注の買掛の支払先（2026-11-17）', () => 
     expect(subcontractSupplierError([{ purchaseKind: 'subcontract', supplierId: null }], roles)).toBe(MSG_SUBCONTRACT_SUPPLIER);
     expect(MSG_SUBCONTRACT_SUPPLIER).toBe('外注の支払先は協力会社から選んでください');
   });
+  it('外注 × この日報に保存済みの会社は、協力会社の印を外した後も保存し直せる（手入力は止める）', () => {
+    expect(subcontractSupplierError([{ purchaseKind: 'subcontract', supplierId: 'v' }], roles, ['v'])).toBeNull();
+    expect(subcontractSupplierError([{ purchaseKind: 'subcontract', supplierId: 'x' }], roles, ['v'])).toBe(MSG_SUBCONTRACT_SUPPLIER);
+    expect(subcontractSupplierError([{ purchaseKind: 'subcontract', supplierId: null }], roles, ['v'])).toBe(MSG_SUBCONTRACT_SUPPLIER);
+  });
   it('仕入の行は見ない', () => {
     expect(subcontractSupplierError([{ purchaseKind: 'material', supplierId: null }, { purchaseKind: 'material', supplierId: 'p' }], roles)).toBeNull();
   });
