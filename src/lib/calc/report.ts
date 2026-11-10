@@ -132,7 +132,7 @@ export function lineAmount(line: ReportLine, common: TimeSpec, rule: LaborRule, 
 export function reportTotals(lines: ReportLine[], common: TimeSpec, rule: LaborRule, opts?: LaborCalcOptions): ReportTotals {
   const t: ReportTotals = {
     laborHours: 0, manDays: 0, overtimeHours: 0, workerCount: 0,
-    labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, cost: 0, output: 0,
+    labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, cost: 0, output: 0,
   };
   for (const line of lines) {
     switch (line.kind) {
@@ -154,9 +154,12 @@ export function reportTotals(lines: ReportLine[], common: TimeSpec, rule: LaborR
       case 'cash':
         t.cash += lineAmount(line, common, rule);
         break;
-      case 'credit':
-        t.credit += lineAmount(line, common, rule);
+      case 'credit': {
+        const a = lineAmount(line, common, rule);
+        t.credit += a;
+        if (line.purchaseKind === 'subcontract') t.subcontract += a;
         break;
+      }
       case 'work':
         t.output += lineAmount(line, common, rule);
         break;

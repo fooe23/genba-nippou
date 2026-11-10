@@ -93,7 +93,7 @@ function DayPage({ model, outputAt }: { model: DailyReportModel; outputAt: strin
           {/* 本日原価集計と本日出来高は横に並べる。 */}
           <View style={s.pair} wrap={false}>
             <View style={s.pairItem}>
-              <TableSection title={DAILY_SECTION_TITLES.costs} note="合計は保存された原価合計" table={t.costs} />
+              <TableSection title={DAILY_SECTION_TITLES.costs} note="合計は明細の保存値の合計" table={t.costs} />
             </View>
             <View style={s.pairItem}>
               <TableSection title={`${DAILY_SECTION_TITLES.output}・進捗率`} note="進捗率 = 累計出来高 ÷ 請負金額" table={t.output} />

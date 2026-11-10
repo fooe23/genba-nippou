@@ -622,3 +622,24 @@ describe('④ 所属の列・④-2 所属別の人工・労務費', () => {
     expect(m.affiliations.rows.find((r) => r.label === '〇〇工業')!.ukeoiManDays).toBe(1.5);
   });
 });
+
+describe('外注の買掛（2026-11-17）：原価に 1 回だけ入る（見出しの cost_total は外注を含まない）', () => {
+  const sub: SavedReportLine = {
+    kind: 'credit', itemName: 'タイル工事', spec: '', unit: '式', qty: 1, unitPrice: 100000, supplierId: 'sp1', vendor: '山田商店',
+    stored: stored(100000), purchaseKind: 'subcontract', siteTradeId: null, issueId: null,
+  };
+  // DB と同じく、見出しの cost_total から外注の買掛を除く
+  const r = report('2026-11-02', [labor('w1', '田中', 1, 20000), credit('sp1', '山田商店', 18000), sub]);
+  const reports = [{ ...r, costTotal: r.costTotal - 100000 }];
+  const m = buildCostReport(input(reports), NOV, now, RATES);
+
+  it('① 原価合計・③ 累計原価・② 採算は 20,000 ＋ 18,000 ＋ 100,000 ＝ 138,000', () => {
+    expect(m.costs.total).toBe(138000);
+    expect(m.costs.credit).toBe(118000);
+    expect(m.trend.total.cumulativeCost).toBe(138000);
+    expect(m.profit.totalCost).toBe(138000);
+  });
+  it('⑤ 取引先別の買掛にも 1 回だけ', () => {
+    expect(m.vendors.total).toEqual({ cash: 0, credit: 118000, total: 118000 });
+  });
+});

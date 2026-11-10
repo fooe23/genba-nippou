@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { jpDate, jpDateTime, yen } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
-import { listFixRequests, listSubmittedReports, type FixRequest, type SubmittedReport } from '@/lib/db/reports';
+import { listFixRequests, listSubmittedReports, loadSubcontractTotals, type FixRequest, type SubmittedReport } from '@/lib/db/reports';
 import { Chevron, linkTitleClass, rowLinkClass } from '@/components/ui/tappable';
 
 export const metadata = { title: '承認' };
@@ -19,6 +19,8 @@ function groupBySite(reports: SubmittedReport[]): { siteId: string; siteName: st
 export default async function ApprovalsPage() {
   await requireProfile();
   const [reports, fixRequests] = await Promise.all([listSubmittedReports(), listFixRequests()]);
+  // 本日原価 ＝ 見出しの cost_total（外注の買掛を含まない）＋ 外注の買掛（2026-11-17。明細から 1 回の問い合わせで読む）。
+  const subcontract = await loadSubcontractTotals(reports.map((r) => r.id));
   const groups = groupBySite(reports);
 
   return (
@@ -50,7 +52,7 @@ export default async function ApprovalsPage() {
                     </span>
                     <span className="shrink-0 text-right text-sm tabular-nums">
                       <span className="block">出来高 {yen(r.outputTotal)}</span>
-                      <span className="block text-gray-600 dark:text-gray-400">本日原価 {yen(r.costTotal)}</span>
+                      <span className="block text-gray-600 dark:text-gray-400">本日原価 {yen(r.costTotal + (subcontract.get(r.id) ?? 0))}</span>
                     </span>
                     <Chevron />
                   </Link>

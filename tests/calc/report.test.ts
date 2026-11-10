@@ -99,6 +99,15 @@ describe('日報合計', () => {
     expect(t.cost).toBe(18000 + 7950 + 680 + 3500 + 1400 + 12500);
     expect(t.output).toBe(42000);
   });
+  it('外注の買掛（2026-11-17）は買掛に 1 回だけ入り、うち外注にも数える', () => {
+    const t = reportTotals([
+      { kind: 'credit', itemName: 'タイル', spec: '', unit: '箱', qty: 2, unitPrice: 9000, supplierId: null, vendor: '〇〇建材', purchaseKind: 'material', siteTradeId: null, issueId: null },
+      { kind: 'credit', itemName: 'タイル工事', spec: '', unit: '式', qty: 1, unitPrice: 100000, supplierId: null, vendor: '東北建興', purchaseKind: 'subcontract', siteTradeId: null, issueId: null },
+    ], common, rule);
+    expect(t.credit).toBe(118000);
+    expect(t.subcontract).toBe(100000);
+    expect(t.cost).toBe(118000);
+  });
   it('残業時間の合計（小数2桁）', () => {
     const long = { start: '07:00', end: '17:15', breakMin: 60, gapMin: 0 }; // 9.25H → 残業 1.25H
     const t = reportTotals([

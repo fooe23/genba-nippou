@@ -83,7 +83,7 @@ describe('dailyTables', () => {
     expect(t.credit.total?.map(formatCell)).toEqual(['合計', '', '', '', '', '15,800', '']);
   });
 
-  it('本日原価集計：5 費目は明細の保存値、合計は見出しの cost_total（保存値）', () => {
+  it('本日原価集計：5 費目と合計は明細の保存値（見出しの cost_total は使わない。外注の買掛を含まないため）', () => {
     const t = dailyTables(sampleDaily({ report: report('2026-11-02', { costTotal: 99_999 }) })).costs;
     expect(text(t)).toEqual([
       ['労務費', '35,345'],
@@ -92,7 +92,7 @@ describe('dailyTables', () => {
       ['現金購入費', '1,200'],
       ['買掛費', '15,800'],
     ]);
-    expect(t.total?.map(formatCell)).toEqual(['合計', '99,999']);
+    expect(t.total?.map(formatCell)).toEqual(['合計', '61,059']);
   });
 
   it('本日出来高：本日・累計・請負金額・進捗率', () => {
@@ -186,5 +186,22 @@ describe('買掛の列名と外注の行（2026-11-17）', () => {
     };
     const m = sampleDaily({ report: { ...base, lines: [...base.lines, sub] }, tradeNames: { t1: 'タイル' } });
     expect(m.credit.rows.at(-1)).toMatchObject({ name: '【外注・タイル】タイル工事', vendor: '東北建興', amount: 100000 });
+  });
+});
+
+describe('本日原価集計の外注（2026-11-17）', () => {
+  it('外注の買掛は買掛費に 1 回だけ入り、「うち外注」の行が出る。合計は明細の和', () => {
+    const base = report();
+    const sub = {
+      kind: 'credit' as const, itemName: 'タイル工事', spec: '', unit: '式', qty: 1, unitPrice: 100000, supplierId: 'sp9', vendor: '東北建興',
+      purchaseKind: 'subcontract' as const, siteTradeId: null, issueId: null,
+      stored: { amount: 100000, manDays: 0, overtimeHours: 0, hours: 0 },
+    };
+    const m = sampleDaily({ report: { ...base, lines: [...base.lines, sub] } });
+    expect(m.costs).toMatchObject({ credit: 115800, subcontract: 100000, total: 161059 });
+    const t = dailyTables(m).costs;
+    expect(text(t)).toContainEqual(['買掛費', '115,800']);
+    expect(text(t)).toContainEqual(['　うち外注', '100,000']);
+    expect(t.total?.map(formatCell)).toEqual(['合計', '161,059']);
   });
 });

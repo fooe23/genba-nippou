@@ -26,14 +26,17 @@ export function SiteSummary({
   today,
   issues,
   showMoney,
+  subcontractTotal = 0,
 }: {
   site: Site;
   heads: ReportHead[];
   today: string;
   issues: Issue[];
   showMoney: boolean;
+  /** 外注の買掛の合計（2026-11-17。見出しの cost_total に入っていない分。協力会社には 0）。 */
+  subcontractTotal?: number;
 }) {
-  const costTotal = heads.reduce((sum, h) => sum + h.costTotal, 0);
+  const costTotal = heads.reduce((sum, h) => sum + h.costTotal, 0) + subcontractTotal;
   const outputTotal = heads.reduce((sum, h) => sum + h.outputTotal, 0);
   const rate = !showMoney || site.contractAmount === null ? null : progressRate(outputTotal, site.contractAmount) * 100;
   const allDates = heads.map((h) => h.reportDate);

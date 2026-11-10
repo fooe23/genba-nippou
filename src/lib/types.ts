@@ -80,6 +80,7 @@ export interface WorkLine   {
   siteTradeId: string | null;
 }
 export type ReportLine = LaborLine | FuelLine | LeaseLine | CashLine | CreditLine | WorkLine;
-export interface ReportTotals { laborHours: number; manDays: number; overtimeHours: number; workerCount: number; labor: number; fuel: number; lease: number; cash: number; credit: number; cost: number; output: number; }
+/** 日報の画面の集計。credit は買掛の全部（仕入＋外注）、subcontract はそのうちの外注（2026-11-17）。cost に外注は 1 回だけ入る。 */
+export interface ReportTotals { laborHours: number; manDays: number; overtimeHours: number; workerCount: number; labor: number; fuel: number; lease: number; cash: number; credit: number; subcontract: number; cost: number; output: number; }
 /** 人工・残業の計算設定（gn_settings。Excel 雛形 V34 の「労務の計算設定」と同じ）。 */
 export interface LaborRule { shoteiHours: number; fixedOvertimeLimit: number; overtimeMultiplier: number; overtimeBaseHours: number; }

@@ -9,7 +9,17 @@ import type { Carryover } from '@/lib/db/sites';
 
 /** 労務行 1 件の保存値（man_days・amount・overtime_hours）。 */
 export interface LaborEntry { reportDate: string; workerId: string | null; workerName: string; manDays: number; cost: number; overtimeHours: number; }
-export interface DayTotals extends ReportHead { labor: number; fuel: number; lease: number; cash: number; credit: number; workerCount: number; }
+/**
+ * 日ごとの区分別の合計（明細の保存値）。credit は買掛の全部（仕入＋外注）、subcontract はそのうちの外注（2026-11-17）。
+ * 原価 ＝ labor + fuel + lease + cash + credit（外注は credit に 1 回だけ入る）。見出しの costTotal（cost_total）は外注を含まないので
+ * 原価には使わない。
+ */
+export interface DayTotals extends ReportHead { labor: number; fuel: number; lease: number; cash: number; credit: number; subcontract: number; workerCount: number; }
+
+/** 日の原価（区分の和。外注の買掛を含む）。 */
+export function dayCostTotal(d: Pick<DayTotals, 'labor' | 'fuel' | 'lease' | 'cash' | 'credit'>): number {
+  return d.labor + d.fuel + d.lease + d.cash + d.credit;
+}
 export interface MonthlyRow { date: string; monthIndex: number; totalIndex: number; weather: string | null; workerCount: number; labor: number; fuel: number; lease: number; cash: number; credit: number; cost: number; output: number; progress: number; }
 
 function round2(x: number): number {
@@ -37,7 +47,7 @@ export function monthlyRows(days: DayTotals[], month: string, contractTotal: num
         lease: d.lease,
         cash: d.cash,
         credit: d.credit,
-        cost: d.costTotal,
+        cost: dayCostTotal(d),
         output: d.outputTotal,
         progress: progressRate(cumulative, contractTotal),
       };

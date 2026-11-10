@@ -130,7 +130,7 @@ const kv = (rows: [string, Cell][], total?: [string, Cell]): SectionTable => ({
 });
 
 /**
- * 日報の表（雛形の並び）。金額・人工・残業・実働は保存値のまま。本日原価集計の合計は見出しの cost_total。
+ * 日報の表（雛形の並び）。金額・人工・残業・実働は保存値のまま。本日原価集計の合計は明細の保存値の和（外注の買掛を含む）。
  * 手入力の名前には「（手入力）」。作業内容の追加・増・変更・減の行は【区分】つきで太字（boldRows）。行が無い表は rows が空（PDF は「なし」の 1 行を出す）。
  */
 export function dailyTables(m: DailyReportModel): Record<
@@ -194,8 +194,10 @@ export function dailyTables(m: DailyReportModel): Record<
         ['リース費', yen(c.lease)],
         ['現金購入費', yen(c.cash)],
         ['買掛費', yen(c.credit)],
+        // 買掛のうち外注（2026-11-17）。外注の無い日は出さない。
+        ...(c.subcontract !== 0 ? [['　うち外注', yen(c.subcontract)] as [string, string]] : []),
       ],
-      ['合計', yen(c.costTotal)],
+      ['合計', yen(c.total)],
     ),
     output: {
       columns: [text('項目', 3), num('値', 2)],

@@ -63,9 +63,9 @@ describe('buildDailyReport', () => {
     expect(m.credit.total).toEqual({ amount: 15800 });
   });
 
-  it('本日原価集計：明細の保存値を費目ごとに足し、見出しの cost_total も出す', () => {
+  it('本日原価集計：明細の保存値を費目ごとに足す（合計も明細の和）', () => {
     const m = sampleDaily();
-    expect(m.costs).toEqual({ labor: 35345, fuel: 714, lease: 8000, cash: 1200, credit: 15800, total: COST_TOTAL, costTotal: COST_TOTAL });
+    expect(m.costs).toEqual({ labor: 35345, fuel: 714, lease: 8000, cash: 1200, credit: 15800, subcontract: 0, total: COST_TOTAL });
   });
 
   it('本日出来高と進捗率 = (前日までの出来高 + 本日) ÷ 請負金額', () => {
@@ -182,7 +182,7 @@ describe('buildEmptyDailyReport', () => {
     });
     expect(m.workers.rows).toEqual([]);
     expect(m.work.rows).toEqual([]);
-    expect(m.costs).toEqual({ labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, total: 0, costTotal: 0 });
+    expect(m.costs).toEqual({ labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, total: 0 });
     expect(m.output).toEqual({ today: 0, cumulative: null, contractAmount: 1_000_000, progress: null, tentative: false, estimatedAmount: null });
     expect(m.signature).toEqual({ createdBy: null, reviewedBy: null, approvedBy: null, approvedAt: null });
   });

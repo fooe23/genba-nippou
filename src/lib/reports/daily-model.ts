@@ -17,7 +17,8 @@ import type {
 import type { LaborLine, TimeSpec } from '@/lib/types';
 
 // 日報 1 日分の帳票のデータ（純関数）。数値だけを持ち、整形はレンダラー（PDF・CSV）が行う。
-// 金額・人工・残業・実働は DB の保存値（stored・saved・cost_total・output_total）だけを使い、ここで再計算しない。
+// 金額・人工・残業・実働は DB の保存値（stored・saved・output_total）だけを使い、ここで再計算しない。
+// 本日原価の合計は明細の保存値の和（見出しの cost_total は外注の買掛を含まないので使わない。2026-11-17）。
 
 const EMPTY_TIME: TimeSpec = { start: null, end: null, breakMin: null, gapMin: null };
 
@@ -143,6 +144,8 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
   const lease = sum(leases.map((r) => r.amount));
   const cashTotal = sum(cash.map((r) => r.amount));
   const creditTotal = sum(credit.map((r) => r.amount));
+  // 買掛のうち外注（2026-11-17）。買掛費（creditTotal）に 1 回だけ入っている。
+  const subcontractTotal = sum(report.lines.flatMap((l) => (l.kind === 'credit' && l.purchaseKind === 'subcontract' ? [l.stored.amount] : [])));
   const visit = visitNumbers(input.reportDates, report.reportDate);
   const cumulative = input.cumulativeOutputBefore + report.outputTotal;
   const contract = site.contractAmount;
@@ -173,7 +176,7 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
     leases: { rows: leases, total: { amount: lease } },
     cash: { rows: cash, total: { amount: cashTotal } },
     credit: { rows: credit, total: { amount: creditTotal } },
-    costs: { labor, fuel, lease, cash: cashTotal, credit: creditTotal, total: labor + fuel + lease + cashTotal + creditTotal, costTotal: report.costTotal },
+    costs: { labor, fuel, lease, cash: cashTotal, credit: creditTotal, subcontract: subcontractTotal, total: labor + fuel + lease + cashTotal + creditTotal },
     output: { today: report.outputTotal, cumulative, contractAmount: contract, progress: contract ? cumulative / contract : null, ...contractBasis(site) },
     work: { rows: work, total: { manDays: sum(work.map((r) => r.manDays)), amount: sum(work.map((r) => r.amount)) }, changes: storedChangeTotals(work) },
     issues: {
@@ -221,7 +224,7 @@ export function buildEmptyDailyReport(site: Site, date: string): DailyReportMode
     leases: { rows: [], total: { amount: 0 } },
     cash: { rows: [], total: { amount: 0 } },
     credit: { rows: [], total: { amount: 0 } },
-    costs: { labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, total: 0, costTotal: 0 },
+    costs: { labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, total: 0 },
     output: { today: 0, cumulative: null, contractAmount: site.contractAmount, progress: null, ...contractBasis(site) },
     work: { rows: [], total: { manDays: 0, amount: 0 }, changes: null },
     issues: { text: '', items: [] },

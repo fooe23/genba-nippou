@@ -452,8 +452,11 @@ export interface DailyReportModel {
   leases: { rows: DailyLeaseRow[]; total: { amount: number } };
   cash: { rows: DailyPurchaseRow[]; total: { amount: number } };
   credit: { rows: DailyPurchaseRow[]; total: { amount: number } };
-  /** 本日原価集計。5 費目と total は明細の stored.amount の合計、costTotal は見出しの cost_total（一致するはず）。 */
-  costs: { labor: number; fuel: number; lease: number; cash: number; credit: number; total: number; costTotal: number };
+  /**
+   * 本日原価集計。5 費目と total は明細の stored.amount の合計（2026-11-17 から見出しの cost_total は使わない。外注の買掛を含まないため）。
+   * credit は買掛の全部（仕入＋外注）、subcontract はそのうちの外注。
+   */
+  costs: { labor: number; fuel: number; lease: number; cash: number; credit: number; subcontract: number; total: number };
   /**
    * 本日出来高（output_total）と進捗率。cumulative = 前日までの出来高 + 本日（日報の無い日は null）。
    * progress = cumulative ÷ 請負金額（請負金額が null・0、または日報の無い日は null）。

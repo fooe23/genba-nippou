@@ -1,5 +1,6 @@
 import {
   costSummary,
+  dayCostTotal,
   monthlyRows,
   sumRows,
   workerCumulative,
@@ -9,6 +10,7 @@ import {
   type Period,
 } from '@/lib/calc/aggregate';
 import { UNKNOWN_PARTNER_LABEL } from '@/lib/calc/affiliation';
+import { dayCostOf } from '@/lib/calc/day-cost';
 import { daysBetween, monthEnd } from '@/lib/calc/calendar';
 import { monthKey } from '@/lib/calc/format';
 import type { Site } from '@/lib/db/sites';
@@ -39,7 +41,7 @@ import type {
 } from '@/lib/reports/types';
 
 // 工事原価集計表のデータ組み立て（純関数。DB・Next に依存しない）。数値だけを持ち、整形はレンダラーが行う。
-// 金額・人工はすべて保存値（cost_total・output_total・明細の amount・man_days・overtime_hours）から計算し、
+// 金額・人工はすべて保存値（output_total・明細の amount・man_days・overtime_hours）から計算し（原価は明細の和。cost_total は外注の買掛を含まないので使わない）、
 // アプリ内の集計画面（src/app/(app)/sites/[siteId]/summary）と同じ関数（monthlyRows・sumRows・costSummary・
 // workerCumulative）を使う。
 //
@@ -79,17 +81,10 @@ const minDate = (a: string, b: string) => (a < b ? a : b);
 
 /** 日報 1 件を集計画面と同じ DayTotals にする（区分別の合計は明細の保存値 amount）。 */
 function toDayTotals(r: ReportWithLines): DayTotals {
-  const t = { labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, workerCount: 0 };
-  for (const l of r.lines) {
-    switch (l.kind) {
-      case 'labor': t.labor += l.stored.amount; t.workerCount += 1; break;
-      case 'fuel': t.fuel += l.stored.amount; break;
-      case 'lease': t.lease += l.stored.amount; break;
-      case 'cash': t.cash += l.stored.amount; break;
-      case 'credit': t.credit += l.stored.amount; break;
-    }
-  }
-  return { ...r, ...t };
+  // 買掛（credit）は仕入＋外注（外注は 1 回だけ）。subcontract はそのうちの外注（2026-11-17）。
+  const c = dayCostOf(r.lines);
+  const workerCount = r.lines.filter((l) => l.kind === 'labor').length;
+  return { ...r, labor: c.labor, fuel: c.fuel, lease: c.lease, cash: c.cash, credit: c.credit + c.subcontract, subcontract: c.subcontract, workerCount };
 }
 
 function laborEntries(reports: ReportWithLines[]): LaborEntry[] {
@@ -220,7 +215,8 @@ function buildTrend(allDays: DayTotals[], period: CostReportPeriod, periodMonths
     }
   }
 
-  const cumulativeCostTo = (to: string) => allDays.reduce((sum, d) => (d.reportDate <= to ? sum + d.costTotal : sum), 0);
+  // 累計原価は明細の区分の和（見出しの cost_total は外注の買掛を含まない。2026-11-17）。
+  const cumulativeCostTo = (to: string) => allDays.reduce((sum, d) => (d.reportDate <= to ? sum + dayCostTotal(d) : sum), 0);
   const rows: TrendRow[] = buckets.map((b) => {
     const inBucket = daily.filter((r) => r.date >= b.from && r.date <= b.to);
     const s = sumRows(inBucket);

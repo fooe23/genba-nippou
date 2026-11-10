@@ -70,7 +70,15 @@ export function ReportSummary({
           <Line label="燃料費" value={money(totals.fuel)} />
           <Line label="リース費" value={money(totals.lease)} />
           <Line label="現金購入" value={money(totals.cash)} />
-          <Line label="買掛" value={money(totals.credit)} />
+          {totals.subcontract !== 0 ? (
+            <>
+              {/* 外注の買掛（2026-11-17。社員・管理者の画面だけに行がある）は仕入と分けて出す。合計には 1 回だけ入る。 */}
+              <Line label="買掛（仕入）" value={money(totals.credit - totals.subcontract)} />
+              <Line label="外注" value={money(totals.subcontract)} />
+            </>
+          ) : (
+            <Line label="買掛" value={money(totals.credit)} />
+          )}
           <Line label="本日原価 合計" value={money(totals.cost)} strong />
         </dl>
       </div>

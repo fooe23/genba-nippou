@@ -1,4 +1,5 @@
 import 'server-only';
+import { dayCostTotal } from '@/lib/calc/aggregate';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
 import { toStatus } from '@/lib/db/reports';
@@ -199,7 +200,8 @@ export async function loadExportInput(siteId: string, month: string): Promise<Ex
     vehicles,
     leaseItems,
     reports,
-    siteReports: summary.days.map((d) => ({ reportDate: d.reportDate, costTotal: d.costTotal })),
+    // 累計原価は明細の区分の和（見出しの cost_total は外注の買掛を含まない。2026-11-17）。
+    siteReports: summary.days.map((d) => ({ reportDate: d.reportDate, costTotal: dayCostTotal(d) })),
     laborEntries: summary.entries,
     carryovers,
   };

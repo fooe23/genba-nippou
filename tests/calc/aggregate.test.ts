@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { monthlyRows, sumRows, costSummary, attendance, workerCumulative, type DayTotals, type LaborEntry } from '@/lib/calc/aggregate';
 const ALL = { from: null, to: null };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const day = (d: string, o: Partial<any> = {}) => ({ id: d, siteId: 's', reportDate: d, weather: '晴れ', supervisor: null, status: 'approved', outputTotal: 0, costTotal: 0, manDaysTotal: 0, labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, workerCount: 0, ...o }) as DayTotals;
+const day = (d: string, o: Partial<any> = {}) => ({ id: d, siteId: 's', reportDate: d, weather: '晴れ', supervisor: null, status: 'approved', outputTotal: 0, costTotal: 0, manDaysTotal: 0, labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, workerCount: 0, ...o }) as DayTotals;
 const days = [
   day('2026-10-30', { labor: 10000, costTotal: 10000, outputTotal: 50000 }),
   day('2026-11-02', { labor: 20000, fuel: 500, costTotal: 20500, outputTotal: 100000, workerCount: 2 }),
@@ -14,6 +14,16 @@ describe('月次集計', () => {
     expect(rows.map(r => [r.monthIndex, r.totalIndex])).toEqual([[1, 2], [2, 3]]);
     expect(rows[1].progress).toBe(0.3);                 // (50000+100000+150000)/1,000,000
     const s = sumRows(rows); expect(s.labor).toBe(50000); expect(s.output).toBe(250000); expect(s.cost).toBe(50500);
+  });
+});
+describe('外注の買掛のある日（2026-11-17）', () => {
+  // 見出しの cost_total は外注を除く（¥38,000）。買掛（credit）は仕入 ¥18,000 ＋ 外注 ¥100,000、うち外注 ¥100,000。
+  const d = [day('2026-11-10', { labor: 20000, credit: 118000, subcontract: 100000, costTotal: 38000 })];
+  it('月次の原価は区分の和（外注は 1 回だけ）。cost_total は使わない', () => {
+    expect(monthlyRows(d, '2026-11', null)[0]).toMatchObject({ credit: 118000, cost: 138000 });
+  });
+  it('原価集計も区分の和', () => {
+    expect(costSummary(d, null).cost).toBe(138000);
   });
 });
 describe('原価集計', () => {

@@ -615,3 +615,37 @@ export async function subcontractColumnsReady(): Promise<boolean> {
   if (error.code === '42703' || error.code === 'PGRST204') return false;
   throw new Error(error.message);
 }
+
+/**
+ * 日報ごとの外注の買掛の合計（2026-11-17）。見出しの cost_total は外注の買掛を含まないので、原価を見せる所（現場の累計原価・
+ * 承認待ちの本日原価）はこれを足す。日報の id 200 件ずつ、1000 行ずつ読む。協力会社のアカウントには RLS で外注の行が来ない（0）。
+ * DB に区分の列が無い（SQL の前。42703）なら外注は無いので空。
+ */
+export async function loadSubcontractTotals(reportIds: string[]): Promise<Map<string, number>> {
+  const out = new Map<string, number>();
+  if (reportIds.length === 0) return out;
+  const supabase = await createServerSupabase();
+  try {
+    const pages = await Promise.all(
+      chunk(reportIds, 200).map((part) =>
+        fetchAllPages<{ report_id: string; amount: number | string | null }>(async (from, to) => {
+          const { data, error } = await supabase
+            .from('gn_report_lines')
+            .select('report_id, amount')
+            .in('report_id', part)
+            .eq('kind', 'credit')
+            .eq('purchase_kind', 'subcontract')
+            .order('id', { ascending: true }) // ページ境界で重複・欠落しないよう並びを固定する
+            .range(from, to);
+          if (error) throw Object.assign(new Error(error.message), { code: error.code });
+          return (data ?? []) as { report_id: string; amount: number | string | null }[];
+        }),
+      ),
+    );
+    for (const r of pages.flat()) out.set(r.report_id, (out.get(r.report_id) ?? 0) + Number(r.amount ?? 0));
+  } catch (e) {
+    if ((e as { code?: string }).code === '42703') return new Map();
+    throw e;
+  }
+  return out;
+}

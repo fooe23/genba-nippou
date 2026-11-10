@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
 import { todayJst } from '@/lib/calc/format';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
-import { listOpenIssues, listReportHeads } from '@/lib/db/reports';
+import { listOpenIssues, listReportHeads, loadSubcontractTotals } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
 import { siteForViewer, siteSubline, siteTitle } from '@/lib/sites/display';
 import { ReportCalendar } from '@/components/site/ReportCalendar';
@@ -27,6 +27,9 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
   const site = siteForViewer(found, showAmount);
   const done = site.status === 'done';
   const [heads, issues] = await Promise.all([listReportHeads(siteId), listOpenIssues(siteId)]);
+  // 累計原価に外注の買掛を足す（見出しの cost_total に入っていない。2026-11-17）。協力会社には RLS で 0。
+  const subcontract = showAmount ? await loadSubcontractTotals(heads.map((h) => h.id)) : new Map<string, number>();
+  const subcontractTotal = [...subcontract.values()].reduce((s, n) => s + n, 0);
   const today = todayJst();
 
   return (
@@ -48,7 +51,7 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
       <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">{siteSubline(site, { showAmount })}</p>
 
       <div className="mt-4">
-        <SiteSummary site={site} heads={heads} today={today} issues={issues} showMoney={showAmount} />
+        <SiteSummary site={site} heads={heads} today={today} issues={issues} showMoney={showAmount} subcontractTotal={subcontractTotal} />
         <ReportCalendar siteId={siteId} heads={heads} today={today} />
       </div>
 
