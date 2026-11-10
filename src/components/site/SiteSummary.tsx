@@ -16,11 +16,26 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
   );
 }
 
-/** 現場詳細の上部サマリー。heads は日付昇順。issues は完了していない件（見積中 → 対応中の順に並べて出す）。 */
-export function SiteSummary({ site, heads, today, issues }: { site: Site; heads: ReportHead[]; today: string; issues: Issue[] }) {
+/**
+ * 現場詳細の上部サマリー。heads は日付昇順。issues は完了していない件（見積中 → 対応中の順に並べて出す）。
+ * showMoney が false（協力会社）なら、請負金額から出す進捗率を出さない（「—」も出さない）。
+ */
+export function SiteSummary({
+  site,
+  heads,
+  today,
+  issues,
+  showMoney,
+}: {
+  site: Site;
+  heads: ReportHead[];
+  today: string;
+  issues: Issue[];
+  showMoney: boolean;
+}) {
   const costTotal = heads.reduce((sum, h) => sum + h.costTotal, 0);
   const outputTotal = heads.reduce((sum, h) => sum + h.outputTotal, 0);
-  const rate = site.contractAmount === null ? null : progressRate(outputTotal, site.contractAmount) * 100;
+  const rate = !showMoney || site.contractAmount === null ? null : progressRate(outputTotal, site.contractAmount) * 100;
   const allDates = heads.map((h) => h.reportDate);
   const recent = heads.slice(-3).reverse();
 
@@ -45,9 +60,11 @@ export function SiteSummary({ site, heads, today, issues }: { site: Site; heads:
         <Item label="累計原価">{yen(costTotal)}</Item>
         <Item label="累計出来高">
           {yen(outputTotal)}
-          <span className="ml-2 text-base font-medium">
-            （進捗率 {rate === null ? '—' : `${rate.toFixed(1)}%`}）
-          </span>
+          {showMoney && (
+            <span className="ml-2 text-base font-medium">
+              （進捗率 {rate === null ? '—' : `${rate.toFixed(1)}%`}）
+            </span>
+          )}
         </Item>
       </dl>
 

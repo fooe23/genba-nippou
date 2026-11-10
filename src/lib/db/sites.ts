@@ -1,6 +1,9 @@
 import 'server-only';
 import { createServerSupabase } from '@/lib/supabase/server';
-import { toAccountType, type AccountType } from '@/lib/db/profile';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { getCurrentProfile, isEmployeeOrAdmin, toAccountType, type AccountType } from '@/lib/db/profile';
+import type { SiteMoneyFields } from '@/lib/sites/display';
+import { isMissingFunctionError, mergeSiteMoney, siteMoneyMap, type SiteMoneyRow } from '@/lib/sites/money';
 import type { SiteRole } from '@/lib/types';
 
 // 現場まわりの読み取り（RLS 前提）。書き込みは sites-actions.ts（Server Actions）。
@@ -80,7 +83,6 @@ interface SiteRow {
   project_name: string | null;
   project_no: string | null;
   overview: string | null;
-  contract_amount: number | string | null;
   start_date: string | null;
   end_date: string | null;
   contract_type: string | null;
@@ -91,17 +93,51 @@ interface SiteRow {
   common_gap_min: number | string | null;
   deleted_at: string | null;
   contract_status: string | null;
-  estimated_amount: number | string | null;
-  default_daily_rate: number | string | null;
 }
 interface ProfileRef { name: string | null; email: string | null; account_type: string | null; company_name: string | null; }
 interface MemberRow { user_id: string; role: SiteRole; profiles: ProfileRef | ProfileRef[] | null; }
 interface CarryoverRow { worker_id: string; man_days: number | string; labor_cost: number | string; before_date: string; }
 
+// お金の列（contract_amount・estimated_amount・default_daily_rate）は入れない。DB では authenticated に
+// その列の SELECT が無い（update_2026-11-16_site_money.sql）ので、gn_sites は必ず列を名指しで読む（select('*') は失敗する）。
+// お金の列は社員・管理者のときだけ gn_site_money で読んで重ねる（withSiteMoney）。
 const SITE_COLUMNS =
-  'id, name, client_name, project_name, project_no, overview, contract_amount, start_date, end_date, contract_type, status, common_start, common_end, common_break_min, common_gap_min, deleted_at, contract_status, estimated_amount, default_daily_rate';
+  'id, name, client_name, project_name, project_no, overview, start_date, end_date, contract_type, status, common_start, common_end, common_break_min, common_gap_min, deleted_at, contract_status';
+const SITE_MONEY_COLUMNS = 'id, contract_amount, estimated_amount, default_daily_rate';
+/** SQL の前の読み直し（.in の id の数。URL が長くなりすぎないように分ける）。 */
+const MONEY_FALLBACK_CHUNK = 100;
 
-function toSite(r: SiteRow): Site {
+/**
+ * 現場のお金の列（社員・管理者だけが呼ぶ）。gn_site_money（SECURITY DEFINER。社員・管理者で、その現場を見られるときだけ行が返る）で読む。
+ * 関数がまだ無い（update_2026-11-16_site_money.sql の前）ときだけ、今まで通り表から直接読む（その間は列の SELECT が残っている）。
+ */
+async function loadSiteMoney(supabase: SupabaseClient, ids: string[]): Promise<Map<string, SiteMoneyFields>> {
+  if (ids.length === 0) return new Map();
+  const { data, error } = await supabase.rpc('gn_site_money', { p_site_ids: ids });
+  if (!error) return siteMoneyMap(data as SiteMoneyRow[] | null);
+  if (!isMissingFunctionError(error)) throw new Error(error.message);
+  const rows: SiteMoneyRow[] = [];
+  for (let i = 0; i < ids.length; i += MONEY_FALLBACK_CHUNK) {
+    const part = ids.slice(i, i + MONEY_FALLBACK_CHUNK);
+    const res = await supabase.from('gn_sites').select(SITE_MONEY_COLUMNS).in('id', part);
+    if (res.error) throw new Error(res.error.message);
+    rows.push(...((res.data ?? []) as SiteMoneyRow[]));
+  }
+  return siteMoneyMap(rows);
+}
+
+/**
+ * 行を Site にして、お金の項目を重ねる。お金は社員・管理者のときだけ読む。協力会社（とログインしていない人）は
+ * 読みに行かず 3 つとも null（画面・client component・API の応答に請負金額が載らない）。
+ */
+async function withSiteMoney(supabase: SupabaseClient, rows: SiteRow[]): Promise<Site[]> {
+  if (rows.length === 0) return [];
+  const profile = await getCurrentProfile();
+  const money = profile !== null && isEmployeeOrAdmin(profile) ? await loadSiteMoney(supabase, rows.map((r) => r.id)) : new Map();
+  return rows.map((r) => mergeSiteMoney(toSite(r), money));
+}
+
+function toSite(r: SiteRow): Omit<Site, keyof SiteMoneyFields> {
   return {
     id: r.id,
     name: r.name,
@@ -109,7 +145,6 @@ function toSite(r: SiteRow): Site {
     projectName: r.project_name,
     projectNo: r.project_no,
     overview: r.overview,
-    contractAmount: r.contract_amount === null ? null : Number(r.contract_amount),
     startDate: r.start_date,
     endDate: r.end_date,
     contractType: r.contract_type === '元請け' || r.contract_type === '下請' || r.contract_type === '常用' ? r.contract_type : null,
@@ -120,8 +155,6 @@ function toSite(r: SiteRow): Site {
     commonGapMin: r.common_gap_min === null || r.common_gap_min === undefined ? null : Number(r.common_gap_min),
     deletedAt: r.deleted_at ?? null,
     contractStatus: r.contract_status === 'tentative' ? 'tentative' : 'fixed',
-    estimatedAmount: r.estimated_amount === null || r.estimated_amount === undefined ? null : Number(r.estimated_amount),
-    defaultDailyRate: r.default_daily_rate === null || r.default_daily_rate === undefined ? null : Number(r.default_daily_rate),
   };
 }
 
@@ -133,7 +166,7 @@ export async function listMySites(): Promise<Site[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase.from('gn_sites').select(SITE_COLUMNS).is('deleted_at', null);
   if (error) throw new Error(error.message);
-  return ((data ?? []) as SiteRow[]).map(toSite).sort((a, b) => {
+  return (await withSiteMoney(supabase, (data ?? []) as SiteRow[])).sort((a, b) => {
     if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
     return a.name.localeCompare(b.name, 'ja');
   });
@@ -148,7 +181,7 @@ export async function listDeletedSites(): Promise<Site[]> {
     .not('deleted_at', 'is', null)
     .order('deleted_at', { ascending: false });
   if (error) throw new Error(error.message);
-  return ((data ?? []) as SiteRow[]).map(toSite);
+  return withSiteMoney(supabase, (data ?? []) as SiteRow[]);
 }
 
 interface AuditRow {
@@ -196,7 +229,9 @@ export async function getSite(siteId: string): Promise<Site | null> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase.from('gn_sites').select(SITE_COLUMNS).eq('id', siteId).maybeSingle();
   if (error) throw new Error(error.message);
-  return data ? toSite(data as SiteRow) : null;
+  if (!data) return null;
+  const [site] = await withSiteMoney(supabase, [data as SiteRow]);
+  return site ?? null;
 }
 
 export async function listSiteMembers(siteId: string): Promise<SiteMember[]> {

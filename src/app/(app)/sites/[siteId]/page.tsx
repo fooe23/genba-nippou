@@ -22,7 +22,7 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
   const found = await getSite(siteId);
   // 削除済みの現場は管理者にも出さない（管理 → 現場 → 「削除済み」でだけ扱う）。
   if (!found || found.deletedAt !== null) notFound();
-  // 請負金額などのお金の項目は社員・管理者だけ。協力会社には画面に渡す前に落とす（サマリーの進捗率も「—」になる）。
+  // 請負金額などのお金の項目は社員・管理者だけ。協力会社には画面に渡す前に落とす（サマリーの進捗率も出さない）。
   const showAmount = isEmployeeOrAdmin(profile);
   const site = siteForViewer(found, showAmount);
   const done = site.status === 'done';
@@ -48,7 +48,7 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
       <p className="mb-4 text-sm text-gray-600 dark:text-gray-400">{siteSubline(site, { showAmount })}</p>
 
       <div className="mt-4">
-        <SiteSummary site={site} heads={heads} today={today} issues={issues} />
+        <SiteSummary site={site} heads={heads} today={today} issues={issues} showMoney={showAmount} />
         <ReportCalendar siteId={siteId} heads={heads} today={today} />
       </div>
 

@@ -225,6 +225,7 @@ export async function loadReportFormProps(
     lines: report.lines,
   };
 
+  const showMoney = isEmployeeOrAdmin(profile);
   const allDates = heads.map((h) => h.reportDate);
   const outputBefore = heads.filter((h) => h.reportDate < date).reduce((s, h) => s + h.outputTotal, 0);
 
@@ -240,9 +241,10 @@ export async function loadReportFormProps(
     status: head ? head.status : 'none',
     rejectedReason: head ? head.rejectedReason : null,
     siteStartDate: site.startDate,
-    contractAmount: site.contractAmount,
+    // 請負金額・概算金額は社員・管理者だけ（協力会社には null。集計の金額の行と進捗率も出さない：ReportSummary の showMoney）。
+    contractAmount: showMoney ? site.contractAmount : null,
     contractTentative: site.contractStatus === 'tentative',
-    estimatedAmount: site.contractStatus === 'tentative' ? site.estimatedAmount : null,
+    estimatedAmount: showMoney && site.contractStatus === 'tentative' ? site.estimatedAmount : null,
     outputBefore,
     hasPrevious: allDates.some((d) => d < date),
     initial,

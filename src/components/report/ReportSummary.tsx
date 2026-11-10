@@ -41,6 +41,7 @@ export function ReportSummary({
   contractAmount,
   tentative = false,
   estimatedAmount = null,
+  showMoney,
 }: {
   totals: ReportTotals;
   /** 作業内容の区分ごとの金額（減は負）。 */
@@ -51,10 +52,12 @@ export function ReportSummary({
   tentative?: boolean;
   /** 未確定の現場の概算金額。 */
   estimatedAmount?: number | null;
+  /** 請負金額・概算金額・進捗率を出すか（社員・管理者だけ true。協力会社は行ごと出さない）。 */
+  showMoney: boolean;
 }) {
   const cumulative = outputBefore + totals.output;
   const changeLine = changeText(changes);
-  const rate = contractAmount ? progressRate(cumulative, contractAmount) * 100 : null;
+  const rate = showMoney && contractAmount ? progressRate(cumulative, contractAmount) * 100 : null;
   return (
     <section aria-label="本日の集計" className="mb-8 grid gap-4 md:grid-cols-2">
       <div className="rounded-lg border border-gray-300 p-3 dark:border-gray-700">
@@ -82,9 +85,13 @@ export function ReportSummary({
             </div>
           )}
           <Line label="累計出来高（この日まで）" value={money(cumulative)} />
-          <Line label={tentative ? '総請負金額（未確定）' : '総請負金額'} value={contractAmount === null ? '未設定' : money(contractAmount)} />
-          {tentative && <Line label="概算金額" value={estimatedAmount === null ? '—' : money(estimatedAmount)} />}
-          <Line label="進捗率" value={rate === null || !Number.isFinite(rate) ? '—' : `${rate.toFixed(1)}%`} strong />
+          {showMoney && (
+            <>
+              <Line label={tentative ? '総請負金額（未確定）' : '総請負金額'} value={contractAmount === null ? '未設定' : money(contractAmount)} />
+              {tentative && <Line label="概算金額" value={estimatedAmount === null ? '—' : money(estimatedAmount)} />}
+              <Line label="進捗率" value={rate === null || !Number.isFinite(rate) ? '—' : `${rate.toFixed(1)}%`} strong />
+            </>
+          )}
         </dl>
       </div>
     </section>

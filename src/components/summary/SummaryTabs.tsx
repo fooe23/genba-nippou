@@ -12,11 +12,34 @@ export function isSummaryTab(v: string | undefined): v is SummaryTabKey {
   return SUMMARY_TABS.some((t) => t.key === v);
 }
 
+/** 社員・管理者だけのタブ（現場原価集計：工事総請負金額・粗利益・粗利率・進捗率を出す）。 */
+const MONEY_TABS: readonly SummaryTabKey[] = ['cost'];
+
+/** 見る人に出すタブ。showMoney が false（協力会社）なら現場原価集計を出さない。 */
+export function visibleSummaryTabs(showMoney: boolean): (typeof SUMMARY_TABS)[number][] {
+  return SUMMARY_TABS.filter((t) => showMoney || !MONEY_TABS.includes(t.key));
+}
+
+/** ?tab= の値から表示するタブ。知らない値・見られないタブ（協力会社の現場原価集計）は月次集計。 */
+export function resolveSummaryTab(raw: string | undefined, showMoney: boolean): SummaryTabKey {
+  return visibleSummaryTabs(showMoney).find((t) => t.key === raw)?.key ?? 'monthly';
+}
+
 /** タブ（?tab= へのリンク）。期間（?period=）は引き継ぐ。 */
-export function SummaryTabs({ siteId, active, period }: { siteId: string; active: SummaryTabKey; period: string }) {
+export function SummaryTabs({
+  siteId,
+  active,
+  period,
+  showMoney,
+}: {
+  siteId: string;
+  active: SummaryTabKey;
+  period: string;
+  showMoney: boolean;
+}) {
   return (
     <nav aria-label="集計の種類" className="-mx-4 mb-4 flex overflow-x-auto border-b border-gray-300 px-4 dark:border-gray-700">
-      {SUMMARY_TABS.map((t) => (
+      {visibleSummaryTabs(showMoney).map((t) => (
         <Link
           key={t.key}
           href={`/sites/${siteId}/summary?tab=${t.key}&period=${period}`}

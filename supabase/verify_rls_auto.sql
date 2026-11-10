@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］、20 は積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合［update_2026-11-15］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］、20 は積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合［update_2026-11-15］、21 は現場のお金の列［update_2026-11-16］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -2554,6 +2554,48 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 20 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 21. 現場のお金の列（update_2026-11-16） =====
+  -- 現場X：Aは協力会社のメンバー、Cは割り当てのない社員。
+  begin
+    update public.gn_sites set contract_amount = 1234567, estimated_amount = 1000000, default_daily_rate = 25000 where id = x;
+    begin
+      perform pg_temp.as_user(v_a);
+      select count(*) into n from (select contract_amount from public.gn_sites where id = x) q;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 21-1 協力会社Aが請負金額の列を読めた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlstate = '42501' then rep := rep || E'PASS 21-1 協力会社Aは請負金額の列を読めない（列の権限）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 21-1 想定外: %s\n', sqlerrm); end if;
+    end;
+    perform pg_temp.as_user(v_a);
+    select count(*) into n from public.gn_site_money(array[x, y]);
+    select count(*), string_agg(name, ',') into n2, t from public.gn_sites where id in (x, y);
+    perform pg_temp.as_editor();
+    if n = 0 then rep := rep || E'PASS 21-2 協力会社Aには gn_site_money が何も返さない\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 21-2 Aに gn_site_money が %s 行返った\n', n); end if;
+    if n2 = 1 and t = '検証現場X' then rep := rep || E'PASS 21-3 協力会社Aはお金以外の列（現場名）は今まで通り読める\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 21-3 Aに見える現場: %s (%s)\n', n2, t); end if;
+    perform pg_temp.as_user(v_c);
+    select s.contract_amount, s.default_daily_rate into num, num2 from public.gn_site_money(array[x]) s;
+    select count(*) into n from public.gn_site_money(array[x, y]);
+    perform pg_temp.as_editor();
+    if num = 1234567 and num2 = 25000 and n = 2 then rep := rep || E'PASS 21-4 社員Cは gn_site_money で請負金額を読める\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 21-4 Cの gn_site_money: %s / %s / %s 行\n', num, num2, n); end if;
+    begin
+      perform pg_temp.as_user(v_admin);
+      update public.gn_sites set contract_amount = 2000000, estimated_amount = null, default_daily_rate = 30000
+       where id = x and deleted_at is null returning id into u;
+      select s.contract_amount into num from public.gn_site_money(array[x]) s;
+      perform pg_temp.as_editor();
+      if u = x and num = 2000000 then rep := rep || E'PASS 21-5 管理者は現場の金額を更新でき、gn_site_money で読める\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 21-5 管理者の更新: %s / %s\n', u, num); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 21-5 管理者の更新でエラー: %s\n', sqlerrm);
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 21 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

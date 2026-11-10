@@ -1223,6 +1223,27 @@ create policy gn_sites_admin_update on public.gn_sites for update to authenticat
 drop policy if exists gn_sites_admin_delete on public.gn_sites;
 create policy gn_sites_admin_delete on public.gn_sites for delete to authenticated using (public.is_admin());
 
+-- 現場のお金の列（請負金額・概算金額・常用単価の既定）は協力会社に読ませない（2026-11-16。update_2026-11-16_site_money.sql）。
+-- authenticated の SELECT は列ごと（お金の 3 列を除く）。お金の列は gn_site_money（社員・管理者で、その現場を見られる人だけ）で読む。
+-- gn_sites に列を足したら、この grant select (...) にも足すこと（足さないと誰も読めない）。
+revoke select on public.gn_sites from authenticated, anon;
+grant select (
+  id, name, client_name, project_name, project_no, overview, start_date, end_date, contract_type, status,
+  deleted_at, deleted_by, common_start, common_end, common_break_min, common_gap_min, contract_status, created_at, updated_at
+) on public.gn_sites to authenticated;
+create or replace function public.gn_site_money(p_site_ids uuid[])
+returns table (site_id uuid, contract_amount numeric, estimated_amount numeric, default_daily_rate numeric)
+language sql stable security definer set search_path = public as $$
+  select s.id, s.contract_amount, s.estimated_amount, s.default_daily_rate
+    from public.gn_sites s
+   where auth.uid() is not null
+     and s.id = any (coalesce(p_site_ids, array[]::uuid[]))
+     and public.gn_is_employee_or_admin()
+     and public.gn_is_site_member(s.id);
+$$;
+revoke all on function public.gn_site_money(uuid[]) from public, anon;
+grant execute on function public.gn_site_money(uuid[]) to authenticated;
+
 -- マスター6表・単位・天候：全認証ユーザーが閲覧、変更は管理者のみ
 drop policy if exists gn_workers_select on public.gn_workers;
 create policy gn_workers_select on public.gn_workers for select to authenticated using (true);

@@ -4,14 +4,15 @@ import { isUuid } from '@/lib/uuid';
 import { attendance, costSummary, monthlyRows, sumRows, workerCumulative } from '@/lib/calc/aggregate';
 import { monthKey, todayJst } from '@/lib/calc/format';
 import { listWorkers } from '@/lib/db/masters';
-import { requireProfile } from '@/lib/db/profile';
+import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { getSite, listCarryovers } from '@/lib/db/sites';
+import { siteForViewer } from '@/lib/sites/display';
 import { loadSummaryData } from '@/lib/db/summary';
 import { AttendanceTable } from '@/components/summary/AttendanceTable';
 import { CostTable } from '@/components/summary/CostTable';
 import { MonthlyTable } from '@/components/summary/MonthlyTable';
 import { PeriodBar } from '@/components/summary/PeriodBar';
-import { SummaryTabs, isSummaryTab } from '@/components/summary/SummaryTabs';
+import { SummaryTabs, resolveSummaryTab } from '@/components/summary/SummaryTabs';
 import { WorkersTable } from '@/components/summary/WorkersTable';
 
 export const metadata = { title: '集計' };
@@ -19,16 +20,20 @@ export const metadata = { title: '集計' };
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export default async function SummaryPage({ params, searchParams }: PageProps<'/sites/[siteId]/summary'>) {
-  await requireProfile();
+  const profile = await requireProfile();
   const { siteId } = await params;
   if (!isUuid(siteId)) notFound();
-  const site = await getSite(siteId);
-  if (!site || site.deletedAt !== null) notFound();
+  const found = await getSite(siteId);
+  if (!found || found.deletedAt !== null) notFound();
+  // 協力会社にも出面・作業員別の人工は見せる（自分の作業員の確認に使う）。請負金額から出すもの
+  // （現場原価集計のタブ［工事総請負金額・粗利益・粗利率・進捗率］と、月次集計の進捗率の列）は社員・管理者だけ。
+  const showMoney = isEmployeeOrAdmin(profile);
+  const site = siteForViewer(found, showMoney);
 
   const sp = await searchParams;
   const rawTab = typeof sp.tab === 'string' ? sp.tab : undefined;
   const rawPeriod = typeof sp.period === 'string' ? sp.period : undefined;
-  const tab = isSummaryTab(rawTab) ? rawTab : 'monthly';
+  const tab = resolveSummaryTab(rawTab, showMoney);
   const currentMonth = monthKey(todayJst());
   const period = rawPeriod === 'all' || (rawPeriod !== undefined && MONTH_RE.test(rawPeriod)) ? rawPeriod : currentMonth;
   const isAll = period === 'all';
@@ -70,15 +75,16 @@ export default async function SummaryPage({ params, searchParams }: PageProps<'/
       <h1 className="mb-3 text-xl font-bold">集計</h1>
 
       <PeriodBar period={period} currentMonth={currentMonth} />
-      <SummaryTabs siteId={siteId} active={tab} period={period} />
+      <SummaryTabs siteId={siteId} active={tab} period={period} showMoney={showMoney} />
 
       {tab === 'monthly' && <MonthlyTable
           siteId={siteId}
           rows={monthly}
           hasContract={!!contractTotal}
+          showProgress={showMoney}
           cumulative={{ total: cumulativeTotal, progress: cumulativeProgress }}
         />}
-      {tab === 'cost' && <CostTable
+      {tab === 'cost' && showMoney && <CostTable
           periodSummary={costSummary(periodDays, contractTotal)}
           cumulativeSummary={costSummary(cumulativeDays, contractTotal)}
           periodLabel={isAll ? '工期全体' : `${Number(period.slice(0, 4))}年${Number(period.slice(5, 7))}月`}

@@ -897,6 +897,7 @@ function ReportFormBody({
           contractAmount={p.contractAmount}
           tentative={p.contractTentative}
           estimatedAmount={p.estimatedAmount}
+          showMoney={p.isStaff}
         />
 
         <section aria-label="重要事項・連絡事項" className="mb-6 grid gap-4 md:grid-cols-2">

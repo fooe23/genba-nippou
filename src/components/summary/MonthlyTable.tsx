@@ -8,11 +8,14 @@ export function MonthlyTable({
   siteId,
   rows,
   hasContract,
+  showProgress,
   cumulative,
 }: {
   siteId: string;
   rows: MonthlyRow[];
   hasContract: boolean;
+  /** 進捗率の列を出すか（請負金額から出すので社員・管理者だけ true。協力会社は列ごと出さない）。 */
+  showProgress: boolean;
   /** 工期累計（表示している最終日までの全日報の合計）と、その時点の累計進捗率 */
   cumulative: { total: ReturnType<typeof sumRows>; progress: number };
 }) {
@@ -36,7 +39,7 @@ export function MonthlyTable({
             <th scope="col" className={thClass}>買掛費</th>
             <th scope="col" className={thClass}>本日原価</th>
             <th scope="col" className={thClass}>工事出来高</th>
-            <th scope="col" className={thClass}>進捗率</th>
+            {showProgress && <th scope="col" className={thClass}>進捗率</th>}
           </tr>
         </thead>
         <tbody>
@@ -57,7 +60,7 @@ export function MonthlyTable({
               <td className={tdClass}>{yen(r.credit)}</td>
               <td className={tdClass}>{yen(r.cost)}</td>
               <td className={tdClass}>{yen(r.output)}</td>
-              <td className={tdClass}>{hasContract ? pct(r.progress) : NULL_TEXT}</td>
+              {showProgress && <td className={tdClass}>{hasContract ? pct(r.progress) : NULL_TEXT}</td>}
             </tr>
           ))}
         </tbody>
@@ -76,7 +79,7 @@ export function MonthlyTable({
             <td className={tdClass}>{yen(sum.credit)}</td>
             <td className={tdClass}>{yen(sum.cost)}</td>
             <td className={tdClass}>{yen(sum.output)}</td>
-            <td className={tdClass}>{hasContract ? pct(last.progress) : NULL_TEXT}</td>
+            {showProgress && <td className={tdClass}>{hasContract ? pct(last.progress) : NULL_TEXT}</td>}
           </tr>
           <tr className={totalClass}>
             <th scope="row" className={`${tdStickyClass} ${totalClass}`}>
@@ -92,7 +95,7 @@ export function MonthlyTable({
             <td className={tdClass}>{yen(cumulative.total.credit)}</td>
             <td className={tdClass}>{yen(cumulative.total.cost)}</td>
             <td className={tdClass}>{yen(cumulative.total.output)}</td>
-            <td className={tdClass}>{hasContract ? pct(cumulative.progress) : NULL_TEXT}</td>
+            {showProgress && <td className={tdClass}>{hasContract ? pct(cumulative.progress) : NULL_TEXT}</td>}
           </tr>
         </tfoot>
       </table>
