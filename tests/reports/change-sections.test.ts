@@ -71,24 +71,24 @@ describe('changeSummary（サマリー表と注記）', () => {
     expect(table.rows.map((r) => r[0])).toEqual(['当初請負金額', '契約内出来高', '追加', '増', '変更', '減']);
     expect(texts(table.rows[0])).toEqual(['当初請負金額', '', '', '', '1,000,000']);
     expect(texts(table.rows[1])).toEqual(['契約内出来高', '', '', '', '200,000']);
-    expect(texts(table.rows[2])).toEqual(['追加', '1', '36,000', '40,756', '40,756']);
+    expect(texts(table.rows[2])).toEqual(['追加', '1', '36,000', '44,751', '44,751']);
     expect(texts(table.rows[3])).toEqual(['増', '0', '0', '0', '0']);
-    expect(texts(table.rows[4])).toEqual(['変更', '1', '8,000', '13,586', '13,586']);
+    expect(texts(table.rows[4])).toEqual(['変更', '1', '8,000', '9,945', '9,945']);
     expect(texts(table.rows[5])).toEqual(['減', '1', '-25,000', '-25,000', '-25,000']);
-    expect(texts(table.total!)).toEqual(['精算提案額', '', '', '', '1,029,342']);
+    expect(texts(table.total!)).toEqual(['精算提案額', '', '', '', '1,029,696']);
   });
 
   it('精算額の列は区分ごとの精算額（一式は確定額・常用は人工×単価。減は負）。精算提案額は精算額の合計から', () => {
     const { table } = changeSummary(settledChangeModel());
-    expect(texts(table.rows[2])).toEqual(['追加', '2', '42,000', '52,942', '152,942']);
-    expect(texts(table.rows[4])).toEqual(['変更', '1', '8,000', '13,236', '15,000']);
+    expect(texts(table.rows[2])).toEqual(['追加', '2', '42,000', '52,210', '152,210']);
+    expect(texts(table.rows[4])).toEqual(['変更', '1', '8,000', '9,945', '15,000']);
     expect(texts(table.rows[5])).toEqual(['減', '1', '-25,000', '-25,000', '-20,000']);
-    expect(texts(table.total!)).toEqual(['精算提案額', '', '', '', '1,147,942']);
+    expect(texts(table.total!)).toEqual(['精算提案額', '', '', '', '1,147,210']);
   });
 
   it('精算提案額の下に「客先提示額（見積中を除く）」の行（clientSettlement の精算提案額。当初が無ければ「—」）', () => {
     const { table } = changeSummary(settledChangeModel());
-    expect(table.after?.map(texts)).toEqual([['客先提示額（見積中を除く）', '', '', '', '1,108,236']]);
+    expect(table.after?.map(texts)).toEqual([['客先提示額（見積中を除く）', '', '', '', '1,102,459']]);
     const m = settledChangeModel();
     const noBase = changeSummary({ ...m, settlement: { ...m.settlement, base: null, proposed: null } }).table;
     expect(noBase.after?.map(texts)).toEqual([['客先提示額（見積中を除く）', '', '', '', '—']]);
@@ -122,13 +122,16 @@ describe('changeSummary（サマリー表と注記）', () => {
     expect(changeSummary(m).notes).not.toContain('当初金額が未設定のため算出できません');
   });
 
-  it('注記に実際の経費率・利益率を入れる', () => {
+  it('注記に実際の 4 つの率と、根拠に選んだ行だけを数える決まりを入れる', () => {
     const [formula] = changeSummary(sampleChangeModel()).notes;
     expect(formula).toBe(
-      '提案額＝実績原価×(1＋経費率 15%)×(1＋利益率 10%)、円未満切り上げ。減は申告額。実績原価＝投入人工×その日の平均日当＋その日の材料・リース・燃料を人工比で按分。',
+      '提案額＝（労務（施工金額）×(1＋法定福利費率 15.1%)＋材料×(1＋材料経費率 12%)＋(リース＋燃料)×(1＋リース燃料経費率 12%)）×(1＋諸経費率 8%)＋外注、円未満切り上げ。減は申告額。' +
+        '根拠にその件を選んだ行だけを数えます（根拠の無い材料・リース・燃料・外注は按分しません）。材料＝仕入の買掛＋現金。' +
+        '労務は作業内容の施工金額（施工単価の無い行は人工×日当で仮に）。',
     );
     const m = sampleChangeModel();
-    expect(changeSummary({ ...m, rates: { overheadRate: 0.125, profitRate: 0 } }).notes[0]).toContain('(1＋経費率 12.5%)×(1＋利益率 0%)');
+    const rates = { legalWelfareRate: 0.125, materialExpenseRate: 0, leaseFuelExpenseRate: 0.05, overheadProfitRate: 0.1 };
+    expect(changeSummary({ ...m, rates }).notes[0]).toContain('(1＋法定福利費率 12.5%)＋材料×(1＋材料経費率 0%)＋(リース＋燃料)×(1＋リース燃料経費率 5%)）×(1＋諸経費率 10%)');
   });
 
   it('月は精算額の列を「精算額（累計）」、精算提案額に「（月末 までの累計）」を付け、当月分と累計の違いを注記', () => {
@@ -153,7 +156,7 @@ describe('changeDetail（明細一覧）', () => {
   it('追加：ラベル・指示方法・指示日・根拠の件（MM/DD-番号 種別 本文先頭）・客先確認', () => {
     const [extra] = changeDetail(sampleChangeModel()).rows;
     expect(texts(extra)).toEqual([
-      '2026/11/05\n当月1回目', '追加', '内装', 'クロス張替え（2 階洋室）', '30', 'm2', '1,200', '36,000', '1.5', '40,756',
+      '2026/11/05\n当月1回目', '追加', '内装', 'クロス張替え（2 階洋室）', '30', 'm2', '1,200', '36,000', '1.5', '44,751',
       '施主 〇〇様', '口頭', '2026/11/01', '11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。', 'あり',
     ]);
   });
@@ -244,19 +247,19 @@ describe('changeIssues（件ごとの精算）', () => {
 
   it('件の日付順に 1 行ずつ、最後に件なしの行。未定・一式・常用・減（負）・やり直し（参考）。件は「MM/DD-番号 種別 本文」（明細の根拠の件と同じ）', () => {
     expect(t.rows.map(texts)).toEqual([
-      ['11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。\n所属別 自社 0.75／所属なし 0.75', '40,000', '未定', '—', '', '1', '1.5', '39,706', '39,706'],
+      ['11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。\n所属別 自社 0.75／所属なし 0.75\n内訳 労務（施工金額） ¥36,000', '40,000', '未定', '—', '', '1', '1.5', '44,751', '44,751'],
       ['11/05-1 追加指示 玄関収納の追加', '90,000', '一式', '100,000', '2026/11/08', '0', '0.0', '0', '100,000'],
-      ['11/05-2 仕様変更 棚の位置変更（常用）\n所属別 自社 0.25／所属なし 0.25', '—', '常用', '常用 0.5人工 × ¥30,000', '', '1', '0.5', '13,236', '15,000'],
+      ['11/05-2 仕様変更 棚の位置変更（常用）\n所属別 自社 0.25／所属なし 0.25\n内訳 労務（施工金額） ¥8,000', '—', '常用', '常用 0.5人工 × ¥30,000', '', '1', '0.5', '9,945', '15,000'],
       ['11/05-3 減 外壁塗装の一部取りやめ', '—', '一式', '-20,000', '2026/11/06', '1', '0.0', '-25,000', '-20,000'],
       ['11/05-4 やり直し 巾木の手直し', '—', '一式', '8,000', '', '0', '0.0', '0', '（参考）¥8,000'],
-      ['件なし（根拠の件を選んでいない行）\n所属別 自社 0.25／所属なし 0.25', '', '', '', '', '1', '0.5', '13,236', '13,236'],
+      ['件なし（根拠の件を選んでいない行）\n所属別 自社 0.25／所属なし 0.25', '', '', '', '', '1', '0.5', '7,459', '7,459'],
     ]);
   });
 
   it('合計：行数・人工・提案額・精算額（やり直しは入れない。精算額の合計は区分ごとの精算額の合計と同じ）', () => {
-    expect(texts(t.total!)).toEqual(['合計', '', '', '', '', '4', '2.5', '41,178', '147,942']);
+    expect(texts(t.total!)).toEqual(['合計', '', '', '', '', '4', '2.5', '37,155', '147,210']);
     const s = settledChangeModel().settlement;
-    expect(147_942).toBe(s.extra + s.increase + s.change + s.minus);
+    expect(147_210).toBe(s.extra + s.increase + s.change + s.minus);
   });
 
   it('見積の件は精算方法「見積」、確定額・単価の欄は見積額（減は負）', () => {
@@ -269,7 +272,7 @@ describe('changeIssues（件ごとの精算）', () => {
 
   it('件なしの行は、件に紐づかない行があるときだけ', () => {
     const m = settledChangeModel();
-    const rows = changeIssues({ ...m, unlinked: { lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, affiliationManDays: [] } })!.rows;
+    const rows = changeIssues({ ...m, unlinked: { lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, affiliationManDays: [], missingAmountLines: 0 } })!.rows;
     expect(rows.map((r) => r[0])).not.toContain('件なし（根拠の件を選んでいない行）');
     expect(rows).toHaveLength(5);
   });
@@ -277,7 +280,7 @@ describe('changeIssues（件ごとの精算）', () => {
   it('件も件なしの行も無ければ null（表を出さない）', () => {
     expect(changeIssues(emptyChangeModel())).toBeNull();
     const m = settledChangeModel();
-    expect(changeIssues({ ...m, issues: [], unlinked: { lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, affiliationManDays: [] } })).toBeNull();
+    expect(changeIssues({ ...m, issues: [], unlinked: { lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, affiliationManDays: [], missingAmountLines: 0 } })).toBeNull();
     // 件が無くても件なしの行があれば出す
     expect(changeIssues({ ...m, issues: [] })!.rows.map((r) => r[0])).toEqual(['件なし（根拠の件を選んでいない行）\n所属別 自社 0.25／所属なし 0.25']);
   });

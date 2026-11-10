@@ -1,11 +1,11 @@
-import { issueNumbers, settleIssue } from '@/lib/reports/change-model';
+import { emptyBreakdown, issueNumbers, settleIssue } from '@/lib/reports/change-model';
 import type { Issue } from '@/lib/db/reports';
 import type { AffiliationManDays } from '@/lib/reports/affiliation-breakdown';
 import type { ChangeIssueSettlement, ChangeLedgerModel, ChangeLedgerRow } from '@/lib/reports/types';
 
 // 「追加・変更の一覧」画面（/sites/[siteId]/changes）の行（純関数。DB・Next に依存しない）。
 // 変更増減の台帳（buildChangeLedger）は一式・見積・常用の件と行の紐づく件だけを載せるが、一覧には現場の全部の件を出す
-// （未定で行の無い件も、見積が出たら精算を入れるため）。台帳に無い件は行数・人工・実績原価・提案額・精算額を 0 にする。
+// （未定で行の無い件も、見積が出たら精算を入れるため）。台帳に無い件は行数・人工・実績原価・提案額・精算額・内訳を 0 にする。
 // 人工の所属別の内訳（affiliationManDays。社内用）も台帳から写す（台帳に無い件は空）。
 
 type ComputedFields = Pick<
@@ -20,6 +20,7 @@ type ComputedFields = Pick<
   | 'settledBasis'
   | 'countsToward'
   | 'affiliationManDays'
+  | 'breakdown'
 >;
 
 /** 件 1 つの行：件の保存値と、台帳の計算値（工期全体）。 */
@@ -36,6 +37,8 @@ export interface ChangesUnlinkedRow {
   countsToward: true;
   /** 投入人工の所属別の内訳（社内用。台帳の unlinked.affiliationManDays）。 */
   affiliationManDays: AffiliationManDays[];
+  /** 施工金額（施工単価）が無く、人工 × 日当で仮に出した行の数。 */
+  missingAmountLines: number;
   /** その行がある日報の日付（'YYYY-MM-DD'、昇順、重ならない）。一覧から日報へ飛んで件を選ぶ。 */
   dates: string[];
 }
@@ -80,16 +83,18 @@ export function joinChangesRows(
             settledBasis: s.settledBasis,
             countsToward: s.countsToward,
             affiliationManDays: s.affiliationManDays,
+            breakdown: s.breakdown,
           }
         : // 台帳に無い件（未定で行の無い件）も精算の規則は settleIssue（紐づく行なし）のまま
           {
-            ...settleIssue(issue, []),
+            ...settleIssue(issue, { manDays: 0, proposal: 0 }),
             number: numbers.get(issue.id) ?? 0,
             lineCount: 0,
             manDays: 0,
             actualCost: 0,
             proposal: 0,
             affiliationManDays: [],
+            breakdown: emptyBreakdown(),
           };
       return { ...issue, ...computed, unlinked: false };
     });
@@ -104,6 +109,7 @@ export function joinChangesRows(
       settled: u.proposal,
       countsToward: true,
       affiliationManDays: u.affiliationManDays,
+      missingAmountLines: u.missingAmountLines,
       dates: unlinkedDates(ledger.rows ?? []),
     });
   }

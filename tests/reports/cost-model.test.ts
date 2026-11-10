@@ -71,7 +71,8 @@ const input = (reports: ReportWithLines[], o: Partial<CostReportInput> = {}): Co
 const ALL = { kind: 'all' } as const;
 const NOV = { kind: 'month', month: '2026-11' } as const;
 const now = { date: '2026-11-10', by: '大江', at: '2026-11-10T01:23:45.000Z' };
-const RATES = { overheadRate: 0.15, profitRate: 0.1 };
+/** 件の精算の率（計算を追いやすい値：施工金額 × 1.1 × 1.1）。 */
+const RATES = { legalWelfareRate: 0.1, materialExpenseRate: 0.2, leaseFuelExpenseRate: 0.3, overheadProfitRate: 0.1 };
 
 // ─── テスト ───
 
@@ -404,7 +405,7 @@ describe('② 採算の基準（契約未確定の現場）と追加・増・変
     report('2026-11-02', [labor('w1', '田中', 1, 20000), work('内装', '床', 1, 'm2', 1, 100_000), work('内装', '減の巾木', 1, 'm', 0, -5_000, 'minus')]),
     report('2026-12-01', [labor('w1', '田中', 1, 40000), work('内装', '変更の扉', 1, '式', 1, 50_000, 'change')]),
   ];
-  /** 上の日報に、11/03 の増（労務 30,000 ÷ 1 人工 × 1 → 30,000 × 1.265 = 37,950）を足したもの。 */
+  /** 上の日報に、11/03 の増（施工金額 6,000 → 6,000 × 1.21 = 7,260）を足したもの。 */
   const withIncrease = [
     ...reports,
     report('2026-11-03', [labor('w1', '田中', 1, 30000), work('内装', '床の増', 2, 'm2', 1, 6_000, 'increase')]),
@@ -441,12 +442,12 @@ describe('② 採算の基準（契約未確定の現場）と追加・増・変
   });
 
   it('提案額の合計は変更増減の一覧と同じ計算（追加＋増＋変更＋減）で、期間末までの累計', () => {
-    // 追加：労務 20,000 ÷ 1 人工 × 1 → 20,000 × 1.265 = 25,300。変更：40,000 × 1.265 = 50,600。減：−5,000（申告額）
-    expect(buildCostReport(input(reports), ALL, now, RATES).profit.changeProposal).toBe(25_300 + 50_600 - 5_000);
-    expect(buildCostReport(input(reports), NOV, now, RATES).profit.changeProposal).toBe(25_300 - 5_000); // 11 月末まで
-    // 増は追加と同じく実績原価から：30,000 × 1.265 = 37,950
-    expect(buildCostReport(input(withIncrease), ALL, now, RATES).profit.changeProposal).toBe(25_300 + 37_950 + 50_600 - 5_000);
-    expect(buildCostReport(input(withIncrease), NOV, now, RATES).profit.changeProposal).toBe(25_300 + 37_950 - 5_000);
+    // 追加：施工金額 30,000 × 1.21 = 36,300。変更：50,000 × 1.21 = 60,500。減：−5,000（申告額）
+    expect(buildCostReport(input(reports), ALL, now, RATES).profit.changeProposal).toBe(36_300 + 60_500 - 5_000);
+    expect(buildCostReport(input(reports), NOV, now, RATES).profit.changeProposal).toBe(36_300 - 5_000); // 11 月末まで
+    // 増は追加と同じく施工金額から：6,000 × 1.21 = 7,260
+    expect(buildCostReport(input(withIncrease), ALL, now, RATES).profit.changeProposal).toBe(36_300 + 7_260 + 60_500 - 5_000);
+    expect(buildCostReport(input(withIncrease), NOV, now, RATES).profit.changeProposal).toBe(36_300 + 7_260 - 5_000);
   });
 
   it('② の提案額と変更増減の一覧の精算（追加＋増＋変更＋減）は、どの期間でも一致する', () => {
@@ -454,7 +455,7 @@ describe('② 採算の基準（契約未確定の現場）と追加・増・変
       const p = buildCostReport(input(withIncrease), period, now, RATES).profit;
       const s = buildChangeLedger(input(withIncrease), RATES, period).settlement;
       expect(p.changeProposal).toBe(s.extra + s.increase + s.change + s.minus);
-      if (period.kind === 'all' || period.month === '2026-11') expect(s.increase).toBe(37_950); // 増が実際に入っている
+      if (period.kind === 'all' || period.month === '2026-11') expect(s.increase).toBe(7_260); // 増が実際に入っている
     }
   });
 
@@ -480,10 +481,10 @@ describe('② 採算の基準（契約未確定の現場）と追加・増・変
     );
 
   it('② は件ごとの精算額の合計（一式は確定額。一式の件に紐づく行の提案額は数えない。期間末より後に登録した件は入らない）', () => {
-    // 工期全体：一式 100,000 ＋ 一式 70,000 ＋ 増 37,950 ＋ 変更 50,600 − 減 5,000
-    expect(buildCostReport(settledInput(), ALL, now, RATES).profit.changeProposal).toBe(100_000 + 70_000 + 37_950 + 50_600 - 5_000);
+    // 工期全体：一式 100,000 ＋ 一式 70,000 ＋ 増 7,260 ＋ 変更 60,500 − 減 5,000
+    expect(buildCostReport(settledInput(), ALL, now, RATES).profit.changeProposal).toBe(100_000 + 70_000 + 7_260 + 60_500 - 5_000);
     // 11 月：12/01 登録の iX と 12 月の変更は入らない
-    expect(buildCostReport(settledInput(), NOV, now, RATES).profit.changeProposal).toBe(100_000 + 37_950 - 5_000);
+    expect(buildCostReport(settledInput(), NOV, now, RATES).profit.changeProposal).toBe(100_000 + 7_260 - 5_000);
     expect(buildCostReport(settledInput(), { kind: 'month', month: '2026-10' }, now, RATES).profit.changeProposal).toBe(100_000);
   });
 

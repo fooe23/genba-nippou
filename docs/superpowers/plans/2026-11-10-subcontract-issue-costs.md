@@ -57,7 +57,7 @@
 - 請負の会社の人工が原価に入らず、出面には全部残ること。うち常用の時間の分だけが常用の単価で原価に入ること（Task 5・7 のテスト）。
 - 協力会社のアカウントで、外注の買掛の行を読めない・書けない・消せないこと。協力会社が日報を保存し直しても、外注の行が消えず、`cost_total` が変わらないこと（Task 1 の verify）。
 - 村山様邸の数字（タイル：請負 ¥270,000、支払い ¥100,000、自社 予算 2.0 人工 ¥40,000／実際 1.5 人工 ¥30,000、常用 0.5 人工 @¥22,000、進み具合 40% → 見込み ¥372,500、見込みの粗利 ¥410,500、予算超え）がそのまま出ること（Task 8）。
-- 件の精算「門柱のタイル追加」で 人工 ¥11,000（0.5 人工）＋ 材料 ¥18,000 ＋ リース ¥15,000 ＝ ¥44,000 になること（Task 10）。
+- 件の精算（2026-11-11 の決まり）：村山様邸 11/10 で、作業内容 ¥25,000・仕入 ¥25,000（どちらも根拠あり）、外注 ¥170,000（根拠なし）、作業員 1 人工 @¥20,000 → 提案額 ¥61,317・実績原価（参考）¥45,000 になること。根拠を付けた外注は率なしでそのまま足すこと（Task 10）。
 
 ---
 
@@ -257,40 +257,34 @@ Task 1 で `cost_total` から外注の買掛を除くので、原価を見せ�
 
 ## 第 4 段階：件の精算の内訳（SQL なし）
 
-### Task 10: 件の精算の内訳（純関数）
+### Task 10: 件の精算の内訳と提案額（純関数・設定の率）
+
+> 2026-11-11 利用者の決まりで計算を置き換えた（下の「決めたこと F」）。最初の案（人工 ＋ 材料 ＋ リース ＋ 燃料 ＋ 外注 の原価に経費率・利益率）は使わない。
 
 **Files:**
-- Modify: `src/lib/reports/change-model.ts`、`src/lib/reports/types.ts`
-- Test: `tests/reports/change-model.test.ts`
+- Modify: `src/lib/reports/change-model.ts`、`src/lib/reports/types.ts`、`src/lib/db/settings.ts`・`settings-schemas.ts`・`settings-actions.ts`、`src/components/masters/SettingsPanel.tsx`、`supabase/schema_genba.sql`
+- Create: `supabase/update_2026-11-18_settlement_rates.sql`、`src/lib/reports/settlement-breakdown.ts`
+- Test: `tests/reports/change-model.test.ts`、`tests/reports/settlement-breakdown.test.ts`、`tests/db/settings-schemas.test.ts`
 
 **Interfaces:**
-- `ChangeIssueSettlement` に `costBreakdown: { labor: number; laborManDays: number; material: number; lease: number; fuel: number; subcontract: number; total: number }` を足す。
-  - `labor`・`laborManDays`：その件に紐づく作業内容の行の実績原価の労務分と投入人工の合計（今の `allocateDayCost` の労務分。第 2 段階で原価に数える労務費だけになっている）。
-  - `material`：根拠にその件を選んだ現金と、仕入の買掛の amount の合計。`lease`・`fuel`：根拠にその件を選んだリース・燃料。`subcontract`：根拠にその件を選んだ外注の買掛。
-- 根拠に件を選んだ現金・買掛・リース・燃料の行は、その件にだけ入れ、その日の按分（`DayCostBasis.otherCost`）からは除く（二重に数えない）。
-- 根拠を選んでいない行（燃料・リース・現金・買掛）は件に按分しない（決めたこと B）。今の `AllocatedCost.other`（その日の燃料・リース・現金・買掛を人工比で按分）をやめ、根拠にその件を選んだ行だけを集める。テストで固定する。
-- 未定の件の精算額：紐づく行の提案額の合計 ＋ `proposalFromCost(material + lease + fuel + subcontract)`。紐づく作業内容の行が無くても、根拠に選んだ行があれば精算の資料に載せる。
-- 一式・見積・常用の件の精算額は今までどおり（内訳は参考として出す）。
+- `ChangeRates = { legalWelfareRate; materialExpenseRate; leaseFuelExpenseRate; overheadProfitRate }`（率。0.151 = 15.1%）。DB の `gn_settings.legal_welfare_rate`（15.1）・`material_expense_rate`（12）・`lease_fuel_expense_rate`（12）・`overhead_profit_rate`（8）は %。check は名前付き（`gn_settings_<列>_ck`、0〜100）。列が無い（SQL の前）ときは既定の率で計算し、保存では率だけ落として「率は保存できませんでした」と返す。古い `overhead_rate`・`profit_rate` は DB に残し、アプリは読まない。
+- `settlementProposal({ laborAmount, material, lease, fuel, subcontract }, rates)` ＝ ceil((laborAmount ×(1＋法定福利費率) ＋ material ×(1＋材料経費率) ＋ (lease＋fuel) ×(1＋リース燃料経費率)) ×(1＋諸経費率) ＋ subcontract)。
+- `ChangeLedgerRow`：`actualCost: number`（人工 × その日の平均日当。按分の `other` はやめた）、`laborAmount`（施工金額。無ければ actualCost で仮に）、`missingAmount`、`proposal`（追加・増・変更はその行の労務だけで settlementProposal、減は申告額）。
+- `ChangeIssueSettlement.breakdown: SettlementBreakdown = { laborAmount; laborCost; material; lease; fuel; subcontract; missingAmountLines }`。`proposal` ＝ settlementProposal(breakdown) ＋ 紐づく減の行の申告額。`actualCost` ＝ laborCost ＋ 材料・リース・燃料・外注。
+- `settleIssue(issue, { manDays, proposal })`：一式・見積＝確定額、常用＝ceil(人工 × 常用単価)、未定＝proposal。
+- 材料＝現金 ＋ 仕入の買掛、外注＝外注の買掛。根拠の行は期間末までで、読めない件は数えない。未定の件は、作業内容の行が無くても根拠の行があれば載せる。
+- 根拠を選んでいない行（燃料・リース・現金・買掛）は件にも行にも按分しない（決めたこと B）。
 
-- [ ] **Step 1: テスト**（門柱のタイル追加：1 日の日報に、作業内容 タイル（契約内）投入 1.5、作業内容 門柱のタイル追加（追加・根拠＝件 X）投入 0.5、作業員 A さん（東北建興・請負の会社、うち常用 4.0 H → 常用 0.5 人工 ¥11,000）・B さん（全部が請負）、買掛 仕入 タイル 200角 ¥18,000（根拠 X）、リース ¥15,000（根拠 X）。経費率・利益率は 0）：
-  - 件 X の内訳：人工 ¥11,000（0.5 人工）、材料 ¥18,000、リース ¥15,000、燃料 ¥0、外注 ¥0、合計 ¥44,000。未定なら精算額 ¥44,000。
-  - 根拠に選んだ買掛は、契約内の行・ほかの件の行の按分に入らない。
-  - 根拠を選んでいない仕入の買掛 ¥5,000 を足しても、件 X の合計は ¥44,000 のまま（按分をやめる決まり：決めたこと B）。
-  - 外注の買掛 ¥30,000（根拠 X）→ 外注 ¥30,000、合計 ¥74,000。
-  - 一式の件（確定額 ¥60,000）に根拠の行があっても、精算額は ¥60,000、内訳は出る。
-  - 根拠の行だけで作業内容の行の無い件も、精算の資料に載る。
-- [ ] **Step 2〜4:** 失敗を確認 → 実装 → `npx tsc --noEmit`・`npx eslint <files>`・`npx vitest run`
-- [ ] **Step 5: コミット** `feat(changes): 件の精算に人工・材料・リース・燃料・外注の内訳`
+- [x] テスト：村山様邸（¥61,317・実績原価 ¥45,000・根拠なしの外注 ¥170,000 は入らない）、根拠ありの外注は率なしで足す（¥231,317）、材料とリース・燃料の率の違い、根拠の無い行を数えない、施工単価の無い行（人工 × 日当で仮に・印）、根拠の行だけの件、一式・常用は今まで通り、減の行。
+- [x] コミット `feat(changes): 件の精算を根拠の付いた行だけ・法定福利費・材料経費・諸経費で出す`
 
 ### Task 11: 精算の画面・資料
 
 **Files:**
-- Modify: `src/components/changes/IssueSettlementRow.tsx`・`ChangesTable.tsx`・`cells.tsx`（件の行に内訳：人工・材料（買掛・現金）・リース・燃料・外注・合計。見本 ④ の並び。375px では折り返し）、`src/lib/reports/change-sections.ts`・`src/lib/pdf/change-ledger.tsx`・`src/lib/reports/change-xlsx.ts`（社内用の精算の資料に内訳の列）、`src/lib/reports/changes-page.ts`、`src/content/guide/changes.md`
-- 変えない：お客様用（`client-change-sections.ts`・`client-change-xlsx.ts`・`client-change-ledger.tsx`）には内訳を出さない（原価なので）。
-- Test: `tests/reports/change-sections` 相当（内訳の列と値）、お客様用の出力に内訳の文字・金額が無いこと
+- Modify: `src/components/changes/IssueSettlementRow.tsx`・`ChangesTable.tsx`・`cells.tsx`（件の行の下に「精算の内訳：労務（施工金額） ¥…（法定福利費 15.1%）・材料 ¥…（材料経費 12%）…　諸経費 8%（外注を除く）」。375px では折り返し。未定の件・件なしの行で施工金額の無い行があれば「⚠ 精算の金額（施工単価）が入っていません（N行）」）、`src/lib/reports/change-sections.ts`・`change-xlsx.ts`（社内確認用：注記に式と 4 つの率、件の欄の 3 行目に「内訳 …」、Excel に 4 つの率の行）、`src/lib/reports/changes-page.ts`・`src/lib/db/changes-data.ts`（率を画面へ）、`src/components/report/tables/WorkTable.tsx`（追加・増・変更の行で施工金額が無ければ同じ知らせ。根拠の件が一式・見積・常用なら出さない）、`src/content/guide/*.md`
+- 変えない：お客様用（`client-change-sections.ts`・`client-change-xlsx.ts`・`client-change-ledger.tsx`）には率・内訳・原価を出さない（精算額だけ変わる）。テストで「法定福利」「諸経費」「内訳」「施工金額」が無いことを確かめる。
 
-- [ ] **Step 1〜4:** テスト → 失敗を確認 → 実装 → `npx tsc --noEmit`・`npx eslint <files>`・`npx vitest run`
-- [ ] **Step 5: コミット** `feat(changes): 精算の画面と資料に件の内訳`
+- [x] コミット（Task 10 と同じコミット）
 
 **第 4 段階の区切り：** 最終レビュー → `npm run build` → push。記録文書（`docs/superpowers/plans/2026-10-30-phase1-record.md`）に 4 段階の要点を足す。
 
@@ -309,4 +303,6 @@ Task 1 で `cost_total` から外注の買掛を除くので、原価を見せ�
   - 残業の割増は常用の分にだけ：常用の残業時間 ＝ min(その行の残業時間, うち常用の時間)。
   - 既存の「外注」と書いた仕入の買掛は区分を読み替えない（読み替えの画面は作らない）。
   - 台帳 Excel（V34 の雛形）の出力はこのまま（列名は「仕入」、請負の行の人工も雛形の式で労務費に入る）。
+- **F. 件の精算の提案額（2026-11-11 利用者。B を詳しくし、Task 10 の計算を置き換えた）**：根拠にその件を選んだ行だけ。労務＝作業内容の施工金額（無ければ人工 × 日当で仮に・知らせる）、材料＝仕入の買掛 ＋ 現金、リース・燃料は別の率、外注は率なし。提案額 ＝ ceil((労務 ×(1＋法定福利費率 15.1%) ＋ 材料 ×(1＋材料経費率 12%) ＋ (リース＋燃料) ×(1＋リース燃料経費率 12%)) ×(1＋諸経費率 8%) ＋ 外注)。率は管理者が設定で変える。一式・見積・常用は今まで通り（率なし）。実績原価は参考（人工 × 日当 ＋ 根拠の材料・リース・燃料・外注）。客先用には率・内訳を出さない。
+- **G. 人工のずれの知らせ（2026-11-11 利用者）**：日報で作業員の人工の合計と作業内容の投入人工の合計が 0.01 人工以上ずれていれば知らせる（保存は止めない。ほかの知らせと一緒に全部出す）。
 - **E. 協力会社のアカウントに見える金額**：仕入の買掛・リース・労務（日当を設定した分）・本日原価は今までどおり見えてよい。受注（元請け）の金額は見せない（済み）。外注の買掛の行（自社が外注に出す値段）は協力会社のアカウントから隠す（Task 1 の RLS）。

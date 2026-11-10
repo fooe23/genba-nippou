@@ -12,7 +12,8 @@ import type { SettlementMethod } from '@/lib/types';
 import { money } from '@/components/report/form-state';
 import { NumInput, fieldClass } from '@/components/report/inputs';
 import { ErrorText, primaryButtonClass, useRunner } from '@/components/masters/common';
-import { AffiliationNote, CHANGES_GRID, CHANGES_ROW, Cell, ComputedCells, InputCell, KindTag } from '@/components/changes/cells';
+import { AffiliationNote, BreakdownNote, CHANGES_GRID, CHANGES_ROW, Cell, ComputedCells, InputCell, KindTag, MissingAmountNote } from '@/components/changes/cells';
+import type { ChangeRates } from '@/lib/reports/types';
 
 /** 'YYYY-MM-DD' → 'MM/DD'。 */
 const md = (date: string) => date.slice(5).replace('-', '/');
@@ -56,9 +57,12 @@ export function IssueSettlementRow({
   siteId,
   defaultDailyRate,
   duplicates = [],
+  rates,
   readOnly,
 }: {
   row: ChangesIssueRow;
+  /** 件の精算の率（内訳に出す）。 */
+  rates: ChangeRates;
   siteId: string;
   defaultDailyRate: number | null;
   /** この件の重複の可能性（無ければ空）。 */
@@ -182,6 +186,9 @@ export function IssueSettlementRow({
         </button>
       </div>
       <AffiliationNote row={row} />
+      <BreakdownNote breakdown={row.breakdown} rates={rates} />
+      {/* 施工単価の無い行の知らせは、提案額で数える未定の件だけ（一式・見積・常用は提案額を使わない） */}
+      {row.settlementMethod === 'undecided' && <MissingAmountNote count={row.breakdown.missingAmountLines} />}
       {duplicates.length > 0 && <DuplicateNotes siteId={siteId} items={duplicates} />}
       {(saved || error) && (
         <div className="col-span-2 2xl:col-span-full 2xl:text-right">

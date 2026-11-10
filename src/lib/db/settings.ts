@@ -2,6 +2,7 @@ import 'server-only';
 import { cache } from 'react';
 import { DEFAULT_LABOR_RULE } from '@/lib/calc/report';
 import { createServerSupabase } from '@/lib/supabase/server';
+import type { ChangeRates } from '@/lib/reports/types';
 import type { LaborRule, TimeSpec } from '@/lib/types';
 
 // 全社の設定（gn_settings。1 行だけ、id = 1）の読み取り。書き込みは settings-actions.ts（管理者のみ）。
@@ -11,8 +12,11 @@ export interface Settings {
   rule: LaborRule;
   /** 新しい日報の共通時間の初期値（現場の既定が無いときに使う）。 */
   defaultCommon: TimeSpec;
-  /** 追加・増・変更の提案金額に掛ける率（経費率・利益率。0.15 = 15%）。 */
-  rates: { overheadRate: number; profitRate: number };
+  /**
+   * 件の精算の提案額に掛ける率（法定福利費率・材料経費率・リース燃料経費率・諸経費率［利益含む］。0.151 = 15.1%）。
+   * DB の列は %（15.1）で持ち、読むときに 100 で割る。
+   */
+  rates: ChangeRates;
   /** 提案書などに出す自社の名前・連絡先（未設定は null）。 */
   company: { name: string | null; contact: string | null };
   /** 予算の標準日当（実行予算の自社の労務の単価の初期値。円／人工）。 */
@@ -25,8 +29,11 @@ export interface Settings {
 /** gn_settings の列の既定と同じ。行が無い（SQL 未適用）・読めないときに使う。 */
 export const DEFAULT_COMMON: TimeSpec = { start: '08:00', end: '17:30', breakMin: 90, gapMin: 0 };
 
-/** gn_settings の overhead_rate・profit_rate の既定と同じ。 */
-export const DEFAULT_RATES: Settings['rates'] = { overheadRate: 0.15, profitRate: 0.1 };
+/**
+ * gn_settings の legal_welfare_rate・material_expense_rate・lease_fuel_expense_rate・overhead_profit_rate の既定（15.1・12・12・8 %）と同じ。
+ * 列が無い（update_2026-11-18_settlement_rates.sql の前）ときもこの率で計算する。
+ */
+export const DEFAULT_RATES: ChangeRates = { legalWelfareRate: 0.151, materialExpenseRate: 0.12, leaseFuelExpenseRate: 0.12, overheadProfitRate: 0.08 };
 
 /** gn_settings.budget_daily_rate の既定と同じ（update_2026-11-15_budget.sql）。 */
 export const DEFAULT_BUDGET_DAILY_RATE = 20000;
@@ -52,8 +59,10 @@ interface SettingsRow {
   default_common_gap_min: number | string | null;
   updated_at: string | null;
   updated_by?: string | null;
-  overhead_rate?: number | string | null;
-  profit_rate?: number | string | null;
+  legal_welfare_rate?: number | string | null;
+  material_expense_rate?: number | string | null;
+  lease_fuel_expense_rate?: number | string | null;
+  overhead_profit_rate?: number | string | null;
   company_name?: string | null;
   company_contact?: string | null;
   budget_daily_rate?: number | string | null;
@@ -64,15 +73,25 @@ const LEGACY_COLUMNS =
 // updated_by は update_2026-11-03c_master_import.sql、率と会社名は update_2026-11-04_change_tracking.sql で追加。
 // 未適用（列が無い＝42703）なら、列の少ない方で順に読み直す（無い列は既定値）。
 const COLUMNS_V2 = `${LEGACY_COLUMNS}, updated_by`;
-const COLUMNS_V3 = `${COLUMNS_V2}, overhead_rate, profit_rate, company_name, company_contact`;
+// 古い率（overhead_rate・profit_rate）は 2026-11-18 から読まない（列は DB に残る）。
+const COLUMNS_V3 = `${COLUMNS_V2}, company_name, company_contact`;
 // budget_daily_rate は update_2026-11-15_budget.sql で追加。
-const COLUMNS = `${COLUMNS_V3}, budget_daily_rate`;
-const COLUMN_SETS = [COLUMNS, COLUMNS_V3, COLUMNS_V2, LEGACY_COLUMNS];
+const COLUMNS_V4 = `${COLUMNS_V3}, budget_daily_rate`;
+// 件の精算の率は update_2026-11-18_settlement_rates.sql で追加。
+export const SETTLEMENT_RATE_COLUMNS = ['legal_welfare_rate', 'material_expense_rate', 'lease_fuel_expense_rate', 'overhead_profit_rate'] as const;
+const COLUMNS = `${COLUMNS_V4}, ${SETTLEMENT_RATE_COLUMNS.join(', ')}`;
+const COLUMN_SETS = [COLUMNS, COLUMNS_V4, COLUMNS_V3, COLUMNS_V2, LEGACY_COLUMNS];
 
 function numOr(v: number | string | null | undefined, fallback: number): number {
   if (v === null || v === undefined || v === '') return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;
+}
+
+/** DB の %（15.1）→ 率（0.151）。浮動小数の誤差を落とす。無い・数でなければ fallback（率）。 */
+function pctOr(v: number | string | null | undefined, fallback: number): number {
+  const pct = numOr(v, NaN);
+  return Number.isFinite(pct) ? Math.round(pct * 1e4) / 1e6 : fallback;
 }
 
 function intOrNull(v: number | string | null): number | null {
@@ -97,8 +116,10 @@ function toSettings(r: SettingsRow): Settings {
       gapMin: intOrNull(r.default_common_gap_min),
     },
     rates: {
-      overheadRate: numOr(r.overhead_rate, DEFAULT_RATES.overheadRate),
-      profitRate: numOr(r.profit_rate, DEFAULT_RATES.profitRate),
+      legalWelfareRate: pctOr(r.legal_welfare_rate, DEFAULT_RATES.legalWelfareRate),
+      materialExpenseRate: pctOr(r.material_expense_rate, DEFAULT_RATES.materialExpenseRate),
+      leaseFuelExpenseRate: pctOr(r.lease_fuel_expense_rate, DEFAULT_RATES.leaseFuelExpenseRate),
+      overheadProfitRate: pctOr(r.overhead_profit_rate, DEFAULT_RATES.overheadProfitRate),
     },
     company: { name: r.company_name || null, contact: r.company_contact || null },
     budgetDailyRate: numOr(r.budget_daily_rate, DEFAULT_BUDGET_DAILY_RATE),

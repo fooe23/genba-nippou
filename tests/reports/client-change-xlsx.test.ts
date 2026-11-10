@@ -31,10 +31,10 @@ describe('buildClientChangeXlsx', () => {
     expect(rowOf(ws, '項目').getCell(3).value).toBe('金額(円)');
     const extra = rowOf(ws, '追加');
     expect(extra.getCell(2).value).toBe(1);
-    expect(extra.getCell(3).value).toBe(113236);
+    expect(extra.getCell(3).value).toBe(107459);
     expect(extra.getCell(3).numFmt).toBe('#,##0');
     expect(rowOf(ws, '減').getCell(3).value).toBe(-20000);
-    expect(rowOf(ws, '精算提案額').getCell(3).value).toBe(1108236);
+    expect(rowOf(ws, '精算提案額').getCell(3).value).toBe(1102459);
     rowOf(ws, '※ 見積中の件（1 件）は金額に含めていません。確定しだい改めてご提示します。');
 
     const pending = rowOf(ws, '11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。');
@@ -61,7 +61,7 @@ describe('buildClientChangeXlsx', () => {
     expect([1, 2, 4].map((c) => ws.getRow(check.number + 1).getCell(c).value)).toEqual(['確認者', '確認日', 'サイン']);
 
     const values = allValues(ws);
-    for (const word of ['実績原価', '見込み額', '提案額(円)', '経費率', '申告額', '単価(円)', 'やり直し']) {
+    for (const word of ['実績原価', '見込み額', '提案額(円)', '経費率', '申告額', '単価(円)', 'やり直し', '法定福利', '諸経費', '内訳', '施工金額']) {
       expect(values.filter((v) => v.includes(word))).toEqual([]);
     }
     expect(ws.pageSetup.paperSize).toBe(9);

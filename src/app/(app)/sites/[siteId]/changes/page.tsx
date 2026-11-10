@@ -19,7 +19,7 @@ export default async function ChangesPage({ params }: PageProps<'/sites/[siteId]
   if (!site || site.deletedAt !== null) notFound();
   const readOnly = site.status === 'done';
 
-  const { rows, total, defaultDailyRate, duplicates } = await loadChangesPage(site);
+  const { rows, total, defaultDailyRate, duplicates, rates } = await loadChangesPage(site);
 
   return (
     <main className="mx-auto w-full max-w-[96rem] p-4">
@@ -28,7 +28,7 @@ export default async function ChangesPage({ params }: PageProps<'/sites/[siteId]
       </Link>
       <h1 className="mb-2 text-xl font-bold">追加・変更の一覧</h1>
       <p className="mb-4 text-sm text-gray-700 dark:text-gray-300">
-        件ごとに精算の方法と確定額（一式）・見積額（見積）または常用単価（常用）を入れます。未定の件は実績原価からの提案額で仮に数えます。
+        件ごとに精算の方法と確定額（一式）・見積額（見積）または常用単価（常用）を入れます。未定の件は、根拠にその件を選んだ行（作業内容の施工金額・材料・リース・燃料・外注）からの提案額で仮に数えます。
       </p>
       {readOnly && (
         <p role="status" className="mb-4 rounded-lg border border-blue-500 bg-blue-50 p-3 font-bold text-blue-900 dark:bg-blue-950 dark:text-blue-50">
@@ -41,6 +41,7 @@ export default async function ChangesPage({ params }: PageProps<'/sites/[siteId]
         total={total}
         defaultDailyRate={defaultDailyRate}
         duplicates={duplicates}
+        rates={rates}
         readOnly={readOnly}
       />
     </main>

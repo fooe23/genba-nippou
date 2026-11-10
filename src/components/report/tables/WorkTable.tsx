@@ -13,6 +13,8 @@ import { LineTable, type Column } from '../LineTable';
 import { IssuePicker } from './IssuePicker';
 import { LineIssueCreator } from './LineIssueCreator';
 import { issueOptions } from '@/lib/report/issue-options';
+import { missingSettlementAmount } from '@/lib/report/contract-work';
+import { MISSING_AMOUNT_NOTE, MISSING_AMOUNT_WARNING } from '@/lib/reports/settlement-breakdown';
 
 const MANUAL_TRADE = '__manual__';
 
@@ -185,6 +187,15 @@ export function WorkTable({
               </span>
               <span className="text-gray-700 dark:text-gray-300">契約外（{CHANGE_KIND_LABELS[l.changeKind]}）の作業です。</span>
             </p>
+            {/* 件の精算の労務は施工金額（数量 × 施工単価）から出すので、無ければ知らせる（保存は止めない）。 */}
+            {missingSettlementAmount(l, linkedIssue) && (
+              <p role="note" className="mb-2 flex items-start gap-1.5 text-sm font-bold text-amber-800 dark:text-amber-300">
+                <span aria-hidden="true">⚠</span>
+                <span>
+                  {MISSING_AMOUNT_WARNING}。<span className="font-normal">{MISSING_AMOUNT_NOTE}</span>
+                </span>
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
               {linkedIssue ? null : (
                 <>

@@ -3,6 +3,7 @@ import type { Site } from '@/lib/db/sites';
 import { clientSettlement } from '@/lib/reports/change-model';
 import { CHANGE_KIND_LABELS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, SETTLEMENT_METHOD_LABELS } from '@/lib/report/change-labels';
 import { affiliationManDaysText, sumAffiliationManDays, type AffiliationManDays } from '@/lib/reports/affiliation-breakdown';
+import { breakdownText, proposalFormulaText } from '@/lib/reports/settlement-breakdown';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable, type TableGroup } from '@/lib/reports/cost-sections';
 import type { ChangeIssueSettlement, ChangeLedgerKind, ChangeLedgerModel, ChangeLedgerRow } from '@/lib/reports/types';
 
@@ -20,6 +21,10 @@ export const NO_CHANGES = '追加・増・変更・減の記録はありませ�
 export const NO_BASE_NOTE = '当初金額が未設定のため算出できません';
 export const ISSUES_TITLE = '件ごとの精算';
 export const UNLINKED_LABEL = '件なし（根拠の件を選んでいない行）';
+/** 提案額の元の注記（社内確認用）。 */
+export const BASIS_NOTE =
+  '根拠にその件を選んだ行だけを数えます（根拠の無い材料・リース・燃料・外注は按分しません）。材料＝仕入の買掛＋現金。' +
+  '労務は作業内容の施工金額（施工単価の無い行は人工×日当で仮に）。';
 export const SETTLED_NOTE =
   '精算額＝一式・見積の件は確定額、常用の件は人工×常用単価、未定の件と件に紐づかない行は提案額。やり直しの件は参考で合計に入れません。';
 /** 客先確認欄の 3 つの枠（どれも空欄）。 */
@@ -78,10 +83,6 @@ export function changeInfoRows(model: ChangeLedgerModel, meta: ChangeReportMeta)
 
 const KINDS: ChangeLedgerKind[] = ['extra', 'increase', 'change', 'minus'];
 
-/** 率の表示（0.15 → '15'、0.125 → '12.5'）。 */
-function ratePercent(rate: number): string {
-  return new Intl.NumberFormat('ja-JP', { maximumFractionDigits: 1 }).format(Math.round(rate * 1000) / 10);
-}
 
 /**
  * サマリー表（当初／契約内出来高／追加・増・変更・減（件数・申告額・提案額・精算額）／精算提案額）と注記。
@@ -111,10 +112,8 @@ export function changeSummary(model: ChangeLedgerModel): { table: SectionTable; 
     total: [st.through ? `精算提案額（${slashDate(st.through)} までの累計）` : '精算提案額', ...blank, cell.yen(st.proposed)],
     after: [[CLIENT_PROPOSED_LABEL, ...blank, cell.yen(clientSettlement(model).proposed)]],
   };
-  const { overheadRate, profitRate } = model.rates;
   const notes = [
-    `提案額＝実績原価×(1＋経費率 ${ratePercent(overheadRate)}%)×(1＋利益率 ${ratePercent(profitRate)}%)、円未満切り上げ。減は申告額。` +
-      '実績原価＝投入人工×その日の平均日当＋その日の材料・リース・燃料を人工比で按分。',
+    proposalFormulaText(model.rates) + BASIS_NOTE,
     SETTLED_NOTE,
     // 契約内出来高も当月分（精算額の列に出すが累計ではない）
     ...(st.through ? ['件数・申告額・提案額と契約内出来高は当月分。精算額と精算提案額は月末までの累計です。'] : []),
@@ -129,8 +128,9 @@ export function affiliationLine(parts: AffiliationManDays[]): string {
   return text ? `所属別 ${text}` : '';
 }
 
-/** 件の欄：1 行目に件、2 行目に所属別の人工（あれば）。 */
-const withAffiliation = (head: string, parts: AffiliationManDays[]) => [head, affiliationLine(parts)].filter(Boolean).join('\n');
+/** 件の欄：1 行目に件、2 行目に所属別の人工（あれば）、3 行目に精算の内訳（あれば。社内用だけ）。 */
+const withAffiliation = (head: string, parts: AffiliationManDays[], breakdown = '') =>
+  [head, affiliationLine(parts), breakdown ? `内訳 ${breakdown}` : ''].filter(Boolean).join('\n');
 
 /** 確定額・単価の欄：一式・見積は確定額（見積額。減は負）、常用は「常用 N人工 × ¥単価」、未定は「—」。 */
 function settlementTerms(i: ChangeIssueSettlement): Cell {
@@ -151,7 +151,8 @@ function settlementTerms(i: ChangeIssueSettlement): Cell {
  * 件ごとの精算（件・見込み額・精算方法・確定額・単価・確定日・行数・投入人工・提案額・精算額）。件の日付順に 1 行ずつ、
  * 件に紐づかない行があれば最後に「件なし」の 1 行（精算額は提案額）。やり直しの件は精算額を「（参考）¥額」と出し、合計に入れない。
  * 行数・人工・提案額は期間末までの累計（件の精算額と同じ範囲）。件も件なしの行も無ければ null（表を出さない）。
- * 件の欄の 2 行目に投入人工の所属別の内訳（「所属別 自社 2.0／〇〇工業 1.5」。その日の労務の行の所属別の人工比で按分）。
+ * 件の欄の 2 行目に投入人工の所属別の内訳（「所属別 自社 2.0／〇〇工業 1.5」。その日の労務の行の所属別の人工比で按分）、
+ * 3 行目に精算の内訳（「内訳 労務（施工金額） ¥25,000／材料 ¥25,000」）。
  */
 export function changeIssues(model: ChangeLedgerModel): SectionTable | null {
   const { issues, unlinked } = model;
@@ -173,7 +174,11 @@ export function changeIssues(model: ChangeLedgerModel): SectionTable | null {
     ],
     rows: [
       ...issues.map((i): Cell[] => [
-        withAffiliation(`${i.reportDate.slice(5).replace('-', '/')}-${i.number} ${ISSUE_KIND_LABELS[i.kind]} ${i.bodyHead}`.trim(), i.affiliationManDays),
+        withAffiliation(
+          `${i.reportDate.slice(5).replace('-', '/')}-${i.number} ${ISSUE_KIND_LABELS[i.kind]} ${i.bodyHead}`.trim(),
+          i.affiliationManDays,
+          breakdownText(i.breakdown, model.rates),
+        ),
         cell.yen(i.amountEstimate),
         SETTLEMENT_METHOD_LABELS[i.settlementMethod],
         settlementTerms(i),

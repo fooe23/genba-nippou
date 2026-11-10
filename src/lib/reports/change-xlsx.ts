@@ -101,8 +101,10 @@ export async function buildChangeXlsx(model: ChangeLedgerModel, meta: ChangeRepo
     writeTable(ws, table);
     ws.addRow([]);
     for (const [label, rate] of [
-      ['経費率', model.rates.overheadRate],
-      ['利益率', model.rates.profitRate],
+      ['法定福利費率', model.rates.legalWelfareRate],
+      ['材料経費率', model.rates.materialExpenseRate],
+      ['リース燃料経費率', model.rates.leaseFuelExpenseRate],
+      ['諸経費率（利益含む）', model.rates.overheadProfitRate],
     ] as const) {
       const c = labelRow(ws, label, rate).getCell(2);
       c.numFmt = '0.0%';

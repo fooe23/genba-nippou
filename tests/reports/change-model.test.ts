@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
-import { allocateDayCost, buildChangeLedger, clientSettlement, dayCostBasis, proposalFromCost, settleIssue } from '@/lib/reports/change-model';
+import { buildChangeLedger, clientSettlement, dayCostBasis, laborShare, settleIssue, settlementProposal, type ProposalBasis } from '@/lib/reports/change-model';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
-import type { ChangeLedgerInput, ChangeLedgerRow, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
+import type { ChangeLedgerInput, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
 import type { ChangeKind, WorkLine } from '@/lib/types';
 
 // ─── 小さな手作りの入力 ───
@@ -19,18 +19,18 @@ const labor = (manDays: number, cost: number): SavedReportLine => ({
   kind: 'labor', workerId: null, workerName: '作業員', time: { start: null, end: null, breakMin: null, gapMin: null },
   dailyRate: 99_999, note: '', overtimeRate: null, stored: stored(cost, manDays),
 });
-const fuel = (cost: number): SavedReportLine => ({
-  kind: 'fuel', vehicleId: null, vehicleName: '車', kmPerL: 10, distanceKm: 1, pricePerL: 1, note: '', stored: stored(cost), issueId: null,
-});
-const lease = (cost: number): SavedReportLine => ({
-  kind: 'lease', itemId: null, itemName: '足場', spec: '', unit: '日', qty: 1, unitPrice: 1, note: '', stored: stored(cost), issueId: null,
-});
-const cash = (cost: number): SavedReportLine => ({
-  kind: 'cash', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 1, vendor: '', stored: stored(cost), issueId: null,
-});
-const credit = (cost: number): SavedReportLine => ({
-  kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 1, unitPrice: 1, supplierId: null, vendor: '', stored: stored(cost), purchaseKind: 'material', siteTradeId: null, issueId: null,
-});
+const fuel = (cost: number, o: Record<string, unknown> = {}): SavedReportLine => ({
+  kind: 'fuel', vehicleId: null, vehicleName: '車', kmPerL: 10, distanceKm: 1, pricePerL: 1, note: '', stored: stored(cost), issueId: null, ...o,
+}) as SavedReportLine;
+const lease = (cost: number, o: Record<string, unknown> = {}): SavedReportLine => ({
+  kind: 'lease', itemId: null, itemName: '足場', spec: '', unit: '日', qty: 1, unitPrice: 1, note: '', stored: stored(cost), issueId: null, ...o,
+}) as SavedReportLine;
+const cash = (cost: number, o: Record<string, unknown> = {}): SavedReportLine => ({
+  kind: 'cash', itemName: '釘', spec: '', unit: '箱', qty: 1, unitPrice: 1, vendor: '', stored: stored(cost), issueId: null, ...o,
+}) as SavedReportLine;
+const credit = (cost: number, o: Record<string, unknown> = {}): SavedReportLine => ({
+  kind: 'credit', itemName: '合板', spec: '', unit: '枚', qty: 1, unitPrice: 1, supplierId: null, vendor: '', stored: stored(cost), purchaseKind: 'material', siteTradeId: null, issueId: null, ...o,
+}) as SavedReportLine;
 /** 作業内容。保存値の amount は DB のトリガーと同じ（減は負）。 */
 const work = (
   changeKind: ChangeKind,
@@ -61,7 +61,10 @@ const issue = (id: string, reportDate: string, body: string, o: Partial<Issue> =
 
 const input = (reports: ReportWithLines[], o: Partial<ChangeLedgerInput> = {}): ChangeLedgerInput => ({ site: site(), reports, issues: [], ...o });
 
-const RATES = { overheadRate: 0.15, profitRate: 0.1 };
+/** 計算を追いやすい率：労務は ×1.1 ×1.1（施工金額 1,000 → 1,210）。 */
+const RATES = { legalWelfareRate: 0.1, materialExpenseRate: 0.2, leaseFuelExpenseRate: 0.3, overheadProfitRate: 0.1 };
+/** 設定の既定（法定福利費 15.1%・材料経費 12%・リース燃料経費 12%・諸経費 8%）。 */
+const DEF = { legalWelfareRate: 0.151, materialExpenseRate: 0.12, leaseFuelExpenseRate: 0.12, overheadProfitRate: 0.08 };
 const ALL = { kind: 'all' } as const;
 const NOV = { kind: 'month', month: '2026-11' } as const;
 
@@ -86,46 +89,36 @@ const oct20 = () => report('2026-10-20', [cash(4000), work('extra', 1, 1, 8000)]
 
 // ─── テスト ───
 
-describe('allocateDayCost（実績原価の按分の規則）', () => {
-  it('人工 × 平均日当（労務費 ÷ 労務の人工）＋ 燃料・リース・現金・買掛 × 行の人工 ÷ その日の作業内容の人工の合計', () => {
+describe('dayCostBasis・laborShare（労務の実績原価）', () => {
+  it('行の投入人工 × その日の平均日当（労務費 ÷ 労務の人工）。燃料・リース・現金・買掛は見ない', () => {
     const day = dayCostBasis(nov2());
-    expect(day).toEqual({ laborCost: 25500, laborManDays: 1.5, otherCost: 6000, workManDays: 3.5 });
-    const a = allocateDayCost(day, { manDays: 1 });
-    expect(a.labor).toBeCloseTo(17000, 9);
-    expect(a.other).toBeCloseTo(6000 / 3.5, 9);
-    expect(a.total).toBeCloseTo(17000 + 6000 / 3.5, 9);
+    expect(day).toEqual({ laborCost: 25500, laborManDays: 1.5 });
+    expect(laborShare(day, 1)).toBeCloseTo(17000, 9);
+    expect(laborShare(day, 0.5)).toBeCloseTo(8500, 9);
   });
-  it('同じ日の複数行に配った額の合計は、その日の労務費・材料等（作業内容の人工の割合の分）になる', () => {
-    const day = dayCostBasis(nov2());
-    const parts = [2, 1, 0.5].map((manDays) => allocateDayCost(day, { manDays }));
-    expect(parts.reduce((s, p) => s + p.other, 0)).toBeCloseTo(6000, 9);
-    expect(parts.reduce((s, p) => s + p.labor, 0)).toBeCloseTo(3.5 * 17000, 9);
-  });
-  it('労務が無い日は労務分 0（材料等の按分は行う）', () => {
-    const a = allocateDayCost({ laborCost: 0, laborManDays: 0, otherCost: 4000, workManDays: 2 }, { manDays: 1 });
-    expect(a).toEqual({ labor: 0, other: 2000, total: 2000 });
-  });
-  it('作業内容の人工の合計が 0 の日は材料等の按分 0、行の人工 0 なら 0', () => {
-    expect(allocateDayCost({ laborCost: 18000, laborManDays: 1, otherCost: 4000, workManDays: 0 }, { manDays: 0 })).toEqual({ labor: 0, other: 0, total: 0 });
-    expect(allocateDayCost({ laborCost: 18000, laborManDays: 1, otherCost: 4000, workManDays: 2 }, { manDays: 0 })).toEqual({ labor: 0, other: 0, total: 0 });
+  it('労務が無い日・行の人工 0 は 0', () => {
+    expect(laborShare(dayCostBasis(oct20()), 1)).toBe(0);
+    expect(laborShare({ laborCost: 18000, laborManDays: 1 }, 0)).toBe(0);
   });
   it('dayCostBasis は保存値（stored）だけを足す（日当・数量は見ない）', () => {
-    expect(dayCostBasis(nov5())).toEqual({ laborCost: 18000, laborManDays: 1, otherCost: 0, workManDays: 0 });
+    expect(dayCostBasis(nov5())).toEqual({ laborCost: 18000, laborManDays: 1 });
   });
 });
 
-describe('proposalFromCost（提案金額の丸め）', () => {
-  it('実績原価 ×（1＋経費率）×（1＋利益率）を円未満切り上げ', () => {
-    expect(proposalFromCost(1, RATES)).toBe(2); // 1.265 → 2
-    expect(proposalFromCost(18714.2857, RATES)).toBe(23674); // 23673.57… → 23674
+describe('settlementProposal（提案額の式と丸め）', () => {
+  const b = (o: Partial<ProposalBasis>): ProposalBasis => ({ laborAmount: 0, material: 0, lease: 0, fuel: 0, subcontract: 0, ...o });
+  it('（労務 ×（1＋法定福利費率）＋ 材料 ×（1＋材料経費率）＋（リース＋燃料）×（1＋リース燃料経費率））×（1＋諸経費率）＋ 外注、円未満切り上げ', () => {
+    // 村山様邸 11/10：労務（施工金額）25,000・材料 25,000 → (28,775 ＋ 28,000) × 1.08 = 61,317（浮動小数の誤差で 1 円多くしない）
+    expect(settlementProposal(b({ laborAmount: 25000, material: 25000 }), DEF)).toBe(61317);
+    // リース・燃料はリース燃料経費率、外注は率を掛けずにそのまま足す
+    const r = { legalWelfareRate: 0, materialExpenseRate: 0.2, leaseFuelExpenseRate: 0.5, overheadProfitRate: 0.1 };
+    expect(settlementProposal(b({ material: 1000, lease: 1000, fuel: 1000 }), r)).toBe(4620); // (1,200 ＋ 1,500 ＋ 1,500) × 1.1
+    expect(settlementProposal(b({ subcontract: 170000 }), r)).toBe(170000);
+    expect(settlementProposal(b({ laborAmount: 1000, subcontract: 0.4 }), r)).toBe(1101); // 1,100.4 → 1,101
   });
-  it('割り切れる額は浮動小数の誤差で 1 円多くしない（10,000 × 1.15 × 1.1 = 12,650）', () => {
-    expect(proposalFromCost(10000, RATES)).toBe(12650);
-    expect(proposalFromCost(20000, { overheadRate: 0.1, profitRate: 0.1 })).toBe(24200);
-  });
-  it('率 0 なら実績原価の切り上げ、原価 0 なら 0', () => {
-    expect(proposalFromCost(1234.01, { overheadRate: 0, profitRate: 0 })).toBe(1235);
-    expect(proposalFromCost(0, RATES)).toBe(0);
+  it('割り切れない額は切り上げ、全部 0 なら 0', () => {
+    expect(settlementProposal(b({ laborAmount: 10000 }), DEF)).toBe(12431); // 12,430.8
+    expect(settlementProposal(b({}), DEF)).toBe(0);
   });
 });
 
@@ -150,25 +143,18 @@ describe('一覧の行', () => {
     expect(m.rows[3]).toMatchObject({ monthIndex: 2, totalIndex: 3 });
     expect(m.rows[2].instructedBy).toBeNull(); // '' は null
   });
-  it('実績原価と提案金額（追加・変更は実績原価から）', () => {
+  it('実績原価は労務だけ（その日の燃料・リース・現金・買掛は按分しない）、提案額は施工金額から', () => {
     const extra = m.rows[1];
-    expect(extra.actualCost.total).toBeCloseTo(17000 + 6000 / 3.5, 9);
-    expect(extra.proposal).toBe(Math.ceil((17000 + 6000 / 3.5) * 1.15 * 1.1)); // 23674
-    expect(extra.proposal).toBe(23674);
-    expect(extra.proposalBasis).toBe('cost');
+    expect(extra.actualCost).toBeCloseTo(17000, 9);
+    expect(extra).toMatchObject({ laborAmount: 30000, missingAmount: false, proposal: 36300, proposalBasis: 'cost' }); // 30,000 × 1.1 × 1.1
     const change = m.rows[2];
-    expect(change.actualCost.total).toBeCloseTo(8500 + 6000 * (0.5 / 3.5), 9);
-    expect(change.proposal).toBe(11837);
-    // 10/20：労務なし。材料 4,000 を 1 行（人工 1／合計 1）に全部配る → 4,000 × 1.265 = 5,060
-    expect(m.rows[0].actualCost).toEqual({ labor: 0, other: 4000, total: 4000 });
-    expect(m.rows[0].proposal).toBe(5060);
+    expect(change.actualCost).toBeCloseTo(8500, 9);
+    expect(change).toMatchObject({ laborAmount: 5000, proposal: 6050 });
+    // 10/20：労務なし。材料 4,000 は根拠が無いので数えない
+    expect(m.rows[0]).toMatchObject({ actualCost: 0, laborAmount: 8000, proposal: 9680 });
   });
-  it('減は申告額（負）がそのまま提案額', () => {
-    const minus = m.rows[3];
-    expect(minus.declared).toBe(-3000);
-    expect(minus.proposal).toBe(-3000);
-    expect(minus.proposalBasis).toBe('declared');
-    expect(minus.actualCost.total).toBe(0);
+  it('減は申告額（負）がそのまま提案額。実績原価・労務 0', () => {
+    expect(m.rows[3]).toMatchObject({ declared: -3000, proposal: -3000, proposalBasis: 'declared', actualCost: 0, laborAmount: 0, missingAmount: false });
   });
   it('客先確認の有無（日報の client_confirmed_at）', () => {
     expect(m.rows.map((r) => r.clientConfirmed)).toEqual([false, false, false, true]);
@@ -201,13 +187,13 @@ describe('根拠の件', () => {
 describe('区分ごとの集計と精算提案額', () => {
   it('件数・申告額・実績原価・提案額（減は負）、契約内の出来高', () => {
     const m = buildChangeLedger(input([nov5(), nov2(), oct20()]), RATES, ALL);
-    expect(m.summary.extra).toMatchObject({ count: 2, declared: 38000, proposal: 5060 + 23674 });
-    expect(m.summary.extra.actualCost).toBeCloseTo(4000 + 17000 + 6000 / 3.5, 6);
-    expect(m.summary.change).toMatchObject({ count: 1, declared: 5000, proposal: 11837 });
+    expect(m.summary.extra).toMatchObject({ count: 2, declared: 38000, proposal: 9680 + 36300 });
+    expect(m.summary.extra.actualCost).toBeCloseTo(17000, 6);
+    expect(m.summary.change).toMatchObject({ count: 1, declared: 5000, proposal: 6050 });
     expect(m.summary.minus).toEqual({ count: 1, declared: -3000, actualCost: 0, proposal: -3000, settled: -3000 });
     expect(m.contractOutput).toBe(50000);
     expect(m.settlement).toEqual({
-      base: 1_000_000, baseBasis: 'contract', through: null, extra: 28734, increase: 0, change: 11837, minus: -3000, proposed: 1_000_000 + 28734 + 11837 - 3000,
+      base: 1_000_000, baseBasis: 'contract', through: null, extra: 45980, increase: 0, change: 6050, minus: -3000, proposed: 1_000_000 + 45980 + 6050 - 3000,
     });
     expect(m.rates).toEqual(RATES);
     expect(m.period).toEqual({ kind: 'all', month: null });
@@ -244,128 +230,185 @@ describe('期間', () => {
 });
 
 describe('増（同じ流れの中で数量が増えたもの）', () => {
-  // 11/02：労務 20,000・1 人工、材料 3,000。作業内容の人工：契約内 1、追加 1、増 1（計 3）。
+  // 11/02：労務 20,000・1 人工、材料 3,000（根拠なし）。作業内容：契約内 1 人工、追加 1 人工（1,000）、増 1 人工（4 × 2,500）。
   const r = () =>
     report('2026-11-02', [labor(1, 20000), cash(3000), work('contract', 1, 10, 1000), work('extra', 1, 1, 1000), work('increase', 1, 4, 2500)]);
 
-  it('増は追加と同じく実績原価から提案額（実績原価 ×（1＋経費率）×（1＋利益率）を切り上げ）', () => {
+  it('増は追加と同じく施工金額から提案額（根拠の無い材料は数えない）', () => {
     const m = buildChangeLedger(input([r()]), RATES, ALL);
     expect(m.rows.map((x) => x.changeKind)).toEqual(['extra', 'increase']);
-    const inc = m.rows[1];
-    expect(inc).toMatchObject({ declared: 10000, manDays: 1, proposalBasis: 'cost' });
-    // 労務 20,000 × 1 ÷ 1 ＋ 材料 3,000 × 1 ÷ 3 = 21,000 → 21,000 × 1.265 = 26,565
-    expect(inc.actualCost).toEqual({ labor: 20000, other: 1000, total: 21000 });
-    expect(inc.proposal).toBe(26565);
-    expect(inc.proposal).toBe(m.rows[0].proposal); // 同じ人工の追加と同じ計算
+    expect(m.rows[1]).toMatchObject({ declared: 10000, manDays: 1, proposalBasis: 'cost', actualCost: 20000, laborAmount: 10000, proposal: 12100 });
+    expect(m.rows[0]).toMatchObject({ actualCost: 20000, laborAmount: 1000, proposal: 1210 });
   });
   it('区分ごとの集計に「増」があり、精算提案額 = 当初 ＋ 追加 ＋ 増 ＋ 変更 ＋ 減', () => {
     const m = buildChangeLedger(input([r(), nov5()]), RATES, ALL);
-    expect(m.summary.increase).toEqual({ count: 1, declared: 10000, actualCost: 21000, proposal: 26565, settled: 26565 });
-    expect(m.summary.extra).toMatchObject({ count: 1, proposal: 26565 });
+    expect(m.summary.increase).toEqual({ count: 1, declared: 10000, actualCost: 20000, proposal: 12100, settled: 12100 });
+    expect(m.summary.extra).toMatchObject({ count: 1, proposal: 1210 });
     expect(m.settlement).toEqual({
       base: 1_000_000, baseBasis: 'contract', through: null,
-      extra: 26565, increase: 26565, change: 0, minus: -3000, proposed: 1_000_000 + 26565 + 26565 - 3000,
+      extra: 1210, increase: 12100, change: 0, minus: -3000, proposed: 1_000_000 + 1210 + 12100 - 3000,
     });
   });
 });
 
-describe('減の行の実績原価（ルール 3）', () => {
-  it('減の行は人工があっても実績原価 0。その人工はその日の按分の分母には入る', () => {
-    // 労務 20,000・1 人工、材料 3,000。作業内容の人工：追加 1、減 2（計 3）
+describe('減の行', () => {
+  it('減の行は人工があっても実績原価・労務 0。根拠の無い材料はどの行にも入らない', () => {
+    // 労務 20,000・1 人工、材料 3,000（根拠なし）。作業内容の人工：追加 1、減 2
     const r = report('2026-11-02', [labor(1, 20000), cash(3000), work('extra', 1, 1, 1000), work('minus', 2, 1, 500)]);
     const m = buildChangeLedger(input([r]), RATES, ALL);
     const [extra, minus] = m.rows;
-    expect(minus.actualCost).toEqual({ labor: 0, other: 0, total: 0 });
-    expect(minus).toMatchObject({ manDays: 2, declared: -500, proposal: -500, proposalBasis: 'declared' });
-    // 追加の材料等は 3,000 × 1 ÷ 3（減の 2 人工も分母）= 1,000
-    expect(extra.actualCost).toEqual({ labor: 20000, other: 1000, total: 21000 });
+    expect(minus).toMatchObject({ actualCost: 0, laborAmount: 0, manDays: 2, declared: -500, proposal: -500, proposalBasis: 'declared' });
+    expect(extra).toMatchObject({ actualCost: 20000, proposal: 1210 });
     expect(m.summary.minus.actualCost).toBe(0);
   });
 });
 
-describe('月の期間の精算提案額（ルール 2）', () => {
-  // 10 月：追加 1 件（材料 4,000 → 提案 5,060）。11 月：nov2（追加 23,674・変更 11,837）と nov5（減 −3,000）。12 月：追加（範囲外）
+describe('月の期間の精算提案額', () => {
+  // 10 月：追加 8,000 → 9,680。11 月：nov2（追加 36,300・変更 6,050）と nov5（減 −3,000）。12 月：追加 1,000 → 1,210（範囲外）
   const dec = report('2026-12-01', [cash(10000), work('extra', 1, 1, 1000)]);
   const reports = [oct20(), nov2(), nov5(), dec];
 
   it('一覧・集計はその月だけ、精算は現場の最初の日報から月末まで（through = 月末）', () => {
     const m = buildChangeLedger(input(reports), RATES, NOV);
     expect(m.rows.map((r) => r.date)).toEqual(['2026-11-02', '2026-11-02', '2026-11-05']);
-    expect(m.summary.extra).toMatchObject({ count: 1, proposal: 23674 });
+    expect(m.summary.extra).toMatchObject({ count: 1, proposal: 36300 });
     expect(m.settlement).toEqual({
       base: 1_000_000, baseBasis: 'contract', through: '2026-11-30',
-      extra: 5060 + 23674, increase: 0, change: 11837, minus: -3000, proposed: 1_000_000 + 5060 + 23674 + 11837 - 3000,
+      extra: 9680 + 36300, increase: 0, change: 6050, minus: -3000, proposed: 1_000_000 + 9680 + 36300 + 6050 - 3000,
     });
   });
 
   it('工期全体は through null で全部の行', () => {
     const m = buildChangeLedger(input(reports), RATES, ALL);
     expect(m.settlement.through).toBeNull();
-    expect(m.settlement.extra).toBe(5060 + 23674 + 12650);
+    expect(m.settlement.extra).toBe(9680 + 36300 + 1210);
     expect(m.settlement.extra).toBe(m.summary.extra.proposal);
   });
 
   it('その月に行が無くても、前の月までの分は精算に入る（isEmpty は一覧の行の有無）', () => {
     const m = buildChangeLedger(input([oct20(), report('2026-11-02', [labor(1, 18000)])]), RATES, NOV);
     expect(m.isEmpty).toBe(true);
-    expect(m.settlement).toMatchObject({ through: '2026-11-30', extra: 5060, proposed: 1_005_060 });
+    expect(m.settlement).toMatchObject({ through: '2026-11-30', extra: 9680, proposed: 1_009_680 });
   });
 });
 
-// ─── 件ごとの精算（精算の方法：未定・一式・常用） ───
+// ─── 件の精算（根拠にその件を選んだ行だけ。2026-11-11 の決まり） ───
 
-/** settleIssue に渡す行（使うのは人工と提案額だけ）。 */
-const lrow = (manDays: number, proposal: number, changeKind: ChangeLedgerRow['changeKind'] = 'extra'): ChangeLedgerRow => ({
-  date: '2026-11-02', reportId: 'r', monthIndex: 1, totalIndex: 1, changeKind, trade: '', description: '', qty: null, unit: '', unitPrice: null,
-  declared: 0, manDays, instructedBy: null, instructionMethod: null, instructedOn: null, issue: null, clientConfirmed: false,
-  actualCost: { labor: 0, other: 0, total: 0 }, proposal, proposalBasis: 'cost', affiliationManDays: [],
+describe('件の精算：根拠に選んだ行だけ・法定福利費・材料経費・リース燃料経費・諸経費・外注', () => {
+  const murayama = issue('m1', '2026-11-10', '村山様邸 追加工事');
+  // 村山様邸 11/10：作業員 1 人工（日当 20,000）、作業内容 追加 ¥25,000（根拠 m1）、仕入 ¥25,000（根拠 m1）、外注 ¥170,000（根拠なし）
+  const nov10 = (extra: SavedReportLine[] = [], subIssue: string | null = null) =>
+    report('2026-11-10', [
+      labor(1, 20000),
+      work('extra', 1, 1, 25000, { unit: '式', issueId: 'm1' }),
+      credit(25000, { issueId: 'm1' }),
+      credit(170000, { purchaseKind: 'subcontract', issueId: subIssue }),
+      ...extra,
+    ]);
+  const ledger = (reports: ReportWithLines[], issues: Issue[] = [murayama], rates = DEF) => buildChangeLedger(input(reports, { issues }), rates, ALL);
+
+  it('村山様邸：提案額 61,317・実績原価（参考）45,000。根拠の無い外注 170,000 は入らない', () => {
+    const [i] = ledger([nov10()]).issues;
+    expect(i).toMatchObject({ id: 'm1', lineCount: 1, manDays: 1, proposal: 61317, settled: 61317, settledBasis: 'proposal', actualCost: 45000 });
+    expect(i.breakdown).toEqual({ laborAmount: 25000, laborCost: 20000, material: 25000, lease: 0, fuel: 0, subcontract: 0, missingAmountLines: 0 });
+  });
+  it('根拠に件を選んだ外注は率を掛けずにそのまま足す（61,317 ＋ 170,000）', () => {
+    const [i] = ledger([nov10([], 'm1')]).issues;
+    expect(i).toMatchObject({ proposal: 231317, settled: 231317, actualCost: 215000 });
+    expect(i.breakdown.subcontract).toBe(170000);
+  });
+  it('材料＝仕入の買掛＋現金、リース・燃料は別の項目でリース燃料経費率', () => {
+    const r = report('2026-11-10', [cash(600, { issueId: 'm1' }), credit(400, { issueId: 'm1' }), lease(1000, { issueId: 'm1' }), fuel(1000, { issueId: 'm1' })]);
+    const rates = { legalWelfareRate: 0, materialExpenseRate: 0.2, leaseFuelExpenseRate: 0.5, overheadProfitRate: 0.1 };
+    const [i] = ledger([r], [murayama], rates).issues;
+    expect(i.breakdown).toMatchObject({ material: 1000, lease: 1000, fuel: 1000, subcontract: 0 });
+    expect(i.settled).toBe(4620);
+  });
+  it('根拠を選んでいない現金・買掛・リース・燃料は、どの件にも按分しない', () => {
+    const more = nov10([cash(5000), lease(3000), fuel(2000), credit(9000)]);
+    const [i] = ledger([more]).issues;
+    expect(i).toMatchObject({ proposal: 61317, actualCost: 45000 });
+  });
+  it('読めない件・期間末の後の根拠の行は数えない', () => {
+    const r = nov10([credit(1000, { issueId: 'gone' })]);
+    expect(ledger([r]).issues[0].breakdown.material).toBe(25000);
+    const dec = report('2026-12-01', [credit(7000, { issueId: 'm1' })]);
+    const nov = buildChangeLedger(input([nov10(), dec], { issues: [murayama] }), DEF, NOV);
+    expect(nov.issues[0].breakdown.material).toBe(25000);
+    expect(ledger([nov10(), dec]).issues[0].breakdown.material).toBe(32000);
+  });
+  it('施工金額（施工単価）の無い行は、その行の人工 × 日当で仮に出し、行と件に印を付ける', () => {
+    const r = report('2026-11-10', [labor(1, 20000), work('extra', 0.5, 1, null, { issueId: 'm1' }), work('change', 0.5, 2, 0, { issueId: 'm1' })]);
+    const m = ledger([r]);
+    expect(m.rows.map((x) => [x.missingAmount, x.laborAmount])).toEqual([[true, 10000], [true, 10000]]);
+    expect(m.issues[0].breakdown).toMatchObject({ laborAmount: 20000, laborCost: 20000, missingAmountLines: 2 });
+    expect(m.issues[0].settled).toBe(24862); // 20,000 × 1.151 × 1.08 = 24,861.6
+    const unlinked = ledger([report('2026-11-10', [labor(1, 20000), work('extra', 1, 1, null)])]);
+    expect(unlinked.unlinked).toMatchObject({ lineCount: 1, missingAmountLines: 1, proposal: 24862 });
+  });
+  it('作業内容の行が無く、根拠に選んだ現金・買掛・リース・燃料だけの未定の件も精算に載る', () => {
+    const m = ledger([report('2026-11-10', [credit(10000, { issueId: 'm1' })])]);
+    expect(m.issues.map((i) => i.id)).toEqual(['m1']);
+    expect(m.issues[0]).toMatchObject({ lineCount: 0, manDays: 0, actualCost: 10000, settled: 12096 }); // 10,000 × 1.12 × 1.08
+    expect(m.isEmpty).toBe(false);
+    expect(m.summary.extra.settled).toBe(12096);
+  });
+  it('一式・見積は確定額、常用は人工 × 常用単価（率は掛けない）。内訳は参考として出る', () => {
+    const lump = ledger([nov10()], [issue('m1', '2026-11-10', '一式', { settlementMethod: 'lump_sum', fixedAmount: 60000 })]).issues[0];
+    expect(lump).toMatchObject({ settled: 60000, settledBasis: 'fixed', proposal: 61317 });
+    expect(lump.breakdown.material).toBe(25000);
+    const daily = ledger([nov10()], [issue('m1', '2026-11-10', '常用', { settlementMethod: 'daily_rate', dailyRate: 25000 })]).issues[0];
+    expect(daily).toMatchObject({ settled: 25000, settledBasis: 'daily_rate' });
+  });
+  it('件に紐づく減の行は申告額をそのまま足す', () => {
+    const r = nov10([work('minus', 0, 1, 3000, { issueId: 'm1' })]);
+    expect(ledger([r]).issues[0]).toMatchObject({ lineCount: 2, proposal: 61317 - 3000, settled: 58317 });
+  });
 });
 
 describe('settleIssue（件ごとの精算額の規則）', () => {
-  it('未定：紐づく行の提案額の合計（減の行は負のまま）。行が無ければ 0', () => {
-    expect(settleIssue(issue('a', '2026-11-02', 'x'), [lrow(1, 25300), lrow(0, -3000, 'minus')])).toEqual({
+  const linked = (manDays: number, proposal: number) => ({ manDays, proposal });
+  it('未定：件の提案額（減の申告額を含む）。行が無ければ 0', () => {
+    expect(settleIssue(issue('a', '2026-11-02', 'x'), linked(1, 22300))).toEqual({
       settled: 22300, settledBasis: 'proposal', category: 'extra', countsToward: true,
     });
-    expect(settleIssue(issue('a', '2026-11-02', 'x'), []).settled).toBe(0);
+    expect(settleIssue(issue('a', '2026-11-02', 'x'), linked(0, 0)).settled).toBe(0);
   });
-  it('一式：確定額だけ（追加と減の混在行が紐づいても、行の提案額・人工は見ない）。確定額が無ければ 0', () => {
-    const rows = [lrow(1, 25300), lrow(0, -3000, 'minus')];
-    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'lump_sum', fixedAmount: 50000 }), rows)).toEqual({
+  it('一式：確定額だけ（提案額・人工は見ない）。確定額が無ければ 0', () => {
+    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'lump_sum', fixedAmount: 50000 }), linked(1, 22300))).toEqual({
       settled: 50000, settledBasis: 'fixed', category: 'extra', countsToward: true,
     });
-    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'lump_sum', fixedAmount: null }), rows).settled).toBe(0);
+    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'lump_sum', fixedAmount: null }), linked(1, 22300)).settled).toBe(0);
   });
   it('減の件の一式は、確定額を正で入れても精算額は負', () => {
-    expect(settleIssue(issue('a', '2026-11-02', 'x', { kind: 'minus', settlementMethod: 'lump_sum', fixedAmount: 30000 }), [])).toEqual({
+    expect(settleIssue(issue('a', '2026-11-02', 'x', { kind: 'minus', settlementMethod: 'lump_sum', fixedAmount: 30000 }), linked(0, 0))).toEqual({
       settled: -30000, settledBasis: 'fixed', category: 'minus', countsToward: true,
     });
   });
   it('見積：一式と同じ（見積額だけ、basis fixed、減は負、見積額が無ければ 0）', () => {
-    const rows = [lrow(1, 25300), lrow(0, -3000, 'minus')];
-    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'estimate', fixedAmount: 120000 }), rows)).toEqual({
+    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'estimate', fixedAmount: 120000 }), linked(1, 22300))).toEqual({
       settled: 120000, settledBasis: 'fixed', category: 'extra', countsToward: true,
     });
-    expect(settleIssue(issue('a', '2026-11-02', 'x', { kind: 'minus', settlementMethod: 'estimate', fixedAmount: 30000 }), rows)).toEqual({
+    expect(settleIssue(issue('a', '2026-11-02', 'x', { kind: 'minus', settlementMethod: 'estimate', fixedAmount: 30000 }), linked(1, 0))).toEqual({
       settled: -30000, settledBasis: 'fixed', category: 'minus', countsToward: true,
     });
-    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'estimate', fixedAmount: null }), rows).settled).toBe(0);
+    expect(settleIssue(issue('a', '2026-11-02', 'x', { settlementMethod: 'estimate', fixedAmount: null }), linked(1, 0)).settled).toBe(0);
   });
-  it('常用：紐づく行の人工の合計 × 単価を円未満切り上げ（浮動小数の誤差で 1 円多くしない）', () => {
+  it('常用：人工の合計 × 単価を円未満切り上げ（浮動小数の誤差で 1 円多くしない）', () => {
     const daily = (dailyRate: number | null, o: Partial<Issue> = {}) => issue('a', '2026-11-02', 'x', { settlementMethod: 'daily_rate', dailyRate, ...o });
-    expect(settleIssue(daily(25000), [lrow(1.5, 1), lrow(0.7, 1)])).toEqual({ settled: 55000, settledBasis: 'daily_rate', category: 'extra', countsToward: true });
-    expect(settleIssue(daily(30000), [lrow(0.1, 1), lrow(0.2, 1)]).settled).toBe(9000);
-    expect(settleIssue(daily(33333), [lrow(0.3, 1)]).settled).toBe(10000); // 9,999.9 → 10,000
-    expect(settleIssue(daily(20000, { kind: 'minus' }), [lrow(1, 0, 'minus')]).settled).toBe(-20000);
+    expect(settleIssue(daily(25000), linked(1.5 + 0.7, 1))).toEqual({ settled: 55000, settledBasis: 'daily_rate', category: 'extra', countsToward: true });
+    expect(settleIssue(daily(30000), linked(0.1 + 0.2, 1)).settled).toBe(9000);
+    expect(settleIssue(daily(33333), linked(0.3, 1)).settled).toBe(10000); // 9,999.9 → 10,000
+    expect(settleIssue(daily(20000, { kind: 'minus' }), linked(1, 0)).settled).toBe(-20000);
   });
   it('常用で人工 0・単価なしは 0（減でも −0 にしない）', () => {
     const daily = (dailyRate: number | null, kind: Issue['kind'] = 'extra') => issue('a', '2026-11-02', 'x', { kind, settlementMethod: 'daily_rate', dailyRate });
-    expect(settleIssue(daily(30000), [lrow(0, 0)]).settled).toBe(0);
-    expect(settleIssue(daily(30000), []).settled).toBe(0);
-    expect(settleIssue(daily(null), [lrow(2, 0)]).settled).toBe(0);
-    expect(settleIssue(daily(30000, 'minus'), [lrow(0, 0, 'minus')]).settled).toBe(0);
+    expect(settleIssue(daily(30000), linked(0, 0)).settled).toBe(0);
+    expect(settleIssue(daily(null), linked(2, 0)).settled).toBe(0);
+    expect(settleIssue(daily(30000, 'minus'), linked(0, 0)).settled).toBe(0);
   });
   it('種別 → 区分：客先都合・その他は追加、やり直しは数えない（countsToward false）', () => {
-    const k = (kind: Issue['kind']) => settleIssue(issue('a', '2026-11-02', 'x', { kind }), []);
+    const k = (kind: Issue['kind']) => settleIssue(issue('a', '2026-11-02', 'x', { kind }), linked(0, 0));
     expect(k('client_delay')).toMatchObject({ category: 'extra', countsToward: true });
     expect(k('other')).toMatchObject({ category: 'extra', countsToward: true });
     expect(k('increase')).toMatchObject({ category: 'increase', countsToward: true });
@@ -375,7 +418,7 @@ describe('settleIssue（件ごとの精算額の規則）', () => {
 });
 
 describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary.settled）', () => {
-  // 労務 20,000・1 人工の日：人工 1 の行の実績原価 20,000 → 提案 25,300、人工 0.5 → 12,650、1.5 → 37,950。
+  // 労務 20,000・1 人工の日。作業内容はどれも施工金額 1,000 → 行の提案額 1,210（× 1.1 × 1.1）。実績原価は人工 × 20,000。
   const day = (date: string, lines: SavedReportLine[]) => report(date, [labor(1, 20000), ...lines]);
   const reports = () => [
     day('2026-11-02', [
@@ -409,14 +452,14 @@ describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary
     const ref = m.rows.find((r) => r.issue?.id === 'iD')?.issue;
     expect(ref?.number).toBe(m.issues.find((i) => i.id === 'iD')?.number);
   });
-  it('件の項目（本文は先頭 40 字）と、紐づく行の件数・人工・実績原価・提案額', () => {
+  it('件の項目（本文は先頭 40 字）と、紐づく行の件数・人工・実績原価・提案額（件ごとにまとめて切り上げ）', () => {
     const [u, l, mi, d] = m.issues;
     expect(u).toMatchObject({
       reportDate: '2026-11-02', kind: 'extra', bodyHead: 'う'.repeat(40), instructedBy: '施主 山田様', amountEstimate: 40000,
       settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null,
-      lineCount: 2, manDays: 1.5, actualCost: 30000, proposal: 25300 + 12650, settled: 25300 + 12650, settledBasis: 'proposal', category: 'extra', countsToward: true,
+      lineCount: 2, manDays: 1.5, actualCost: 30000, proposal: 2420, settled: 2420, settledBasis: 'proposal', category: 'extra', countsToward: true,
     });
-    expect(l).toMatchObject({ lineCount: 2, manDays: 1, actualCost: 20000, proposal: 25300 - 3000, settled: 100000, settledBasis: 'fixed' });
+    expect(l).toMatchObject({ lineCount: 2, manDays: 1, actualCost: 20000, proposal: 1210 - 3000, settled: 100000, settledBasis: 'fixed' });
     // 行の無い一式の件も lineCount 0 で載る
     expect(mi).toMatchObject({ lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, settled: -30000, category: 'minus', fixedOn: '2026-11-20' });
     expect(d).toMatchObject({ lineCount: 1, manDays: 1.5, settled: 45000, settledBasis: 'daily_rate', category: 'change', dailyRate: 30000 });
@@ -425,24 +468,24 @@ describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary
     expect(m.issues[4]).toMatchObject({ id: 'iR', settled: 8000, category: null, countsToward: false });
   });
   it('unlinked：件に紐づかない行（未選択・読めない件）の合計', () => {
-    expect(m.unlinked).toMatchObject({ lineCount: 2, manDays: 2, actualCost: 40000, proposal: 50600 });
+    expect(m.unlinked).toMatchObject({ lineCount: 2, manDays: 2, actualCost: 40000, proposal: 2420, missingAmountLines: 0 });
     // 労務の行が手入力（所属なし）だけの日なので、所属別の人工は全部が所属なし
     expect(m.unlinked.affiliationManDays.map((p) => [p.label, p.manDays])).toEqual([['所属なし', 2]]);
   });
   it('区分ごとの精算額 = 件の精算額（区分ごと）＋ 件に紐づかない行の提案額。一式の件に紐づく行の提案額は数えない', () => {
-    expect(m.summary.extra.settled).toBe(25300 + 12650 + 100000 + 50600);
+    expect(m.summary.extra.settled).toBe(2420 + 100000 + 2420);
     expect(m.summary.increase.settled).toBe(0);
     expect(m.summary.change.settled).toBe(45000);
     // 減の件の一式（正で入れた 30,000）は負で引かれる。一式の件 iL に紐づく減の行（−3,000）は入らない
     expect(m.summary.minus.settled).toBe(-30000);
-    // 件数・申告額・提案額は行のまま（既存どおり）
-    expect(m.summary.extra).toMatchObject({ count: 5, proposal: 25300 * 4 + 12650 });
+    // 件数・申告額・提案額は行のまま
+    expect(m.summary.extra).toMatchObject({ count: 5, proposal: 1210 * 5 });
     expect(m.summary.minus).toMatchObject({ count: 1, proposal: -3000 });
   });
   it('精算提案額は区分ごとの精算額から（当初 ＋ 追加 ＋ 増 ＋ 変更 ＋ 減）', () => {
     expect(m.settlement).toEqual({
       base: 1_000_000, baseBasis: 'contract', through: null,
-      extra: 188550, increase: 0, change: 45000, minus: -30000, proposed: 1_000_000 + 188550 + 45000 - 30000,
+      extra: 104840, increase: 0, change: 45000, minus: -30000, proposed: 1_000_000 + 104840 + 45000 - 30000,
     });
   });
   it('客先都合の件は追加に入る', () => {
@@ -461,25 +504,25 @@ describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary
     );
     expect(lump.isEmpty).toBe(false);
     expect(lump.rows).toEqual([]);
-    expect(lump.unlinked).toEqual({ lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, affiliationManDays: [] });
+    expect(lump.unlinked).toEqual({ lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, affiliationManDays: [], missingAmountLines: 0 });
   });
 });
 
 describe('客先用の精算額（clientSettlement）', () => {
-  // 労務 20,000・1 人工の日：人工 1 の行の実績原価 20,000 → 提案 25,300、人工 0.5 → 12,650。
+  // 労務 20,000・1 人工の日。施工金額 1,000 の行の提案額 1,210。
   const day = (date: string, lines: SavedReportLine[], o: Partial<ReportWithLines> = {}) => report(date, [labor(1, 20000), ...lines], o);
   const reports = () => [
     day('2026-11-02', [
       work('extra', 1, 1, 1000, { issueId: 'aL' }), // 一式（確定）に紐づく行：提案額は数えない
       work('extra', 1, 1, 1000, { issueId: 'aU' }), // 未定（見積中）に紐づく行：提案額を客先用に入れない
-      work('extra', 1, 1, 1000), // 件なし（追加）25,300
+      work('extra', 1, 1, 1000), // 件なし（追加）1,210
       work('minus', 0, 1, 3000), // 件なし（減）−3,000
     ], { clientConfirmedAt: '2026-11-02T08:00:00Z' }),
     day('2026-11-05', [
       work('change', 1.5, 1, 1000, { issueId: 'aD' }),
       work('extra', 1, 1, 1000, { issueId: 'aR' }),
       work('increase', 0.5, 1, 1000, { issueId: 'aE' }),
-      work('increase', 1, 1, 1000), // 件なし（増）25,300
+      work('increase', 1, 1, 1000), // 件なし（増）1,210
     ]),
   ];
   const issues = () => [
@@ -496,12 +539,12 @@ describe('客先用の精算額（clientSettlement）', () => {
   const c = clientSettlement(m);
 
   it('件なしの行の提案額（期間末まで）を区分ごとに持つ', () => {
-    expect(m.unlinkedByKind).toEqual({ extra: 25300, increase: 25300, change: 0, minus: -3000 });
+    expect(m.unlinkedByKind).toEqual({ extra: 1210, increase: 1210, change: 0, minus: -3000 });
   });
   it('区分ごと：確定した件（一式＝確定額、常用＝人工×単価）の精算額 ＋ 件なしの行の提案額。件数は確定した件だけ。減は負', () => {
     expect(c.kinds).toEqual({
-      extra: { count: 1, amount: 100000 + 25300 },
-      increase: { count: 0, amount: 25300 },
+      extra: { count: 1, amount: 100000 + 1210 },
+      increase: { count: 0, amount: 1210 },
       change: { count: 1, amount: 45000 },
       minus: { count: 1, amount: -30000 - 3000 },
     });
@@ -513,7 +556,7 @@ describe('客先用の精算額（clientSettlement）', () => {
   it('精算提案額 = 当初 ＋ 区分ごとの金額（社内用の settlement.proposed とは見積中の分だけ違う）', () => {
     expect(c.base).toBe(1_000_000);
     expect(c.baseBasis).toBe('contract');
-    expect(c.proposed).toBe(1_000_000 + 125300 + 25300 + 45000 - 33000);
+    expect(c.proposed).toBe(1_000_000 + 101210 + 1210 + 45000 - 33000);
     expect(m.settlement.proposed).not.toBe(c.proposed);
   });
   it('載せる件：やり直しを除く（見積中は含む）、日付順。未定で行の無い件は載らない', () => {
@@ -592,14 +635,14 @@ describe('件ごとの精算（月指定）', () => {
   });
   it('未定の件は月末までに行が無ければ載らない', () => {
     expect(ledger(SEP).issues.some((i) => i.id === 'iU')).toBe(false);
-    expect(ledger(OCT).issues.find((i) => i.id === 'iU')).toMatchObject({ lineCount: 1, settled: 25300 });
+    expect(ledger(OCT).issues.find((i) => i.id === 'iU')).toMatchObject({ lineCount: 1, settled: 1210 });
   });
   it('区分ごとの精算額は月末までの累計（件数・提案額はその月だけ）', () => {
     const sep = ledger(SEP);
-    expect(sep.summary.extra).toMatchObject({ count: 2, proposal: 25300 * 2, settled: 50000 + 30000 });
+    expect(sep.summary.extra).toMatchObject({ count: 2, proposal: 1210 * 2, settled: 50000 + 30000 });
     expect(sep.settlement).toMatchObject({ through: '2026-09-30', extra: 80000, proposed: 1_080_000 });
     const oct = ledger(OCT);
-    expect(oct.summary.extra).toMatchObject({ count: 2, proposal: 12650 + 25300, settled: 50000 + 45000 + 70000 + 25300 });
+    expect(oct.summary.extra).toMatchObject({ count: 2, proposal: 1210 * 2, settled: 50000 + 45000 + 70000 + 1210 });
   });
   it('その月に行が無くても、月末までに載る件があれば isEmpty でない', () => {
     const nov = buildChangeLedger(input(reports(), { issues: issues() }), RATES, NOV);

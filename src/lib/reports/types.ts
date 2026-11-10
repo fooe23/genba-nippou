@@ -507,10 +507,39 @@ export interface DailyReportModel {
 /** buildChangeLedger の入力。CostReportInput がそのまま使える（現場・全日報・全日報の件だけを読む）。 */
 export type ChangeLedgerInput = Pick<CostReportInput, 'site' | 'reports' | 'issues'> & Partial<Pick<CostReportInput, 'suppliers'>>;
 
-/** 提案金額に掛ける率（gn_settings の経費率・利益率。0.15 = 15%）。 */
+/**
+ * 件の精算の提案額に掛ける率（gn_settings。0.151 = 15.1%。DB は % で持つ）。社内だけ（客先用には出さない）。
+ * 提案額 ＝ 円未満切り上げ（（労務 ×（1＋法定福利費率）＋ 材料 ×（1＋材料経費率）＋（リース＋燃料）×（1＋リース燃料経費率））
+ *          ×（1＋諸経費率）＋ 外注）。
+ */
 export interface ChangeRates {
-  overheadRate: number;
-  profitRate: number;
+  /** 法定福利費率（労務＝施工金額に掛ける。既定 15.1%）。 */
+  legalWelfareRate: number;
+  /** 材料経費率（材料＝仕入の買掛・現金に掛ける。既定 12%）。 */
+  materialExpenseRate: number;
+  /** リース燃料経費率（リース・燃料に掛ける。既定 12%）。 */
+  leaseFuelExpenseRate: number;
+  /** 諸経費率（利益含む。上の合計に掛ける。外注には掛けない。既定 8%）。 */
+  overheadProfitRate: number;
+}
+
+/**
+ * 件の精算の根拠の内訳（社内だけ）。労務は根拠にその件を選んだ作業内容の行（追加・増・変更）、ほかは根拠にその件を選んだ
+ * 現金・買掛・リース・燃料の行の保存値 amount の合計。根拠を選んでいない行は数えない（日の原価を按分しない）。
+ */
+export interface SettlementBreakdown {
+  /** 労務（施工金額）：行の施工金額（数量 × 施工単価＝保存値 amount）。施工金額の無い行は人工 × 日当（laborCost の分）で仮に。 */
+  laborAmount: number;
+  /** 労務の実績原価（参考）：行の投入人工 × その日の平均日当。 */
+  laborCost: number;
+  /** 材料：仕入の買掛 ＋ 現金。 */
+  material: number;
+  lease: number;
+  fuel: number;
+  /** 外注の買掛（率を掛けずにそのまま足す）。 */
+  subcontract: number;
+  /** 施工金額（施工単価）が無く、人工 × 日当で仮に出した行の数。 */
+  missingAmountLines: number;
 }
 
 /** 契約内を除いた区分（追加・増・変更・減）。 */
@@ -526,15 +555,6 @@ export interface ChangeIssueRef {
   kind: IssueKind;
   /** 本文の先頭 40 字（前後の空白は除く）。 */
   bodyHead: string;
-}
-
-/** 実績原価の内訳（allocateDayCost）。 */
-export interface AllocatedCost {
-  /** 投入人工 × その日の平均日当（労務費 ÷ 人工）。 */
-  labor: number;
-  /** その日の燃料・リース・現金購入・買掛を、作業内容の行の人工比で按分した額。 */
-  other: number;
-  total: number;
 }
 
 /** 一覧の 1 行（追加・増・変更・減の作業内容の行）。日付順、同じ日は日報の行の順。 */
@@ -564,11 +584,21 @@ export interface ChangeLedgerRow {
   /** 日報に客先確認（client_confirmed_at）がある。 */
   clientConfirmed: boolean;
   /**
-   * 実績原価（円未満は丸めない。表示はレンダラー）。減の行は 0（提案額は申告額で、原価を積み上げないため）。
-   * 減の行の投入人工も、その日の按分の分母（作業内容の人工の合計）には入る。
+   * 実績原価（参考。円未満は丸めない。表示はレンダラー）＝ 投入人工 × その日の平均日当（労務費 ÷ 労務の人工）。
+   * 燃料・リース・現金・買掛は行に按分しない（根拠に件を選んだ行だけを件に数える）。減の行は 0。
    */
-  actualCost: AllocatedCost;
-  /** 提案金額（円）。追加・増・変更は実績原価から（basis 'cost'、円未満切り上げ）、減は申告額そのまま（'declared'、負）。 */
+  actualCost: number;
+  /**
+   * 精算の労務（施工金額）。追加・増・変更は保存値 amount（数量 × 施工単価）。施工金額が無い（0 以下）行は actualCost で仮に
+   * （missingAmount true）。減の行は 0。
+   */
+  laborAmount: number;
+  /** 追加・増・変更の行で、施工金額（施工単価）が入っていない（人工 × 日当で仮に出した）。 */
+  missingAmount: boolean;
+  /**
+   * 提案金額（円）。追加・増・変更は労務（施工金額）×（1＋法定福利費率）×（1＋諸経費率）を円未満切り上げ（basis 'cost'）、
+   * 減は申告額そのまま（'declared'、負）。件の精算額は件ごとにまとめて計算する（行の提案額の和とは限らない）。
+   */
   proposal: number;
   proposalBasis: 'cost' | 'declared';
   /**
@@ -594,7 +624,8 @@ export interface ChangeKindSummary {
 
 /**
  * 精算資料に載せる件の、件ごとの精算（settleIssue）。載せる件 = 精算の方法が一式・見積・常用で、件の日報日が期間末以前の件、
- * または期間末までに追加・増・変更・減の行が紐づく未定の件。未定で行の無い件は載せない。
+ * または期間末までに追加・増・変更・減の行が紐づくか、根拠にその件を選んだ現金・買掛・リース・燃料の行がある未定の件。
+ * 未定でどちらも無い件は載せない。
  */
 export interface ChangeIssueSettlement {
   id: string;
@@ -618,16 +649,21 @@ export interface ChangeIssueSettlement {
   fixedOn: string | null;
   /** 精算の区分（settlementCategory。客先都合・その他は追加、やり直しは null）。 */
   category: ChangeLedgerKind | null;
-  /** 期間末までの、この件に紐づく行の件数・投入人工の合計・実績原価の合計（丸めない）・提案額の合計（減は負）。 */
+  /**
+   * 期間末までの、この件に紐づく作業内容の行の件数・投入人工の合計。実績原価（参考）＝ 紐づく行の労務の実績原価 ＋ 根拠に
+   * この件を選んだ材料・リース・燃料・外注（丸めない）。提案額 ＝ 内訳（breakdown）から settlementProposal ＋ 減の行の申告額。
+   */
   lineCount: number;
   manDays: number;
   actualCost: number;
   proposal: number;
+  /** 精算の根拠の内訳（社内だけ）。 */
+  breakdown: SettlementBreakdown;
   /** 紐づく行の投入人工の所属別の内訳（行の affiliationManDays の和）。 */
   affiliationManDays: AffiliationManDays[];
   /**
    * 精算額（円）。一式・見積 = 確定額（'fixed'）、常用 = 紐づく行の人工の合計 × 常用単価を円未満切り上げ（'daily_rate'）、
-   * 未定 = 紐づく行の提案額の合計（'proposal'）。区分が減なら一式・見積・常用は負にする（未定は行の提案額がすでに負）。
+   * 未定 = この件の提案額（'proposal'）。区分が減なら一式・見積・常用は負にする（未定は減の行の申告額がすでに負）。
    */
   settled: number;
   settledBasis: 'fixed' | 'daily_rate' | 'proposal';
@@ -666,8 +702,18 @@ export interface ChangeLedgerModel {
   summary: Record<ChangeLedgerKind, ChangeKindSummary>;
   /** 精算資料に載せる件（期間末まで）。件の日報日順、同じ日は件の登録順（input.issues の並び）。 */
   issues: ChangeIssueSettlement[];
-  /** 期間末までの、件に紐づかない（未選択・読めない件）追加・増・変更・減の行の件数・人工・実績原価・提案額の合計。 */
-  unlinked: { lineCount: number; manDays: number; actualCost: number; proposal: number; affiliationManDays: AffiliationManDays[] };
+  /**
+   * 期間末までの、件に紐づかない（未選択・読めない件）追加・増・変更・減の行の件数・人工・実績原価・提案額（行の提案額の和）の合計と、
+   * 施工金額の無い行の数。
+   */
+  unlinked: {
+    lineCount: number;
+    manDays: number;
+    actualCost: number;
+    proposal: number;
+    affiliationManDays: AffiliationManDays[];
+    missingAmountLines: number;
+  };
   /** 期間末までの、件に紐づかない行の提案額の合計（区分ごと。減は負）。客先用の精算額（clientSettlement）で使う。 */
   unlinkedByKind: Record<ChangeLedgerKind, number>;
   /** 集計期間の契約内の作業内容の出来高（保存値 amount の合計）。 */

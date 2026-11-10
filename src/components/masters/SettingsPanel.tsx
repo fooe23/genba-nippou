@@ -12,12 +12,13 @@ function toPct(rate: number): number {
   return Math.round(rate * 1000) / 10;
 }
 
-/** 画面の %（0〜100・小数1桁まで）→ 率（0〜1）。空欄・範囲外・数値でなければ null。 */
-function fromPct(raw: string): number | null {
-  const pct = numOrNull(raw);
-  if (pct === null || !Number.isFinite(pct) || pct < 0 || pct > 100) return null;
-  return Math.round(pct * 10) / 1000;
-}
+/** 件の精算の率の入力欄（name・見出し・Settings['rates'] のキー）。 */
+const RATE_FIELDS = [
+  { name: 'legalWelfarePct', label: '法定福利費率（%）', key: 'legalWelfareRate', hint: '労務（作業内容の施工金額）に掛けます' },
+  { name: 'materialExpensePct', label: '材料経費率（%）', key: 'materialExpenseRate', hint: '材料（仕入の買掛・現金）に掛けます' },
+  { name: 'leaseFuelExpensePct', label: 'リース・燃料の経費率（%）', key: 'leaseFuelExpenseRate', hint: 'リース・燃料に掛けます' },
+  { name: 'overheadProfitPct', label: '諸経費率・利益含む（%）', key: 'overheadProfitRate', hint: '上の合計に掛けます（外注には掛けません）' },
+] as const;
 
 /** 労務の計算設定（人工・残業）と、新しい日報の共通時間の既定、追加分の提案金額の率と自社名。管理者だけが変更できる。 */
 export function SettingsPanel({ settings, updaters }: { settings: Settings; updaters: Updaters }) {
@@ -34,12 +35,6 @@ export function SettingsPanel({ settings, updaters }: { settings: Settings; upda
     const fd = new FormData(e.currentTarget);
     // 必須の数値は空欄を NaN にして、検証の文言（「…の数値で入力してください」）を出す。
     const required = (key: string) => numOrNull(str(fd, key)) ?? NaN;
-    const overheadRate = fromPct(str(fd, 'overheadPct'));
-    const profitRate = fromPct(str(fd, 'profitPct'));
-    if (overheadRate === null || profitRate === null) {
-      setError(`${overheadRate === null ? '経費率' : '利益率'}は0〜100の数値（%）で入力してください`);
-      return;
-    }
     const input: SettingsInput = {
       shoteiHours: required('shoteiHours'),
       fixedOvertimeLimit: required('fixedOvertimeLimit'),
@@ -49,8 +44,10 @@ export function SettingsPanel({ settings, updaters }: { settings: Settings; upda
       defaultCommonEnd: str(fd, 'defaultCommonEnd'),
       defaultCommonBreakMin: numOrNull(str(fd, 'defaultCommonBreakMin')),
       defaultCommonGapMin: numOrNull(str(fd, 'defaultCommonGapMin')),
-      overheadRate,
-      profitRate,
+      legalWelfarePct: required('legalWelfarePct'),
+      materialExpensePct: required('materialExpensePct'),
+      leaseFuelExpensePct: required('leaseFuelExpensePct'),
+      overheadProfitPct: required('overheadProfitPct'),
       companyName: str(fd, 'companyName'),
       companyContact: str(fd, 'companyContact'),
       budgetDailyRate: required('budgetDailyRate'),
@@ -134,17 +131,30 @@ export function SettingsPanel({ settings, updaters }: { settings: Settings; upda
         </div>
 
         <div className="space-y-3 rounded-lg bg-gray-100 p-3 dark:bg-gray-900">
-          <p className="text-sm font-bold">追加分の提案金額</p>
+          <p className="text-sm font-bold">件の精算（追加・増・変更の提案額）</p>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            追加・増・変更の工事を客先に提案するときの金額の計算と、提案書に載せる自社の名前に使います。
+            提案額 ＝（労務 ×（1＋法定福利費率）＋ 材料 ×（1＋材料経費率）＋ リース・燃料 ×（1＋リース・燃料の経費率））×（1＋諸経費率）＋ 外注
+            （円未満切り上げ）。根拠にその件を選んだ行だけを数えます。率は社内だけで、客先用の資料には出ません。会社名は提案書に載せます。
           </p>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="経費率（%）">
-              <input name="overheadPct" type="number" inputMode="decimal" step={0.1} min={0} max={100} defaultValue={toPct(rates.overheadRate)} className={decimalInput} />
-            </Field>
-            <Field label="利益率（%）">
-              <input name="profitPct" type="number" inputMode="decimal" step={0.1} min={0} max={100} defaultValue={toPct(rates.profitRate)} className={decimalInput} />
-            </Field>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {RATE_FIELDS.map((f) => (
+              <Field key={f.name} label={f.label}>
+                <input
+                  name={f.name}
+                  type="number"
+                  inputMode="decimal"
+                  step={0.1}
+                  min={0}
+                  max={100}
+                  defaultValue={toPct(rates[f.key])}
+                  aria-describedby={`${f.name}-hint`}
+                  className={decimalInput}
+                />
+                <span id={`${f.name}-hint`} className="mt-0.5 block text-xs text-gray-600 dark:text-gray-400">
+                  {f.hint}
+                </span>
+              </Field>
+            ))}
           </div>
           <Field label="会社名">
             <input name="companyName" defaultValue={company.name ?? ''} maxLength={100} className={inputClass} />

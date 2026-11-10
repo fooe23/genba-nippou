@@ -27,7 +27,7 @@ function withReworkLine(period: CostReportPeriod = { kind: 'all' }) {
   return buildChangeLedger({ ...input, reports: [input.reports[0], { ...r, lines: [...lines, rework] }] }, RATES, period);
 }
 
-const FORBIDDEN = ['実績原価', '見込み額', '提案額', '経費率', '利益率', '単価', '申告額'];
+const FORBIDDEN = ['実績原価', '見込み額', '提案額', '経費率', '利益率', '単価', '申告額', '法定福利', '諸経費', '内訳', '施工金額'];
 const allLabels = (tables: (SectionTable | null)[]) => tables.flatMap((t) => (t ? t.columns.map((c) => c.label) : []));
 const allTexts = (tables: (SectionTable | null)[]) =>
   tables.flatMap((t) =>
@@ -58,12 +58,12 @@ describe('clientChangeSummary（精算のまとめ）', () => {
     expect(t.columns.map((c) => c.label)).toEqual(['項目', '件数', '金額(円)']);
     expect(t.rows.map(texts)).toEqual([
       ['当初請負金額', '', '1,000,000'],
-      ['追加', '1', '113,236'],
+      ['追加', '1', '107,459'],
       ['増', '0', '0'],
       ['変更', '1', '15,000'],
       ['減', '1', '-20,000'],
     ]);
-    expect(texts(t.total!)).toEqual(['精算提案額', '', '1,108,236']);
+    expect(texts(t.total!)).toEqual(['精算提案額', '', '1,102,459']);
   });
 
   it('月は「金額（累計）(円)」', () => {
@@ -200,7 +200,7 @@ describe('客先用に社内の数字を出さない', () => {
       const labels = allLabels(tables);
       for (const word of FORBIDDEN) expect(labels.filter((l) => l.includes(word))).toEqual([]);
       const notes = clientNotes(m).join('');
-      for (const word of ['実績原価', '経費率', '利益率']) expect(notes).not.toContain(word);
+      for (const word of ['実績原価', '経費率', '利益率', '法定福利', '諸経費', '施工金額']) expect(notes).not.toContain(word);
     }
   });
 });

@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { money } from '@/components/report/form-state';
 import { jpDate } from '@/lib/calc/format';
 import type { ChangesRow, ChangesTotal, ChangesUnlinkedRow, PossibleDuplicate } from '@/lib/reports/changes-page';
-import { AffiliationNote, CHANGES_COLUMNS, CHANGES_GRID, CHANGES_MIN_WIDTH, CHANGES_ROW, Cell, ComputedCells, KindTag } from '@/components/changes/cells';
+import { AffiliationNote, CHANGES_COLUMNS, CHANGES_GRID, CHANGES_MIN_WIDTH, CHANGES_ROW, Cell, ComputedCells, KindTag, MissingAmountNote } from '@/components/changes/cells';
+import type { ChangeRates } from '@/lib/reports/types';
 import { IssueSettlementRow } from '@/components/changes/IssueSettlementRow';
 
 /** 'YYYY-MM-DD' → 「11/03」（年が違う日が混ざるときは「2026/11/03」）。 */
@@ -52,6 +53,7 @@ function UnlinkedRow({ row, siteId }: { row: ChangesUnlinkedRow; siteId: string 
       <ComputedCells row={row} />
       <span className="hidden 2xl:block" />
       <AffiliationNote row={row} />
+      <MissingAmountNote count={row.missingAmountLines} />
     </li>
   );
 }
@@ -85,6 +87,7 @@ export function ChangesTable({
   total,
   defaultDailyRate,
   duplicates = {},
+  rates,
   readOnly,
 }: {
   siteId: string;
@@ -93,6 +96,8 @@ export function ChangesTable({
   defaultDailyRate: number | null;
   /** 件の id → 重複の可能性（possibleDuplicates）。 */
   duplicates?: Record<string, PossibleDuplicate[]>;
+  /** 件の精算の率（設定。内訳に出す）。 */
+  rates: ChangeRates;
   readOnly: boolean;
 }) {
   if (rows.length === 0) {
@@ -122,6 +127,7 @@ export function ChangesTable({
                 siteId={siteId}
                 defaultDailyRate={defaultDailyRate}
                 duplicates={duplicates[row.id] ?? []}
+                rates={rates}
                 readOnly={readOnly}
               />
             ),

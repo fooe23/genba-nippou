@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-// 全社の設定（労務の計算設定・共通時間の既定・提案金額の率・自社の名前）の入力検証。サーバー（Server Action）とクライアント（フォーム）の両方で使う。
+// 全社の設定（労務の計算設定・共通時間の既定・件の精算の率・自社の名前）の入力検証。サーバー（Server Action）とクライアント（フォーム）の両方で使う。
 
 const MSG_TIME = '時刻は HH:MM 形式で入力してください';
 const MSG_MIN = '休憩・中抜は0〜600の整数（分）で入力してください';
@@ -42,9 +42,11 @@ export const settingsInputSchema = z.object({
   defaultCommonEnd: optionalTimeSchema,
   defaultCommonBreakMin: optionalMinutesSchema,
   defaultCommonGapMin: optionalMinutesSchema,
-  // 追加・増・変更の提案金額の率と自社の名前・連絡先。省略時は変更しない。
-  overheadRate: rangeSchema('経費率', 0, 1).optional(),
-  profitRate: rangeSchema('利益率', 0, 1).optional(),
+  // 件の精算の率（%。15.1 = 15.1%。DB の列と同じ単位）と自社の名前・連絡先。省略時は変更しない。
+  legalWelfarePct: rangeSchema('法定福利費率', 0, 100).optional(),
+  materialExpensePct: rangeSchema('材料経費率', 0, 100).optional(),
+  leaseFuelExpensePct: rangeSchema('リース・燃料の経費率', 0, 100).optional(),
+  overheadProfitPct: rangeSchema('諸経費率', 0, 100).optional(),
   companyName: optionalTextSchema('会社名', 100).optional(),
   companyContact: optionalTextSchema('会社の連絡先', 200).optional(),
   // 予算の標準日当（実行予算の自社の労務の単価の初期値）。省略時は変更しない。

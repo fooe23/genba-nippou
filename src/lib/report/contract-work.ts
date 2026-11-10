@@ -1,5 +1,5 @@
 import type { ChangeTotals } from '@/lib/calc/change';
-import type { ChangeKind } from '@/lib/types';
+import type { ChangeKind, SettlementMethod } from '@/lib/types';
 
 // 契約内の作業と、契約外（追加・増・変更・減。精算が必要）の作業を分けて見せるための純関数（日報の画面・PDF で共通）。
 
@@ -23,6 +23,19 @@ export function contractWorkWarning(laborManDays: readonly number[], work: reado
   if (work.length === 0) return MISSING_CONTRACT_WORK_NONE;
   if (work.every((l) => needsSettlement(l.changeKind))) return MISSING_CONTRACT_WORK_ALL_CHANGES;
   return null;
+}
+
+/**
+ * 追加・増・変更の行で、精算の金額（施工金額＝数量 × 施工単価）が入っていないか。件の精算の労務は施工金額から出すため、
+ * 無いと人工 × 日当で仮に出す（src/lib/reports/change-model.ts）。根拠の件の精算の方法が一式・見積・常用なら提案額を使わないので出さない。
+ */
+export function missingSettlementAmount(
+  line: { changeKind: ChangeKind; qty: number | null; unitPrice: number | null },
+  issue?: { settlementMethod: SettlementMethod } | null,
+): boolean {
+  if (line.changeKind === 'contract' || line.changeKind === 'minus') return false;
+  if (issue && issue.settlementMethod !== 'undecided') return false;
+  return !((line.qty ?? 0) * (line.unitPrice ?? 0) > 0);
 }
 
 /**

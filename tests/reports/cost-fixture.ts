@@ -54,7 +54,7 @@ export const costInput = (reports: ReportWithLines[] = [report('2026-10-20', 'ap
 });
 
 export const NOW = { date: '2026-11-10', by: '大江', at: '2026-11-10T01:23:45.000Z' };
-export const RATES = { overheadRate: 0.15, profitRate: 0.1 };
+export const RATES = { legalWelfareRate: 0.151, materialExpenseRate: 0.12, leaseFuelExpenseRate: 0.12, overheadProfitRate: 0.08 };
 
 export function sampleModel(period: CostReportPeriod = { kind: 'all' }): CostReportModel {
   return buildCostReport(costInput(), period, NOW, RATES);

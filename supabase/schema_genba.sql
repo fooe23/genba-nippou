@@ -751,6 +751,24 @@ alter table public.gn_settings add column if not exists company_name    text;
 alter table public.gn_settings add column if not exists company_contact text;
 -- 予算の標準日当（実行予算の自社の労務の単価の初期値。円／人工。update_2026-11-15_budget.sql）。列の check は名前を付けない（自動の名前）
 alter table public.gn_settings add column if not exists budget_daily_rate numeric not null default 20000 check (budget_daily_rate >= 0);
+-- 件の精算に掛ける率（単位は %。update_2026-11-18_settlement_rates.sql）。法定福利費率・材料経費率・リース燃料経費率・諸経費率（利益含む）。
+-- 上の overhead_rate・profit_rate は 2026-11-18 からアプリは使わない（列は残す）。check は名前付き（_ck。自動の名前と重ならない）
+alter table public.gn_settings add column if not exists legal_welfare_rate    numeric not null default 15.1;
+alter table public.gn_settings add column if not exists material_expense_rate numeric not null default 12;
+alter table public.gn_settings add column if not exists lease_fuel_expense_rate numeric not null default 12;
+alter table public.gn_settings add column if not exists overhead_profit_rate  numeric not null default 8;
+alter table public.gn_settings drop constraint if exists gn_settings_legal_welfare_rate_ck;
+alter table public.gn_settings add constraint gn_settings_legal_welfare_rate_ck
+  check (legal_welfare_rate >= 0 and legal_welfare_rate <= 100);
+alter table public.gn_settings drop constraint if exists gn_settings_material_expense_rate_ck;
+alter table public.gn_settings add constraint gn_settings_material_expense_rate_ck
+  check (material_expense_rate >= 0 and material_expense_rate <= 100);
+alter table public.gn_settings drop constraint if exists gn_settings_lease_fuel_expense_rate_ck;
+alter table public.gn_settings add constraint gn_settings_lease_fuel_expense_rate_ck
+  check (lease_fuel_expense_rate >= 0 and lease_fuel_expense_rate <= 100);
+alter table public.gn_settings drop constraint if exists gn_settings_overhead_profit_rate_ck;
+alter table public.gn_settings add constraint gn_settings_overhead_profit_rate_ck
+  check (overhead_profit_rate >= 0 and overhead_profit_rate <= 100);
 
 drop trigger if exists gn_settings_touch on public.gn_settings;
 create trigger gn_settings_touch before update on public.gn_settings

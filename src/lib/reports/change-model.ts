@@ -4,9 +4,8 @@ import { visitNumbers } from '@/lib/calc/visit';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import { settlementCategory, usesFixedAmount } from '@/lib/report/change-labels';
-import { apportionManDays, dayAffiliationWeights, sumAffiliationManDays, type AffiliationManDays } from '@/lib/reports/affiliation-breakdown';
+import { apportionManDays, dayAffiliationWeights, sumAffiliationManDays } from '@/lib/reports/affiliation-breakdown';
 import type {
-  AllocatedCost,
   ChangeIssueRef,
   ChangeIssueSettlement,
   ChangeKindSummary,
@@ -18,16 +17,23 @@ import type {
   ClientSettlement,
   CostReportPeriod,
   ReportWithLines,
+  SettlementBreakdown,
 } from '@/lib/reports/types';
 
-// 変更増減（追加・増・変更・減）の一覧と実績原価の積み上げ（純関数。DB・Next に依存しない）。
+// 変更増減（追加・増・変更・減）の一覧と件の精算（純関数。DB・Next に依存しない）。
 // 金額・人工はすべて保存値（明細の amount・man_days）から計算する。減の amount は DB のトリガーが負で保存している。
+// 決まり（2026-11-11 利用者。計画 docs/superpowers/plans/2026-11-10-subcontract-issue-costs.md の Task 10）：
 //
-//   実績原価 = 行の投入人工 × その日の平均日当 ＋ その日の材料等の按分（allocateDayCost）。減の行は 0
-//              （減の行の人工も、その日の按分の分母には入れる。現場で人工を使っているため）
-//   提案金額 = 追加・増・変更：実績原価 ×（1＋経費率）×（1＋利益率）を円未満切り上げ（proposalFromCost）
-//              減：申告額（入力の施工単価 × 数量。負）そのまま。減は原価を積み上げるものではないため
-//   件ごとの精算額 = 一式・見積：確定額、常用：ceil(紐づく行の人工の合計 × 常用単価)、未定：紐づく行の提案額の合計（settleIssue）
+//   件に数えるのは、根拠にその件を選んだ行だけ（作業内容の行は issue_id、現金・買掛・リース・燃料の行も issue_id）。
+//   根拠を選んでいないその日の燃料・リース・現金・買掛は、どの行・件にも按分しない。
+//   労務（施工金額） = 追加・増・変更の行の施工金額（数量 × 施工単価＝保存値 amount）。施工金額が無い（0 以下）行は
+//              その行の労務の実績原価（人工 × 日当）で仮に出し、「精算の金額（施工単価）が入っていません」と知らせる
+//   提案額     = 円未満切り上げ（（労務 ×（1＋法定福利費率）＋ 材料 ×（1＋材料経費率）＋（リース＋燃料）×（1＋リース燃料経費率））
+//              ×（1＋諸経費率）＋ 外注）（settlementProposal）。材料 = 仕入の買掛 ＋ 現金。外注（外注の買掛）は率を掛けない
+//   行の提案額 = 追加・増・変更：その行の労務だけで settlementProposal、減：申告額（入力の施工単価 × 数量。負）そのまま
+//   実績原価（参考） = 行の投入人工 × その日の平均日当（laborShare）＋ 根拠にその件を選んだ材料・リース・燃料・外注。減の行は 0
+//   件ごとの精算額 = 一式・見積：確定額、常用：ceil(紐づく行の人工の合計 × 常用単価)（率は掛けない）、
+//              未定：件の提案額（内訳から settlementProposal ＋ 紐づく減の行の申告額）（settleIssue）
 //              区分は件の種別から（settlementCategory）。減の区分の一式・見積・常用は負。やり直しは参考で合計に入れない
 //   区分ごとの精算額 = その区分の件の精算額 ＋ 件に紐づかない行の提案額（一式・見積・常用の件に紐づく行の提案額は数えない）
 //   精算提案額 = 当初（契約確定なら請負金額、未確定なら概算金額）＋ 追加 ＋ 増 ＋ 変更 ＋ 減（各区分の精算額。減は負）
@@ -38,85 +44,78 @@ import type {
 // 全日報で数える）。件ごとの精算・区分ごとの精算額・精算提案額（settlement）はその月末までの全部の行と、月末までに
 // 載せる件で計算する（工事原価集計表 ② と同じ範囲）。一式・見積・常用の件は件の日報日が月末以前なら載せる（確定日は見ない）。
 
-/** 1 日（日報 1 件）の、実績原価の按分に使う合計（すべて保存値）。 */
+/** 1 日（日報 1 件）の、労務の実績原価に使う合計（すべて保存値）。 */
 export interface DayCostBasis {
   /** 労務費（労務の行の amount の合計）。 */
   laborCost: number;
   /** 労務の人工（労務の行の man_days の合計）。 */
   laborManDays: number;
-  /** 燃料・リース・現金購入・買掛の amount の合計。 */
-  otherCost: number;
-  /** その日の作業内容の全行（契約内を含む）の投入人工の合計。 */
-  workManDays: number;
 }
 
 export function dayCostBasis(report: ReportWithLines): DayCostBasis {
-  const day: DayCostBasis = { laborCost: 0, laborManDays: 0, otherCost: 0, workManDays: 0 };
+  const day: DayCostBasis = { laborCost: 0, laborManDays: 0 };
   for (const l of report.lines) {
-    switch (l.kind) {
-      case 'labor':
-        day.laborCost += l.stored.amount;
-        day.laborManDays += l.stored.manDays;
-        break;
-      case 'fuel':
-      case 'lease':
-      case 'cash':
-      case 'credit':
-        day.otherCost += l.stored.amount;
-        break;
-      case 'work':
-        day.workManDays += l.stored.manDays;
-        break;
-    }
+    if (l.kind !== 'labor') continue;
+    day.laborCost += l.stored.amount;
+    day.laborManDays += l.stored.manDays;
   }
   return day;
 }
 
 /**
- * 実績原価の按分の規則（ここだけに書く。tests/reports/change-model.test.ts で固定）。
- *
- * - 労務分 = 行の投入人工 × その日の平均日当（その日の労務費 ÷ その日の労務の人工）。労務の人工が 0 の日は 0。
- * - 材料等 = その日の燃料・リース・現金購入・買掛の合計 × 行の投入人工 ÷ その日の作業内容の全行（契約内・減を含む）の
- *   投入人工の合計。作業内容の人工の合計が 0 の日は 0。
- *
- * 労務の人工と作業内容の投入人工は別に入力するので、労務分の合計がその日の労務費と一致するとは限らない。
- * 円未満は丸めない（提案金額で切り上げる）。
+ * 行の労務の実績原価 = 行の投入人工 × その日の平均日当（その日の労務費 ÷ その日の労務の人工）。労務の人工が 0 の日は 0。
+ * 労務の人工と作業内容の投入人工は別に入力するので、合計がその日の労務費と一致するとは限らない。円未満は丸めない。
  */
-export function allocateDayCost(day: DayCostBasis, row: { manDays: number }): AllocatedCost {
-  const labor = day.laborManDays > 0 && row.manDays !== 0 ? (row.manDays * day.laborCost) / day.laborManDays : 0;
-  const other = day.workManDays > 0 && row.manDays !== 0 ? (day.otherCost * row.manDays) / day.workManDays : 0;
-  return { labor, other, total: labor + other };
+export function laborShare(day: DayCostBasis, manDays: number): number {
+  return day.laborManDays > 0 && manDays !== 0 ? (manDays * day.laborCost) / day.laborManDays : 0;
 }
+
+/** 提案額の元（内訳のうち金額の 5 つ）。 */
+export type ProposalBasis = Pick<SettlementBreakdown, 'laborAmount' | 'material' | 'lease' | 'fuel' | 'subcontract'>;
 
 /**
- * 提案金額 = 実績原価 ×（1＋経費率）×（1＋利益率）、円未満切り上げ。
- * 浮動小数の誤差（10,000 × 1.15 × 1.1 = 12650.000000000002 など）を落としてから切り上げる。
+ * 提案額 = 円未満切り上げ（（労務 ×（1＋法定福利費率）＋ 材料 ×（1＋材料経費率）＋（リース＋燃料）×（1＋リース燃料経費率））
+ * ×（1＋諸経費率）＋ 外注）。外注には率を掛けない。tests/reports/change-model.test.ts で固定。
  */
-export function proposalFromCost(actualCost: number, rates: ChangeRates): number {
-  return ceilYen(actualCost * (1 + rates.overheadRate) * (1 + rates.profitRate));
+export function settlementProposal(b: ProposalBasis, rates: ChangeRates): number {
+  const marked =
+    b.laborAmount * (1 + rates.legalWelfareRate) +
+    b.material * (1 + rates.materialExpenseRate) +
+    (b.lease + b.fuel) * (1 + rates.leaseFuelExpenseRate);
+  return ceilYen(marked * (1 + rates.overheadProfitRate) + b.subcontract);
 }
 
-/** 円未満切り上げ。浮動小数の誤差（1.5 ＋ 0.7 人工 × 25,000 = 55000.00000000001 など）を落としてから切り上げる。 */
+/** 円未満切り上げ。浮動小数の誤差（25,000 × 1.151 など）を落としてから切り上げる。 */
 function ceilYen(raw: number): number {
   return Math.ceil(Math.round(raw * 1e6) / 1e6);
 }
+
+export const emptyBreakdown = (): SettlementBreakdown => ({
+  laborAmount: 0,
+  laborCost: 0,
+  material: 0,
+  lease: 0,
+  fuel: 0,
+  subcontract: 0,
+  missingAmountLines: 0,
+});
 
 /** 減の区分なら負にする（0 は −0 にしない）。 */
 const signed = (amount: number, category: ChangeLedgerKind | null) => (category === 'minus' && amount !== 0 ? -amount : amount);
 
 /**
- * 件ごとの精算額の規則（ここだけに書く。tests/reports/change-model.test.ts で固定）。linkedRows は期間末までの、この件に
- * 紐づく追加・増・変更・減の行。
+ * 件ごとの精算額の規則（ここだけに書く。tests/reports/change-model.test.ts で固定）。linked は期間末までの、この件に
+ * 紐づく追加・増・変更・減の行の人工の合計と、この件の提案額（内訳から settlementProposal ＋ 減の行の申告額）。
  *
- * - 一式・見積：確定額（見積額。無ければ 0）。紐づく行の提案額・人工は見ない。
- * - 常用：紐づく行の人工の合計 × 常用単価（無ければ 0）を円未満切り上げ。
- * - 未定：紐づく行の提案額の合計（減の行は負のまま）。
+ * - 一式・見積：確定額（見積額。無ければ 0）。提案額・人工は見ない。
+ * - 常用：紐づく行の人工の合計 × 常用単価（無ければ 0）を円未満切り上げ（率は掛けない）。
+ * - 未定：この件の提案額。
  * - 区分は件の種別から（settlementCategory）。区分が減なら一式・見積・常用は負（確定額・単価は正で入れる）。
  * - やり直し（区分 null）は参考で、区分ごとの精算額・精算提案額に入れない（countsToward false）。
  */
 export function settleIssue(
   issue: Issue,
-  linkedRows: ChangeLedgerRow[],
+  linked: { manDays: number; proposal: number },
 ): Pick<ChangeIssueSettlement, 'settled' | 'settledBasis' | 'countsToward' | 'category'> {
   const category = settlementCategory(issue.kind);
   const countsToward = category !== null;
@@ -124,12 +123,10 @@ export function settleIssue(
     case 'lump_sum':
     case 'estimate':
       return { settled: signed(issue.fixedAmount ?? 0, category), settledBasis: 'fixed', category, countsToward };
-    case 'daily_rate': {
-      const manDays = linkedRows.reduce((s, r) => s + r.manDays, 0);
-      return { settled: signed(ceilYen(manDays * (issue.dailyRate ?? 0)), category), settledBasis: 'daily_rate', category, countsToward };
-    }
+    case 'daily_rate':
+      return { settled: signed(ceilYen(linked.manDays * (issue.dailyRate ?? 0)), category), settledBasis: 'daily_rate', category, countsToward };
     case 'undecided':
-      return { settled: linkedRows.reduce((s, r) => s + r.proposal, 0), settledBasis: 'proposal', category, countsToward };
+      return { settled: linked.proposal, settledBasis: 'proposal', category, countsToward };
   }
 }
 
@@ -170,34 +167,62 @@ function issueRefs(issues: Issue[]): Map<string, ChangeIssueRef> {
 
 const emptySummary = (): ChangeKindSummary => ({ count: 0, declared: 0, actualCost: 0, proposal: 0, settled: 0 });
 
-/** 行の件数・人工・実績原価・提案額・所属別の人工の合計（人工は浮動小数の誤差を落とす）。 */
-function sumRows(rows: ChangeLedgerRow[]): {
-  lineCount: number;
-  manDays: number;
-  actualCost: number;
-  proposal: number;
-  affiliationManDays: AffiliationManDays[];
-} {
+/** 行の件数・人工・実績原価・提案額・所属別の人工・施工金額の無い行の数の合計（人工は浮動小数の誤差を落とす）。 */
+function sumRows(rows: ChangeLedgerRow[]): ChangeLedgerModel['unlinked'] {
   const manDays = rows.reduce((s, r) => s + r.manDays, 0);
   return {
     lineCount: rows.length,
     manDays: Math.round(manDays * 1e6) / 1e6,
-    actualCost: rows.reduce((s, r) => s + r.actualCost.total, 0),
+    actualCost: rows.reduce((s, r) => s + r.actualCost, 0),
     proposal: rows.reduce((s, r) => s + r.proposal, 0),
     affiliationManDays: sumAffiliationManDays(rows.map((r) => r.affiliationManDays)),
+    missingAmountLines: rows.filter((r) => r.missingAmount).length,
   };
+}
+
+/** 根拠に件を選んだ現金・買掛・リース・燃料の行（期間末まで）の、件ごとの合計と行数。 */
+interface TaggedCosts {
+  material: number;
+  lease: number;
+  fuel: number;
+  subcontract: number;
+  lines: number;
+}
+
+/**
+ * 件の内訳 = 紐づく追加・増・変更の行の労務（施工金額・実績原価・施工金額の無い行の数）＋ 根拠に選んだ現金・買掛・リース・燃料。
+ * 減の行は内訳に入れない（提案額は申告額）。
+ */
+export function issueBreakdown(linked: ChangeLedgerRow[], tagged: Omit<TaggedCosts, 'lines'> | undefined): SettlementBreakdown {
+  const b = emptyBreakdown();
+  for (const r of linked) {
+    if (r.proposalBasis !== 'cost') continue;
+    b.laborAmount += r.laborAmount;
+    b.laborCost += r.actualCost;
+    if (r.missingAmount) b.missingAmountLines += 1;
+  }
+  if (tagged) {
+    b.material = tagged.material;
+    b.lease = tagged.lease;
+    b.fuel = tagged.fuel;
+    b.subcontract = tagged.subcontract;
+  }
+  return b;
 }
 
 /**
  * 精算資料に載せる件と、その精算（期間末 through まで）。一式・見積・常用の件は件の日報日が through 以前なら載せ、
- * 未定の件は through までに行が紐づくときだけ載せる。並びは件の日報日順、同じ日は input.issues の並び。
+ * 未定の件は through までに行が紐づくか、根拠にその件を選んだ現金・買掛・リース・燃料の行があるときだけ載せる。
+ * 並びは件の日報日順、同じ日は input.issues の並び。
  */
 function settleIssues(
   issues: Issue[],
   throughRows: ChangeLedgerRow[],
+  taggedByIssue: Map<string, TaggedCosts>,
   through: string | null,
   refs: Map<string, ChangeIssueRef>,
   confirmedReportIds: Set<string>,
+  rates: ChangeRates,
 ): ChangeIssueSettlement[] {
   const rowsByIssue = new Map<string, ChangeLedgerRow[]>();
   for (const row of throughRows) {
@@ -209,8 +234,15 @@ function settleIssues(
   const settled: ChangeIssueSettlement[] = [];
   for (const issue of issues) {
     const linked = rowsByIssue.get(issue.id) ?? [];
-    const included = issue.settlementMethod !== 'undecided' ? through === null || issue.reportDate <= through : linked.length > 0;
+    const tagged = taggedByIssue.get(issue.id);
+    const included =
+      issue.settlementMethod !== 'undecided' ? through === null || issue.reportDate <= through : linked.length > 0 || (tagged?.lines ?? 0) > 0;
     if (!included) continue;
+    const sums = sumRows(linked);
+    const breakdown = issueBreakdown(linked, tagged);
+    const declaredMinus = linked.filter((r) => r.proposalBasis === 'declared').reduce((s, r) => s + r.proposal, 0);
+    const proposal = settlementProposal(breakdown, rates) + declaredMinus;
+    const nonLabor = breakdown.material + breakdown.lease + breakdown.fuel + breakdown.subcontract;
     settled.push({
       id: issue.id,
       reportDate: issue.reportDate,
@@ -224,8 +256,13 @@ function settleIssues(
       fixedAmount: issue.fixedAmount,
       dailyRate: issue.dailyRate,
       fixedOn: issue.fixedOn,
-      ...sumRows(linked),
-      ...settleIssue(issue, linked),
+      lineCount: sums.lineCount,
+      manDays: sums.manDays,
+      affiliationManDays: sums.affiliationManDays,
+      actualCost: sums.actualCost + nonLabor,
+      proposal,
+      breakdown,
+      ...settleIssue(issue, { manDays: sums.manDays, proposal }),
       reportClientConfirmed: confirmedReportIds.has(issue.reportId),
     });
   }
@@ -244,7 +281,7 @@ function summarize(rows: ChangeLedgerRow[]): Record<ChangeLedgerKind, ChangeKind
     const s = summary[row.changeKind];
     s.count += 1;
     s.declared += row.declared;
-    s.actualCost += row.actualCost.total;
+    s.actualCost += row.actualCost;
     s.proposal += row.proposal;
   }
   return summary;
@@ -261,21 +298,36 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
 
   /** 月末までの全部の行（精算用）。一覧はこのうち期間内の行。 */
   const throughRows: ChangeLedgerRow[] = [];
+  /** 根拠に件を選んだ現金・買掛・リース・燃料（月末まで。読めない件は数えない）。 */
+  const taggedByIssue = new Map<string, TaggedCosts>();
   let contractOutput = 0;
   for (const r of reports) {
     if (through !== null && r.reportDate > through) continue;
-    const day = dayCostBasis(r); // 分母（作業内容の人工の合計）には減・契約内の行も入る
+    const day = dayCostBasis(r);
     const weights = dayAffiliationWeights(r.lines, supplierNames); // 所属別の人工の按分の重み（その日の労務の行）
     const visit = visitNumbers(reportDates, r.reportDate);
     for (const l of r.lines) {
+      if (l.kind === 'fuel' || l.kind === 'lease' || l.kind === 'cash' || l.kind === 'credit') {
+        if (l.issueId === null || !refs.has(l.issueId)) continue;
+        const t = taggedByIssue.get(l.issueId) ?? { material: 0, lease: 0, fuel: 0, subcontract: 0, lines: 0 };
+        taggedByIssue.set(l.issueId, t);
+        t.lines += 1;
+        if (l.kind === 'fuel') t.fuel += l.stored.amount;
+        else if (l.kind === 'lease') t.lease += l.stored.amount;
+        else if (l.kind === 'credit' && l.purchaseKind === 'subcontract') t.subcontract += l.stored.amount;
+        else t.material += l.stored.amount;
+        continue;
+      }
       if (l.kind !== 'work') continue;
       if (l.changeKind === 'contract') {
         if (inPeriod(r.reportDate)) contractOutput += l.stored.amount;
         continue;
       }
       const byCost = l.changeKind !== 'minus';
-      // 減は原価を積み上げない（提案額は申告額）ので実績原価 0
-      const actualCost = byCost ? allocateDayCost(day, { manDays: l.stored.manDays }) : { labor: 0, other: 0, total: 0 };
+      // 減は原価を積み上げない（提案額は申告額）ので実績原価・労務 0
+      const actualCost = byCost ? laborShare(day, l.stored.manDays) : 0;
+      const missingAmount = byCost && !(l.stored.amount > 0);
+      const laborAmount = byCost ? (missingAmount ? actualCost : l.stored.amount) : 0;
       throughRows.push({
         date: r.reportDate,
         reportId: r.id,
@@ -295,8 +347,10 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
         issue: l.issueId !== null ? (refs.get(l.issueId) ?? null) : null,
         clientConfirmed: r.clientConfirmedAt !== null,
         actualCost,
+        laborAmount,
+        missingAmount,
         // 減は原価を積み上げない：申告額（負の保存値）をそのまま提案額にする
-        proposal: byCost ? proposalFromCost(actualCost.total, rates) : l.stored.amount,
+        proposal: byCost ? settlementProposal({ laborAmount, material: 0, lease: 0, fuel: 0, subcontract: 0 }, rates) : l.stored.amount,
         proposalBasis: byCost ? 'cost' : 'declared',
         affiliationManDays: apportionManDays(l.stored.manDays, weights),
       });
@@ -306,7 +360,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
   const rows = throughRows.filter((row) => inPeriod(row.date));
   const summary = summarize(rows);
   const confirmedReportIds = new Set(input.reports.filter((r) => r.clientConfirmedAt !== null).map((r) => r.id));
-  const issues = settleIssues(input.issues, throughRows, through, refs, confirmedReportIds);
+  const issues = settleIssues(input.issues, throughRows, taggedByIssue, through, refs, confirmedReportIds, rates);
   const unlinkedRows = throughRows.filter((row) => row.issue === null);
   const unlinkedByKind: Record<ChangeLedgerKind, number> = { extra: 0, increase: 0, change: 0, minus: 0 };
   for (const row of unlinkedRows) unlinkedByKind[row.changeKind] += row.proposal;
@@ -322,7 +376,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
   return {
     isEmpty: rows.length === 0 && issues.length === 0,
     period: period.kind === 'month' ? { kind: 'month', month: period.month } : { kind: 'all', month: null },
-    rates: { overheadRate: rates.overheadRate, profitRate: rates.profitRate },
+    rates: { ...rates },
     rows,
     summary,
     issues,

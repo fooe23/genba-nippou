@@ -2,6 +2,8 @@ import type { ReactNode } from 'react';
 import { decimal, money } from '@/components/report/form-state';
 import { affiliationManDaysText } from '@/lib/reports/affiliation-breakdown';
 import type { ChangesRow } from '@/lib/reports/changes-page';
+import { MISSING_AMOUNT_NOTE, MISSING_AMOUNT_WARNING, breakdownParts, ratePercent } from '@/lib/reports/settlement-breakdown';
+import type { ChangeRates, SettlementBreakdown } from '@/lib/reports/types';
 
 // 「追加・変更の一覧」の行の部品（サーバー・クライアントの両方から使う。'use client' を付けない）。
 // 2xl（1536px）以上は 1 行 14 列の表、2xl 未満は件ごとのカード（2 列。見出しを各欄の上に出す）。
@@ -109,6 +111,41 @@ export function AffiliationNote({ row }: { row: ChangesRow }) {
     <p className="col-span-2 break-words text-sm text-gray-700 2xl:col-span-full 2xl:text-right dark:text-gray-300">
       <span className="font-bold">所属別の人工：</span>
       {text}
+    </p>
+  );
+}
+
+/**
+ * 件の精算の内訳（社内用）：「精算の内訳：労務（施工金額） ¥25,000 法定福利費 15.1%・材料 ¥25,000 材料経費 12%（諸経費 8%）」。
+ * 根拠にその件を選んだ行だけ。項目が無ければ出さない。375px では折り返す。
+ */
+export function BreakdownNote({ breakdown, rates }: { breakdown: SettlementBreakdown; rates: ChangeRates }) {
+  const parts = breakdownParts(breakdown, rates);
+  if (parts.length === 0) return null;
+  return (
+    <p className="col-span-2 break-words text-sm text-gray-700 2xl:col-span-full 2xl:text-right dark:text-gray-300">
+      <span className="font-bold">精算の内訳：</span>
+      {parts.map((p, i) => (
+        <span key={p.label} className="inline-block">
+          {i > 0 && <span aria-hidden="true">・</span>}
+          {p.label} {money(p.amount)}
+          <span className="text-xs text-gray-600 dark:text-gray-400">（{p.rate}）</span>
+        </span>
+      ))}
+      <span className="inline-block text-xs text-gray-600 dark:text-gray-400">　諸経費 {ratePercent(rates.overheadProfitRate)}%（外注を除く）</span>
+    </p>
+  );
+}
+
+/** 施工金額（施工単価）の無い追加・増・変更の行がある知らせ（count 行）。0 なら出さない。 */
+export function MissingAmountNote({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <p role="note" className="col-span-2 flex items-start gap-1.5 text-sm font-bold text-amber-800 2xl:col-span-full 2xl:justify-end dark:text-amber-300">
+      <span aria-hidden="true">⚠</span>
+      <span>
+        {MISSING_AMOUNT_WARNING}（{count}行）。<span className="font-normal">{MISSING_AMOUNT_NOTE}</span>
+      </span>
     </p>
   );
 }

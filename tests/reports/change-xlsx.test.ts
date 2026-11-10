@@ -29,21 +29,24 @@ describe('buildChangeXlsx', () => {
     const extra = rowOf(ws, '追加');
     expect(extra.getCell(2).value).toBe(1);
     expect(extra.getCell(3).value).toBe(36000);
-    expect(extra.getCell(4).value).toBe(40756);
+    expect(extra.getCell(4).value).toBe(44751);
     expect(extra.getCell(4).numFmt).toBe('#,##0');
-    expect(extra.getCell(5).value).toBe(40756);
+    expect(extra.getCell(5).value).toBe(44751);
     expect(rowOf(ws, '減').getCell(4).value).toBe(-25000);
     const total = rowOf(ws, '精算提案額');
-    expect(total.getCell(5).value).toBe(1029342);
+    expect(total.getCell(5).value).toBe(1029696);
     expect(total.getCell(1).font?.bold).toBe(true);
     // 精算提案額のすぐ下に客先提示額（見積中の件 i1 を除く）
     const client = ws.getRow(total.number + 1);
     expect(client.getCell(1).value).toBe('客先提示額（見積中を除く）');
-    expect(client.getCell(5).value).toBe(1000000 - 25000 + 13586);
+    expect(client.getCell(5).value).toBe(1000000 - 25000 + 9945);
 
-    const overhead = rowOf(ws, '経費率');
-    expect(overhead.getCell(2).value).toBe(0.15);
-    expect(overhead.getCell(2).numFmt).toBe('0.0%');
+    const welfare = rowOf(ws, '法定福利費率');
+    expect(welfare.getCell(2).value).toBe(0.151);
+    expect(welfare.getCell(2).numFmt).toBe('0.0%');
+    expect(rowOf(ws, '材料経費率').getCell(2).value).toBe(0.12);
+    expect(rowOf(ws, 'リース燃料経費率').getCell(2).value).toBe(0.12);
+    expect(rowOf(ws, '諸経費率（利益含む）').getCell(2).value).toBe(0.08);
 
     const head = rowOf(ws, '日付（当月N回目）');
     expect(head.getCell(15).value).toBe('客先確認');
@@ -100,21 +103,21 @@ describe('buildChangeXlsx', () => {
     const head = ws.getRow(title.number + 1);
     expect(head.getCell(1).value).toBe('件');
     expect(head.getCell(9).value).toBe('精算額(円)');
-    expect(ws.getRow(title.number + 2).getCell(9).value).toBe(39706);
-    // 件の欄の 2 行目は所属別の人工（行の無い件は 1 行だけ）
+    expect(ws.getRow(title.number + 2).getCell(9).value).toBe(44751);
+    // 件の欄の 2 行目は所属別の人工、3 行目は精算の内訳（行の無い件は 1 行だけ）
     expect(ws.getRow(title.number + 2).getCell(1).value).toBe(
-      '11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。\n所属別 自社 0.75／所属なし 0.75',
+      '11/02-1 追加指示 施主様より 2 階洋室のクロスを全面張替えにしたいとの依頼。見積は後日提出。\n所属別 自社 0.75／所属なし 0.75\n内訳 労務（施工金額） ¥36,000',
     );
     const lump = rowOf(ws, '11/05-1 追加指示 玄関収納の追加');
     expect(lump.getCell(4).value).toBe(100000);
     expect(lump.getCell(5).value).toBe('2026/11/08');
     expect(rowOf(ws, '11/05-4 やり直し 巾木の手直し').getCell(9).value).toBe('（参考）¥8,000');
     expect(rowOf(ws, '11/05-3 減 外壁塗装の一部取りやめ').getCell(9).value).toBe(-20000);
-    expect(rowOf(ws, '件なし（根拠の件を選んでいない行）\n所属別 自社 0.25／所属なし 0.25').getCell(9).value).toBe(13236);
+    expect(rowOf(ws, '件なし（根拠の件を選んでいない行）\n所属別 自社 0.25／所属なし 0.25').getCell(9).value).toBe(7459);
     const total = rowOf(ws, '合計');
-    expect(total.getCell(9).value).toBe(147942);
+    expect(total.getCell(9).value).toBe(147210);
 
-    expect(rowOf(ws, '追加').getCell(5).value).toBe(152942);
+    expect(rowOf(ws, '追加').getCell(5).value).toBe(152210);
     const cells: string[] = [];
     ws.eachRow((row) => row.eachCell((c) => cells.push(String(c.value))));
     expect(cells.filter((v) => v.includes('実績原価(円)'))).toEqual([]);
