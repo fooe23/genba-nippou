@@ -4,7 +4,7 @@ import { jpDateTime } from '@/lib/calc/format';
 import { ISSUE_STATUS_LABELS, withChangeKindPrefix } from '@/lib/report/change-labels';
 import { outputBreakdown } from '@/lib/report/contract-work';
 import { cell, col, formatCell, slashDate, type Cell, type SectionTable } from '@/lib/reports/cost-sections';
-import type { DailyClientConfirmation, DailyHeader, DailyReportModel, DailyWorkRow } from '@/lib/reports/types';
+import type { DailyClientConfirmation, DailyHeader, DailyReportModel, DailyWorkerRow, DailyWorkRow } from '@/lib/reports/types';
 import type { LineKind, TimeSpec } from '@/lib/types';
 
 // 日報の帳票（PDF・CSV）で共通に使うラベル。並びは雛形の日報シートと同じ。
@@ -149,6 +149,16 @@ const kv = (rows: [string, Cell][], total?: [string, Cell]): SectionTable => ({
  * 日報の表（雛形の並び）。金額・人工・残業・実働は保存値のまま。本日原価集計の合計は明細の保存値の和（外注の買掛を含む）。
  * 手入力の名前には「（手入力）」。作業内容の追加・増・変更・減の行は【区分】つきで太字（boldRows）。行が無い表は rows が空（PDF は「なし」の 1 行を出す）。
  */
+/**
+ * 作業員の行の備考。請負の行は頭に【請負】（うち常用の時間があれば【請負・うち常用 4H】）を付ける（2026-11-17。労務費は
+ * うち常用の分だけ）。
+ */
+export function workerNote(r: Pick<DailyWorkerRow, 'contract' | 'jouyouHours' | 'note'>): string {
+  if (r.contract !== 'ukeoi') return r.note;
+  const tag = r.jouyouHours !== null && r.jouyouHours > 0 ? `【請負・うち常用 ${Math.round(r.jouyouHours * 100) / 100}H】` : '【請負】';
+  return r.note ? `${tag}${r.note}` : tag;
+}
+
 export function dailyTables(m: DailyReportModel): Record<
   'workers' | 'vehicles' | 'leases' | 'cash' | 'credit' | 'costs' | 'output' | 'work' | 'issues',
   SectionTable
@@ -188,7 +198,7 @@ export function dailyTables(m: DailyReportModel): Record<
         qty(r.overtimeHours),
         yen(r.dailyRate),
         yen(r.cost),
-        r.note,
+        workerNote(r),
       ]),
       total: ['合計', '', '', '', '', qty(w.total.hours), qty(w.total.manDays), qty(w.total.overtimeHours), '', yen(w.total.cost), ''],
     },
@@ -207,6 +217,8 @@ export function dailyTables(m: DailyReportModel): Record<
     costs: kv(
       [
         ['労務費', yen(c.labor)],
+        // 請負の作業員の人工（うち常用の時間の外。2026-11-17）は出面だけで労務費に入れない。無い日は出さない。
+        ...(w.total.ukeoiManDays > 0 ? [['　うち請負の人工（原価に数えない）', `${Math.round(w.total.ukeoiManDays * 100) / 100}人工`] as [string, Cell]] : []),
         ['車両費（燃料）', yen(c.fuel)],
         ['リース費', yen(c.lease)],
         ['現金購入費', yen(c.cash)],

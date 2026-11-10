@@ -8,11 +8,11 @@ import type { CostReportModel, LeaseRow, TrendRow } from '@/lib/reports/types';
 export const COST_REPORT_TITLE = '工事原価集計表';
 export const NO_REPORTS = '日報がありません';
 /**
- * ④-2 の見出しの補足（PDF では見出しの横に 1 行で出すので短く）。請負労務費は請負の日の人工 × 設定日当（残業を含む）、
- * 請負金額は現場の協力会社の欄の額（現場全体。月の帳票でもそのまま）。差額と合計の差額は、請負金額を入れて請負の日が
- * ある会社の分だけ。
+ * ④-2 の見出しの補足（PDF では見出しの横に 1 行で出すので短く。2026-11-17）。請負人工は出面だけで労務費に入れない
+ * （請負の行のうち常用の時間の分は常用に入る）。外注の支払いはその会社への外注の買掛。請負金額は現場の協力会社の欄の額
+ * （現場全体。月の帳票でもそのまま）。差額は請負金額を入れた会社だけ。
  */
-export const AFFILIATION_NOTES = ['繰越初期値は自社の常用', '差額＝請負金額−請負労務費（請負金額と請負の日のある会社だけ）'] as const;
+export const AFFILIATION_NOTES = ['繰越初期値は自社の常用', '請負人工は出面だけ（労務費に入れない）', '差額＝請負金額−外注支払い'] as const;
 
 /** yen・int = #,##0、dec1 = 0.0（人工・歩掛・距離・残業 H）、qty = 小数 2 桁まで、pct = 0.0%（値は 0..1）。 */
 export type NumFmt = 'yen' | 'int' | 'dec1' | 'qty' | 'pct';
@@ -247,16 +247,15 @@ export function costSections(model: CostReportModel): CostSection[] {
       note: [upTo, ...AFFILIATION_NOTES].filter((v) => v !== null).join('・'),
       tables: [
         {
-          // 幅は A4 縦（本文幅 180mm・7.5pt。9 列以上の表は文字を小さくする）で 9 桁の金額（太字の合計行）と列見出しが
-          // 1 行に収まる比。請負労務費は請負の日の人工 × 設定日当（請負金額と比べる）。
+          // 幅は A4 縦（本文幅 180mm・9pt。9 列以上の表は文字を小さくする）で 9 桁の金額（太字の合計行）と列見出しが
+          // 1 行に収まる比。労務費は原価に数える分（常用の分）だけ、請負人工は出面だけ（2026-11-17）。
           columns: [
             text('所属', 2.6),
             num('常用人工', 1.3),
             num('常用労務費(円)', 2.1),
-            num('請負人工', 1.3),
-            num('請負労務費(円)', 2.1),
+            num('請負人工(出面)', 1.8),
             num('合計人工', 1.3),
-            num('合計労務費(円)', 2.1),
+            num('外注支払い(円)', 2.1),
             num('請負金額(円)', 2.1),
             num('差額(円)', 2.1),
           ],
@@ -265,9 +264,8 @@ export function costSections(model: CostReportModel): CostSection[] {
             dec1(r.jouyouManDays),
             yen(r.jouyouCost),
             dec1(r.ukeoiManDays),
-            yen(r.ukeoiCost),
             dec1(r.manDays),
-            yen(r.cost),
+            yen(r.subcontractPaid),
             // 請負金額が未入力・協力会社以外は空欄
             r.partnerAmount === null ? '' : yen(r.partnerAmount),
             r.difference === null ? '' : yen(r.difference),
@@ -277,9 +275,8 @@ export function costSections(model: CostReportModel): CostSection[] {
             dec1(affiliations.total.jouyouManDays),
             yen(affiliations.total.jouyouCost),
             dec1(affiliations.total.ukeoiManDays),
-            yen(affiliations.total.ukeoiCost),
             dec1(affiliations.total.manDays),
-            yen(affiliations.total.cost),
+            yen(affiliations.total.subcontractPaid),
             affiliations.total.partnerAmount === null ? '' : yen(affiliations.total.partnerAmount),
             affiliations.total.difference === null ? '' : yen(affiliations.total.difference),
           ],

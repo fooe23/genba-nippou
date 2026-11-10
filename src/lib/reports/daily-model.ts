@@ -1,5 +1,6 @@
 import type { ChangeTotals } from '@/lib/calc/change';
 import { creditItemLabel } from '@/lib/report/purchase-kind';
+import { laborCostSplit, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { productivity } from '@/lib/calc/report';
 import { visitNumbers } from '@/lib/calc/visit';
 import { issueNumbers } from '@/lib/reports/change-model';
@@ -19,6 +20,7 @@ import type { LaborLine, TimeSpec } from '@/lib/types';
 // 日報 1 日分の帳票のデータ（純関数）。数値だけを持ち、整形はレンダラー（PDF・CSV）が行う。
 // 金額・人工・残業・実働は DB の保存値（stored・saved・output_total）だけを使い、ここで再計算しない。
 // 本日原価の合計は明細の保存値の和（見出しの cost_total は外注の買掛を含まないので使わない。2026-11-17）。
+// 労務費は労務費の決まり（src/lib/calc/labor-cost.ts）の「原価に数える分」。人工は出面（全部）のまま。
 
 const EMPTY_TIME: TimeSpec = { start: null, end: null, breakMin: null, gapMin: null };
 
@@ -33,8 +35,9 @@ function laborTime(time: TimeSpec, common: TimeSpec): TimeSpec {
   return { start: time.start, end: time.end, breakMin: time.breakMin ?? common.breakMin, gapMin: time.gapMin ?? common.gapMin };
 }
 
-function workerRow(line: LaborLine & { stored: StoredLineValues }, common: TimeSpec): DailyWorkerRow {
+function workerRow(line: LaborLine & { stored: StoredLineValues }, common: TimeSpec, ctx: LaborCostContext): DailyWorkerRow {
   const t = laborTime(line.time, common);
+  const split = laborCostSplit(line, ctx);
   return {
     workerId: line.workerId,
     name: line.workerName,
@@ -44,7 +47,10 @@ function workerRow(line: LaborLine & { stored: StoredLineValues }, common: TimeS
     manDays: line.stored.manDays,
     overtimeHours: line.stored.overtimeHours,
     dailyRate: line.dailyRate,
-    cost: line.stored.amount,
+    cost: split.countedCost,
+    contract: split.contract,
+    jouyouHours: split.contract === 'ukeoi' ? (line.jouyouHours ?? null) : null,
+    ukeoiManDays: split.ukeoiManDays,
     note: line.note,
   };
 }
@@ -78,7 +84,7 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
     const amount = line.stored.amount;
     switch (line.kind) {
       case 'labor':
-        workers.push(workerRow(line, report.common));
+        workers.push(workerRow(line, report.common, input.laborCost));
         break;
       case 'fuel':
         vehicles.push({
@@ -168,6 +174,7 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
       total: {
         hours: sum(workers.map((r) => r.hours ?? 0)),
         manDays: sum(workers.map((r) => r.manDays)),
+        ukeoiManDays: Math.round(sum(workers.map((r) => r.ukeoiManDays)) * 100) / 100,
         overtimeHours: sum(workers.map((r) => r.overtimeHours)),
         cost: labor,
       },
@@ -219,7 +226,7 @@ export function buildEmptyDailyReport(site: Site, date: string): DailyReportMode
   return {
     isEmpty: true,
     header: { siteName: site.name, projectNo: site.projectNo, date, monthIndex: null, totalIndex: null, weather: null, supervisor: null, common: { ...EMPTY_TIME } },
-    workers: { rows: [], total: { hours: 0, manDays: 0, overtimeHours: 0, cost: 0 } },
+    workers: { rows: [], total: { hours: 0, manDays: 0, ukeoiManDays: 0, overtimeHours: 0, cost: 0 } },
     vehicles: { rows: [], total: { distanceKm: 0, cost: 0 } },
     leases: { rows: [], total: { amount: 0 } },
     cash: { rows: [], total: { amount: 0 } },

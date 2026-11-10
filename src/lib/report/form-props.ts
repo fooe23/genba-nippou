@@ -18,7 +18,8 @@ import {
   type ReportDetail,
 } from '@/lib/db/reports';
 import { canRequestReportFix, canReviewSite } from '@/lib/report/issue-status';
-import { loadLaborCostContext, loadSiteTrades, loadTradeAliases, loadUkeoiSupplierIds } from '@/lib/db/budget';
+import { loadSiteTrades, loadTradeAliases, loadUkeoiSupplierIds } from '@/lib/db/budget';
+import { loadLaborCostContext } from '@/lib/db/labor-cost';
 import { getSettings } from '@/lib/db/settings';
 import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-signature';
 import { NO_SIGNATURE, type ClientSignatureView } from '@/lib/report/client-signature';

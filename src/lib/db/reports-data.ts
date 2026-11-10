@@ -1,6 +1,7 @@
 import 'server-only';
 import { monthKey } from '@/lib/calc/format';
 import { fetchReportLineRows, loadProfileNames } from '@/lib/db/export';
+import { loadLaborCostContext } from '@/lib/db/labor-cost';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
 import { listIssuesForReports, listReportHeads, type Issue, type ReportHead } from '@/lib/db/reports';
 import { getSite, listCarryovers, listSitePartners, type Site } from '@/lib/db/sites';
@@ -47,7 +48,7 @@ export async function withLines(heads: ReportHead[]): Promise<ReportWithLines[]>
 export async function loadCostReportInput(siteId: string): Promise<CostReportInput> {
   const site = await getSite(siteId);
   if (!site) throw new Error('現場が見つかりません');
-  const [heads, carryovers, workers, suppliers, vehicles, leaseItems, sitePartners] = await Promise.all([
+  const [heads, carryovers, workers, suppliers, vehicles, leaseItems, sitePartners, laborCost] = await Promise.all([
     listReportHeads(siteId),
     listCarryovers(siteId),
     listWorkers(),
@@ -55,11 +56,12 @@ export async function loadCostReportInput(siteId: string): Promise<CostReportInp
     listVehicles(),
     listLeaseItems(),
     listSitePartners(siteId),
+    loadLaborCostContext(siteId),
   ]);
 
   const [reports, issues] = await Promise.all([withLines(heads), listIssuesForReports(heads.map((h) => h.id))]);
 
-  return { site, reports, carryovers, workers, suppliers, vehicles, leaseItems, issues, sitePartners };
+  return { site, reports, carryovers, workers, suppliers, vehicles, leaseItems, issues, sitePartners, laborCost };
 }
 
 // ─── 日報（1 日分・月まとめ） ───
@@ -95,10 +97,11 @@ async function loadDailyInputs(site: Site, allHeads: ReportHead[], targets: Repo
   if (targets.length === 0) return [];
   const ids = targets.map((h) => h.id);
   const supabase = await createServerSupabase();
-  const [extraRes, reports, issues] = await Promise.all([
+  const [extraRes, reports, issues, laborCost] = await Promise.all([
     supabase.from('gn_daily_reports').select(DAILY_EXTRA_COLUMNS).in('id', ids),
     withLines(targets),
     listIssuesForReports(ids),
+    loadLaborCostContext(site.id),
   ]);
   if (extraRes.error) throw new Error(extraRes.error.message);
   const extras = new Map(((extraRes.data ?? []) as DailyExtraRow[]).map((r) => [r.id, r]));
@@ -136,6 +139,7 @@ async function loadDailyInputs(site: Site, allHeads: ReportHead[], targets: Repo
       names,
       cumulativeOutputBefore: allHeads.filter((h) => h.reportDate < report.reportDate).reduce((sum, h) => sum + h.outputTotal, 0),
       tradeNames,
+      laborCost,
     };
   });
 }

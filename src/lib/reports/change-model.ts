@@ -1,5 +1,6 @@
 import { monthEnd } from '@/lib/calc/calendar';
 import { monthKey } from '@/lib/calc/format';
+import { EMPTY_LABOR_COST_CONTEXT, laborCostSplit, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { visitNumbers } from '@/lib/calc/visit';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
@@ -32,6 +33,8 @@ import type {
 //              ×（1＋諸経費率）＋ 外注）（settlementProposal）。材料 = 仕入の買掛 ＋ 現金。外注（外注の買掛）は率を掛けない
 //   行の提案額 = 追加・増・変更：その行の労務だけで settlementProposal、減：申告額（入力の施工単価 × 数量。負）そのまま
 //   実績原価（参考） = 行の投入人工 × その日の平均日当（laborShare）＋ 根拠にその件を選んだ材料・リース・燃料・外注。減の行は 0
+//              平均日当 = その日の原価に数える労務費 ÷ 原価に数える人工（労務費の決まり src/lib/calc/labor-cost.ts。2026-11-17：
+//              請負の会社の人工は、うち常用の時間の分だけ入る）
 //   件ごとの精算額 = 一式・見積：確定額、常用：ceil(紐づく行の人工の合計 × 常用単価)（率は掛けない）、
 //              未定：件の提案額（内訳から settlementProposal ＋ 紐づく減の行の申告額）（settleIssue）
 //              区分は件の種別から（settlementCategory）。減の区分の一式・見積・常用は負。やり直しは参考で合計に入れない
@@ -49,20 +52,21 @@ import type {
 // 全日報で数える）。件ごとの精算・区分ごとの精算額・精算提案額（settlement）はその月末までの全部の行と、月末までに
 // 載せる件で計算する（工事原価集計表 ② と同じ範囲）。一式・見積・常用の件は件の日報日が月末以前なら載せる（確定日は見ない）。
 
-/** 1 日（日報 1 件）の、労務の実績原価に使う合計（すべて保存値）。 */
+/** 1 日（日報 1 件）の、労務の実績原価に使う合計（保存値に労務費の決まりを当てたもの）。 */
 export interface DayCostBasis {
-  /** 労務費（労務の行の amount の合計）。 */
+  /** 原価に数える労務費（自社・常用の行は amount、請負の行はうち常用の時間の分）。 */
   laborCost: number;
-  /** 労務の人工（労務の行の man_days の合計）。 */
+  /** 原価に数える人工（自社・常用の行は man_days 全部、請負の行はうち常用の分）。 */
   laborManDays: number;
 }
 
-export function dayCostBasis(report: ReportWithLines): DayCostBasis {
+export function dayCostBasis(report: ReportWithLines, ctx: LaborCostContext = EMPTY_LABOR_COST_CONTEXT): DayCostBasis {
   const day: DayCostBasis = { laborCost: 0, laborManDays: 0 };
   for (const l of report.lines) {
     if (l.kind !== 'labor') continue;
-    day.laborCost += l.stored.amount;
-    day.laborManDays += l.stored.manDays;
+    const s = laborCostSplit(l, ctx);
+    day.laborCost += s.countedCost;
+    day.laborManDays += s.jouyouManDays;
   }
   return day;
 }
@@ -344,7 +348,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
   let contractOutput = 0;
   for (const r of reports) {
     if (through !== null && r.reportDate > through) continue;
-    const day = dayCostBasis(r);
+    const day = dayCostBasis(r, input.laborCost ?? EMPTY_LABOR_COST_CONTEXT);
     const weights = dayAffiliationWeights(r.lines, supplierNames); // 所属別の人工の按分の重み（その日の労務の行）
     const visit = visitNumbers(reportDates, r.reportDate);
     for (const l of r.lines) {

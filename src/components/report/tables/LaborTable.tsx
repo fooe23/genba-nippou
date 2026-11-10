@@ -20,8 +20,8 @@ const MANUAL_WORKER = '__manual__';
  * 作業員の欄の下に所属（自社／取引先名／所属なし）を小さく出し、協力会社の作業員の行だけ「常用／請負」を選ぶ
  * （列は増やさず作業員の欄に重ねて、md・xl の幅で右端の列が切れないようにする）。作業員を選んだときの既定は、
  * 実行予算でその会社が請負の行に入っていれば請負、入っていなければ常用（決めたこと A。保存済みの行の区分は変えない）。
- * 区分が請負の行だけ「うち常用の時間」（H。空欄＝全部が請負）を出し、社員・管理者には原価に数える分を小さく出す。
- * 労務費の列と小計は、社員・管理者には原価に数える分（src/lib/calc/labor-cost.ts）、協力会社のアカウントには行の金額。
+ * 区分が請負の行だけ「うち常用の時間」（H。空欄＝全部が請負）を出し、その下に原価に数える分を小さく出す。
+ * 労務費の列と小計は原価に数える分（src/lib/calc/labor-cost.ts。協力会社のアカウントは実行予算の単価が無いので日当で数える）。
  */
 export function LaborTable({
   rows,
@@ -35,7 +35,6 @@ export function LaborTable({
   stored = new Map(),
   laborCost,
   ukeoiSupplierIds = [],
-  isStaff = false,
 }: {
   rows: Row<LaborLine>[];
   onChange: (update: (rows: Row<LaborLine>[]) => Row<LaborLine>[]) => void;
@@ -49,12 +48,10 @@ export function LaborTable({
   supplierNames?: Record<string, string>;
   /** 日報を開いたときに読み込んだ保存済みの行の所属・常用請負の写し（作業員ごと）。保存し直しでサーバーが使うものと同じ。 */
   stored?: StoredLaborAffiliations;
-  /** 労務費の決まりの材料（社員・管理者の画面で原価に数える分を出す）。 */
+  /** 労務費の決まりの材料（省略時は行の金額のまま）。 */
   laborCost?: LaborCostContext;
   /** 実行予算で請負の行に入っている会社（作業員を選んだときの常用・請負の既定）。 */
   ukeoiSupplierIds?: readonly string[];
-  /** 社員・管理者（原価に数える分の文字と労務費の列）。 */
-  isStaff?: boolean;
 }) {
   const set = (i: number, patch: Partial<LaborLine>) => onChange((rs) => patchRow(rs, i, patch));
   // 作業員の選び直しと手入力の氏名：「（手入力）」の印（Row.manual）も一緒に付け外しする。
@@ -68,9 +65,9 @@ export function LaborTable({
     { value: MANUAL_WORKER, label: '（手入力）' },
   ];
   const workerById = new Map(workers.map((w) => [w.id, w]));
-  // 原価に数える分（社員・管理者だけ。協力会社のアカウントは行の金額のまま）。
+  // 原価に数える分（労務費の決まり）。
   const splits = rows.map((r, i) =>
-    isStaff && laborCost
+    laborCost
       ? formLaborSplit(r.line, values[i], stored, r.line.workerId ? workerById.get(r.line.workerId) : undefined, laborCost)
       : null,
   );

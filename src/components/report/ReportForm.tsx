@@ -397,14 +397,13 @@ function ReportFormBody({
   // 編集できる画面は今の設定で計算し直す（保存すると DB も同じ値になる）。
   // この日報に保存済みの作業員の所属・常用請負（サーバーが保存し直しで使う写しと同じ。表示をそろえる）。
   const storedAffiliations = useMemo(() => storedLaborAffiliations(p.initial.lines), [p.initial.lines]);
-  // 本日原価の労務費は、社員・管理者には原価に数える分（請負の会社の人工は、うち常用の時間の分だけ。2026-11-17）。
-  // 協力会社のアカウントは今までどおり（行の金額＝出面の金額）。
+  // 本日原価の労務費は原価に数える分（請負の会社の人工は、うち常用の時間の分だけ。2026-11-17。集計・帳票と同じ）。
+  // 協力会社のアカウントには実行予算の常用の単価が無いので、行の日当で数える。
   const laborSplit = useMemo(() => {
-    if (!p.isStaff) return undefined;
     const workerById = new Map(p.masters.workers.map((w) => [w.id, w]));
     return (line: LaborLine, v: LaborValues) =>
       formLaborSplit(line, v, storedAffiliations, line.workerId ? workerById.get(line.workerId) : undefined, p.laborCost);
-  }, [p.isStaff, p.masters.workers, p.laborCost, storedAffiliations]);
+  }, [p.masters.workers, p.laborCost, storedAffiliations]);
   const totals = useMemo(
     () =>
       p.readOnly
@@ -904,7 +903,6 @@ function ReportFormBody({
           stored={storedAffiliations}
           laborCost={p.laborCost}
           ukeoiSupplierIds={p.ukeoiSupplierIds}
-          isStaff={p.isStaff}
         />
         <FuelTable rows={state.rows.fuel} onChange={setRows('fuel')} vehicles={p.masters.vehicles} issueChoices={issueChoices} />
         <LeaseTable

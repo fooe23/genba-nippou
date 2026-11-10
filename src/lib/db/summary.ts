@@ -1,11 +1,14 @@
 import 'server-only';
 import type { DayTotals, LaborEntry } from '@/lib/calc/aggregate';
+import { laborCountedCost, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
+import { loadLaborCostContext } from '@/lib/db/labor-cost';
 import { listReportHeads } from '@/lib/db/reports';
 import { createServerSupabase } from '@/lib/supabase/server';
 
 // 集計用の読み取り（RLS 前提）。日報の見出し + 明細（gn_report_lines）から区分別の合計を作る。
 // 原価は明細の和（見出しの cost_total は外注の買掛を含まないので使わない。2026-11-17）。協力会社のアカウントでは外注の行が読めない。
+// 労務費は労務費の決まり（src/lib/calc/labor-cost.ts）の「原価に数える分」（請負の行はうち常用の時間の分だけ）。人工は出面のまま。
 
 interface LineRow {
   report_id: string;
@@ -15,11 +18,19 @@ interface LineRow {
   name: string | null;
   man_days: number | string | null;
   overtime_hours: number | string | null;
-  /** 買掛の区分（2026-11-17）。列の無い DB（SQL の前）では読まない（undefined）。 */
+  hours: number | string | null;
+  unit_price: number | string | null;
+  overtime_rate: number | string | null;
+  affiliation: string | null;
+  supplier_id: string | null;
+  labor_contract: string | null;
+  /** 買掛の区分・うち常用の時間（2026-11-17）。列の無い DB（SQL の前）では読まない（undefined）。 */
   purchase_kind?: string | null;
+  jouyou_hours?: number | string | null;
 }
 
-const LINE_COLUMNS = 'report_id, kind, amount, ref_id, name, man_days, overtime_hours';
+const LINE_COLUMNS =
+  'report_id, kind, amount, ref_id, name, man_days, overtime_hours, hours, unit_price, overtime_rate, affiliation, supplier_id, labor_contract';
 
 // .in() の URL が長くなりすぎないよう id を分けて問い合わせる。さらに PostgREST の max_rows（既定 1000）で
 // 黙って切り詰められないよう、各グループを .range() で 1000 件ずつ最後まで取る。
@@ -29,9 +40,10 @@ const PAGE_SIZE = 1000;
 async function fetchLines(reportIds: string[]): Promise<LineRow[]> {
   if (reportIds.length === 0) return [];
   try {
-    return await fetchLinesWith(reportIds, `${LINE_COLUMNS}, purchase_kind`);
+    return await fetchLinesWith(reportIds, `${LINE_COLUMNS}, purchase_kind, jouyou_hours`);
   } catch (e) {
-    // 買掛の区分の列が無い（update_2026-11-17_subcontract.sql の前。42703）ときは、区分なし（全部が仕入）で読み直す。
+    // 買掛の区分・うち常用の時間の列が無い（update_2026-11-17_subcontract.sql の前。42703）ときは、区分なし（全部が仕入）・
+    // うち常用の時間なしで読み直す。
     if (e instanceof MissingColumnError) return fetchLinesWith(reportIds, LINE_COLUMNS);
     throw e;
   }
@@ -59,9 +71,41 @@ async function fetchLinesWith(reportIds: string[], columns: string): Promise<Lin
   return results.flat();
 }
 
-/** 現場の全期間について、日ごとの区分別合計と作業員別の出面明細を 1 回の取得で作る。 */
-export async function loadSummaryData(siteId: string): Promise<{ days: DayTotals[]; entries: LaborEntry[] }> {
-  const heads = await listReportHeads(siteId);
+function numOrNull(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** 労務の行の原価に数える労務費（労務費の決まり）。 */
+function countedLaborCost(l: LineRow, ctx: LaborCostContext): number {
+  return laborCountedCost(
+    {
+      affiliation: l.affiliation === 'own' || l.affiliation === 'partner' ? l.affiliation : null,
+      supplierId: l.supplier_id,
+      laborContract: l.labor_contract === 'jouyou' || l.labor_contract === 'ukeoi' ? l.labor_contract : null,
+      jouyouHours: numOrNull(l.jouyou_hours),
+      dailyRate: numOrNull(l.unit_price),
+      overtimeRate: numOrNull(l.overtime_rate),
+      stored: { amount: Number(l.amount ?? 0), manDays: Number(l.man_days ?? 0), overtimeHours: Number(l.overtime_hours ?? 0), hours: Number(l.hours ?? 0) },
+    },
+    ctx,
+  );
+}
+
+/**
+ * 現場の全期間について、日ごとの区分別合計と作業員別の出面明細を 1 回の取得で作る。
+ * labor：'counted'（既定）は労務費の決まりの原価に数える分、'stored' は行の金額（出面の金額）のまま
+ * （台帳 Excel の出力。雛形の式で労務費を出すので、請負の人工も入ったままにそろえる）。
+ */
+export async function loadSummaryData(
+  siteId: string,
+  opts: { labor?: 'counted' | 'stored' } = {},
+): Promise<{ days: DayTotals[]; entries: LaborEntry[] }> {
+  const [heads, ctx] = await Promise.all([
+    listReportHeads(siteId),
+    opts.labor === 'stored' ? Promise.resolve(null) : loadLaborCostContext(siteId),
+  ]);
   const lines = await fetchLines(heads.map((h) => h.id));
 
   const dateById = new Map(heads.map((h) => [h.id, h.reportDate]));
@@ -75,18 +119,20 @@ export async function loadSummaryData(siteId: string): Promise<{ days: DayTotals
     if (!t || !reportDate) continue;
     const amount = Number(l.amount ?? 0);
     switch (l.kind) {
-      case 'labor':
-        t.labor += amount;
+      case 'labor': {
+        const cost = ctx ? countedLaborCost(l, ctx) : amount;
+        t.labor += cost;
         t.workerCount += 1;
         entries.push({
           reportDate,
           workerId: l.ref_id,
           workerName: l.name ?? '（名前なし）',
           manDays: Number(l.man_days ?? 0),
-          cost: amount,
+          cost,
           overtimeHours: Number(l.overtime_hours ?? 0),
         });
         break;
+      }
       case 'fuel': t.fuel += amount; break;
       case 'lease': t.lease += amount; break;
       case 'cash': t.cash += amount; break;

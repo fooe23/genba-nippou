@@ -1,6 +1,6 @@
 import { NO_REPORTS } from '@/lib/reports/cost-sections';
 import { toCsv } from '@/lib/reports/csv';
-import { DAILY_CSV_COLUMNS, LINE_KIND_LABELS, withManual, workDescription } from '@/lib/reports/daily-sections';
+import { DAILY_CSV_COLUMNS, LINE_KIND_LABELS, withManual, workDescription, workerNote } from '@/lib/reports/daily-sections';
 import type { DailyReportModel } from '@/lib/reports/types';
 
 // 日報の CSV（純関数）。明細 1 行 1 レコード、列は DAILY_CSV_COLUMNS（21 列）。1 日分も月まとめも同じ形で、
@@ -34,7 +34,7 @@ function dayRecords(m: DailyReportModel): CsvRecord[] {
       実働H: r.hours,
       人工: r.manDays,
       残業H: r.overtimeHours,
-      備考: r.note,
+      備考: workerNote(r),
     })),
     ...m.vehicles.rows.map((r) => ({
       ...base('fuel'),

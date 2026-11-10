@@ -3,6 +3,7 @@ import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import type { DailyReportInput, DailyReportModel, DailyReportSource, SavedReportLine } from '@/lib/reports/types';
+import { EMPTY_LABOR_COST_CONTEXT } from '@/lib/calc/labor-cost';
 
 // 日報の帳票（モデル・CSV・PDF）のテスト用：明細の種類がすべてそろった 1 日分の入力。
 // 保存値（stored・saved）は計算で出る値とわざと違えてある（帳票が再計算していないことを確かめるため）。
@@ -81,6 +82,7 @@ export function dailyInput(over: Partial<DailyReportInput> = {}): DailyReportInp
     issues,
     names: { p1: '作成 太郎', p2: '確認 次郎', p3: '承認 三郎' },
     cumulativeOutputBefore: 150000,
+    laborCost: EMPTY_LABOR_COST_CONTEXT,
     ...over,
   };
 }

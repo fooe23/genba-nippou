@@ -1,10 +1,14 @@
 import { OWN_LABEL, UNKNOWN_PARTNER_LABEL, type SupplierNames } from '@/lib/calc/affiliation';
 import { aliasMap, resolveTradeId, tradesByNameMap, unmappedTradeTexts, type UnmappedTradeText } from '@/lib/budget/resolve-trade';
+import { laborCostContextFrom, laborCostSplit } from '@/lib/calc/labor-cost';
 import { PARTNER_ITEMS, SITE_WIDE_ITEMS, type BudgetData, type BudgetLine, type ContractItem } from '@/lib/budget/types';
 import type { SavedReportLine } from '@/lib/reports/types';
-import type { ChangeKind } from '@/lib/types';
+import type { ChangeKind, LaborRule } from '@/lib/types';
 
 // 予算と実績の集計（純関数。DB・Next に依存しない）。金額・人工はすべて保存値（明細の stored）から計算する。
+// 労務費・人工は労務費の決まり（src/lib/calc/labor-cost.ts。2026-11-17）の「原価に数える分」：自社・常用の行は保存値の
+// まま、請負の行（保存した常用・請負が請負）はうち常用の時間の分の人工と、その分の労務費（実行予算のその会社の常用の単価
+// → 無ければ日当）だけ。請負の人工の出面は第 3 段階で別に出す。
 //
 // 実績の労務費・人工の工種への振り分け（日報 1 件＝1 日ごと。設計書「協力会社の人工の工種への振り分け」）：
 // - 作業内容の行の工種を resolveTradeId（参照 → 読み替え表 → 工種名 → null）で決める。現場の工種に無い id も null。
@@ -62,6 +66,8 @@ export interface BudgetModelInput {
   supplierNames?: SupplierNames;
   /** 繰越初期値（gn_carryovers）。省略は無し。 */
   carryovers?: { workerId: string; manDays: number; laborCost: number; beforeDate: string }[];
+  /** 労務の計算設定（請負の行の常用の残業単価に使う。省略は既定）。常用の単価は data.budgetLines から。 */
+  laborRule?: LaborRule;
 }
 
 export interface PerformerRow {
@@ -257,6 +263,7 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
     return id !== null && tradeIds.has(id) ? id : null;
   };
   const orderOf = (key: string) => (key === OUTSIDE ? Number.MAX_SAFE_INTEGER : (tradeOrder.get(key) ?? Number.MAX_SAFE_INTEGER - 1));
+  const laborCtx = laborCostContextFrom(data.budgetLines, input.laborRule);
 
   // 協力会社 → 施工者に入れた工種（請負・常用の行）
   const supplierTrades = new Map<string, string[]>();
@@ -375,8 +382,10 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
           const supplierId = partner ? (l.supplierId ?? null) : null;
           const key = partner ? `partner:${supplierId ?? ''}` : 'own';
           const cur = labor.get(key) ?? { supplierId, partner, amount: 0, manDays: 0 };
-          cur.amount += l.stored.amount;
-          cur.manDays += l.stored.manDays;
+          // 原価に数える分（請負の行はうち常用の時間の分だけ）
+          const split = laborCostSplit(l, laborCtx);
+          cur.amount += split.countedCost;
+          cur.manDays += split.jouyouManDays;
           labor.set(key, cur);
           break;
         }

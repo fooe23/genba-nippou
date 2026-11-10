@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { buildDailyReport, buildEmptyDailyReport } from '@/lib/reports/daily-model';
 import { COST_TOTAL, dailyInput, issues, report, sampleDaily, site, withChanges } from './daily-fixture';
+import { EMPTY_LABOR_COST_CONTEXT } from '@/lib/calc/labor-cost';
+import { buildDailyCsv } from '@/lib/reports/daily-csv';
+import { dailyTables } from '@/lib/reports/daily-sections';
+import type { SavedReportLine } from '@/lib/reports/types';
 
 describe('buildDailyReport', () => {
   it('見出し：現場名・工事番号・日付・当月 N 回目／通算 M 回目・天候・作業責任者・共通時間', () => {
@@ -28,19 +32,19 @@ describe('buildDailyReport', () => {
     expect(m.workers.rows).toEqual([
       {
         workerId: 'w1', name: '田中', manual: false, start: '08:00', end: '17:30', breakMin: 90, gapMin: 0,
-        hours: 8, manDays: 1, overtimeHours: 0, dailyRate: 18000, cost: 18001, note: '',
+        hours: 8, manDays: 1, overtimeHours: 0, dailyRate: 18000, cost: 18001, contract: 'own', jouyouHours: null, ukeoiManDays: 0, note: '',
       },
       {
         workerId: null, name: '飛び込み 鈴木', manual: true, start: '07:00', end: '19:00', breakMin: 90, gapMin: 30,
-        hours: 9, manDays: 1, overtimeHours: 1.5, dailyRate: 15000, cost: 17344, note: '残業あり',
+        hours: 9, manDays: 1, overtimeHours: 1.5, dailyRate: 15000, cost: 17344, contract: 'own', jouyouHours: null, ukeoiManDays: 0, note: '残業あり',
       },
       {
         // 終了が空 → 実働は共通時間で計算されるので、時刻も共通時間を出す。saved が無いので実働は null。
         workerId: 'w2', name: '佐藤', manual: false, start: '08:00', end: '17:30', breakMin: 90, gapMin: 0,
-        hours: null, manDays: 0, overtimeHours: 0, dailyRate: null, cost: 0, note: '',
+        hours: null, manDays: 0, overtimeHours: 0, dailyRate: null, cost: 0, contract: 'own', jouyouHours: null, ukeoiManDays: 0, note: '',
       },
     ]);
-    expect(m.workers.total).toEqual({ hours: 17, manDays: 2, overtimeHours: 1.5, cost: 35345 });
+    expect(m.workers.total).toEqual({ hours: 17, manDays: 2, ukeoiManDays: 0, overtimeHours: 1.5, cost: 35345 });
   });
 
   it('車両・リース・現金購入・買掛：金額は保存値、参照の無い行は手入力', () => {
@@ -166,7 +170,7 @@ describe('buildDailyReport', () => {
   it('明細が無い日報は空の表（日報としては存在する）', () => {
     const m = buildDailyReport(dailyInput({ report: report('2026-11-02', { lines: [], costTotal: 0, outputTotal: 0 }), issues: [] }));
     expect(m.isEmpty).toBe(false);
-    expect(m.workers).toEqual({ rows: [], total: { hours: 0, manDays: 0, overtimeHours: 0, cost: 0 } });
+    expect(m.workers).toEqual({ rows: [], total: { hours: 0, manDays: 0, ukeoiManDays: 0, overtimeHours: 0, cost: 0 } });
     expect(m.costs.total).toBe(0);
     expect(m.output.progress).toBe(0.15);
   });
@@ -185,5 +189,46 @@ describe('buildEmptyDailyReport', () => {
     expect(m.costs).toEqual({ labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, total: 0 });
     expect(m.output).toEqual({ today: 0, cumulative: null, contractAmount: 1_000_000, progress: null, tentative: false, estimatedAmount: null });
     expect(m.signature).toEqual({ createdBy: null, reviewedBy: null, approvedBy: null, approvedAt: null });
+  });
+});
+
+describe('労務費の決まり（2026-11-17。村山様邸の 1 日：大江・A・B・C）', () => {
+  const noTime = { start: null, end: null, breakMin: null, gapMin: null };
+  const st = (amount: number, manDays: number, hours = 8) => ({ amount, manDays, overtimeHours: 0, hours });
+  const lab = (name: string, extra: Record<string, unknown>, amount: number): SavedReportLine =>
+    ({ kind: 'labor', workerId: name, workerName: name, time: noTime, dailyRate: amount, note: '', overtimeRate: null, stored: st(amount, 1), ...extra }) as SavedReportLine;
+  const murayama = [
+    lab('大江', { affiliation: 'own' }, 20000),
+    lab('A', { affiliation: 'partner', supplierId: 'tohoku', laborContract: 'ukeoi', jouyouHours: 4 }, 22000),
+    lab('B', { affiliation: 'partner', supplierId: 'tohoku', laborContract: 'ukeoi', jouyouHours: null }, 22000),
+    lab('C', { affiliation: 'partner', supplierId: 'marumaru', laborContract: 'jouyou' }, 22000),
+  ];
+  const m = buildDailyReport(dailyInput({ report: report('2026-11-10', { lines: murayama }), issues: [] }));
+
+  it('労務費 ¥20,000 ＋ ¥11,000 ＋ ¥0 ＋ ¥22,000 ＝ ¥53,000、出面 4.0 人工（うち請負 1.5）', () => {
+    expect(m.workers.rows.map((r) => [r.name, r.manDays, r.cost, r.contract, r.jouyouHours, r.ukeoiManDays])).toEqual([
+      ['大江', 1, 20000, 'own', null, 0],
+      ['A', 1, 11000, 'ukeoi', 4, 0.5],
+      ['B', 1, 0, 'ukeoi', null, 1],
+      ['C', 1, 22000, 'jouyou', null, 0],
+    ]);
+    expect(m.workers.total).toMatchObject({ manDays: 4, ukeoiManDays: 1.5, cost: 53000 });
+    expect(m.costs.labor).toBe(53000);
+    expect(m.costs.total).toBe(53000);
+  });
+
+  it('帳票の作業員の備考に【請負】【請負・うち常用 4H】、本日原価集計に「うち請負の人工（原価に数えない）」', () => {
+    const t = dailyTables(m);
+    expect(t.workers.rows.map((r) => r[r.length - 1])).toEqual(['', '【請負・うち常用 4H】', '【請負】', '']);
+    expect(t.costs.rows).toContainEqual(['　うち請負の人工（原価に数えない）', '1.5人工']);
+    const csv = buildDailyCsv([m]);
+    expect(csv).toContain('【請負・うち常用 4H】');
+  });
+
+  it('実行予算の常用の単価（東北建興 ¥25,000）があれば A さんは ¥12,500', () => {
+    const withRate = buildDailyReport(
+      dailyInput({ report: report('2026-11-10', { lines: murayama }), issues: [], laborCost: { ...EMPTY_LABOR_COST_CONTEXT, jouyouRates: { tohoku: 25000 } } }),
+    );
+    expect(withRate.workers.rows[1].cost).toBe(12500);
   });
 });

@@ -7,6 +7,7 @@ import type { LeaseItem, Supplier, Vehicle, Worker } from '@/lib/db/masters';
 import type { Carryover, Site } from '@/lib/db/sites';
 import type { CostReportInput, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
 import type { ChangeKind, ReportStatus } from '@/lib/types';
+import { EMPTY_LABOR_COST_CONTEXT } from '@/lib/calc/labor-cost';
 
 // ─── 小さな手作りの入力 ───
 
@@ -58,6 +59,7 @@ const report = (date: string, lines: SavedReportLine[], status: ReportStatus = '
 const input = (reports: ReportWithLines[], o: Partial<CostReportInput> = {}): CostReportInput => ({
   site: site(),
   reports,
+  laborCost: EMPTY_LABOR_COST_CONTEXT,
   carryovers: [],
   workers: [worker('w1', '田中', '大工'), worker('w2', '佐藤', '鳶')],
   suppliers: [supplier('sp1', '山田商店')],
@@ -560,29 +562,49 @@ describe('④ 所属の列・④-2 所属別の人工・労務費', () => {
     expect(oct.workers.rows.find((r) => r.workerName === '田中')!.affiliationLabel).toBe('自社');
   });
 
-  it('④-2 は 自社 → 協力会社（会社ごと・名前順）→ 所属なし。請負の日も労務費に入り、合計は ④ の合計と一致', () => {
+  it('④-2 は 自社 → 協力会社（会社ごと・名前順）→ 所属なし。請負の人工は出面だけ（労務費に入れない）、合計は ④ の合計と一致', () => {
     const m = build();
-    const rows = m.affiliations.rows.map((r) => [r.label, r.jouyouManDays, r.jouyouCost, r.ukeoiManDays, r.ukeoiCost, r.manDays, r.cost, r.partnerAmount, r.difference]);
+    const rows = m.affiliations.rows.map((r) => [r.label, r.jouyouManDays, r.jouyouCost, r.ukeoiManDays, r.subcontractPaid, r.manDays, r.cost, r.partnerAmount, r.difference]);
     expect(rows).toEqual([
       // 自社：繰越初期値（佐藤 3 人工・60,000）＋ 田中の 10 月の行
       ['自社', 4, 78_000, 0, 0, 4, 78_000, null, null],
-      // 〇〇工業：10 月の鈴木（laborContract null は常用）＋ 11 月の請負（鈴木 1・高橋 0.5）。差額 = 請負金額 − 請負労務費
-      ['〇〇工業', 1, 20_000, 1.5, 31_000, 2.5, 51_000, 100_000, 69_000],
+      // 〇〇工業：10 月の鈴木（laborContract null は常用）＋ 11 月の請負（鈴木 1・高橋 0.5。うち常用の時間なし → 原価 0）。
+      // 差額 = 請負金額 − 外注の支払い（外注の買掛なし）
+      ['〇〇工業', 1, 20_000, 1.5, 0, 2.5, 20_000, 100_000, 100_000],
       // あさひ建設：田中の 11 月（請負金額は未入力 → 空欄）
       ['あさひ建設', 1, 18_000, 0, 0, 1, 18_000, null, null],
-      // 現場に登録したが行の無い会社も出す（請負の日が無いので差額は空欄）
-      ['未使用の協力会社', 0, 0, 0, 0, 0, 0, 50_000, null],
+      // 現場に登録したが行の無い会社も出す（差額は請負金額 − 0）
+      ['未使用の協力会社', 0, 0, 0, 0, 0, 0, 50_000, 50_000],
       ['所属なし', 1, 15_000, 0, 0, 1, 15_000, null, null],
     ]);
     expect(m.affiliations.total).toEqual({
-      jouyouManDays: 7, jouyouCost: 131_000, ukeoiManDays: 1.5, ukeoiCost: 31_000, manDays: 8.5, cost: 162_000,
-      // 差額の合計は差額の出ている行（〇〇工業）だけの和
-      partnerAmount: 150_000, difference: 69_000,
+      jouyouManDays: 7, jouyouCost: 131_000, ukeoiManDays: 1.5, subcontractPaid: 0, manDays: 8.5, cost: 131_000,
+      partnerAmount: 150_000, difference: 150_000,
     });
     expect(m.affiliations.total.manDays).toBe(m.workers.total.manDays);
     expect(m.affiliations.total.cost).toBe(m.workers.total.cost);
-    // 請負の日の労務費も ① 原価合計の労務費に入る（集計は変えない）
-    expect(m.costs.labor).toBe(18000 + 20000 + 18000 + 20000 + 11000 + 15000);
+    // 請負の行（うち常用の時間なし）の労務費は ① 原価合計の労務費に入らない（2026-11-17）
+    expect(m.costs.labor).toBe(18000 + 20000 + 18000 + 15000);
+  });
+
+  it('④-2 外注の支払いはその会社の外注の買掛、請負の行のうち常用の時間の分は常用に入る（2026-11-17）', () => {
+    const extra = report('2026-11-05', [
+      // 鈴木：実働 8 H・1 人工・うち常用 4 H → 常用 0.5 人工 × 実行予算の常用の単価 ¥22,000 ＝ ¥11,000
+      { ...aLabor('w3', '鈴木', 1, 20000, 'partner', 'pA', 'ukeoi'), jouyouHours: 4 } as SavedReportLine,
+      { ...credit('pA', '〇〇工業', 60_000), purchaseKind: 'subcontract' } as SavedReportLine,
+    ]);
+    const m = buildCostReport(
+      input([...reports, extra], { workers, suppliers, carryovers, sitePartners, laborCost: { ...EMPTY_LABOR_COST_CONTEXT, jouyouRates: { pA: 22_000 } } }),
+      ALL,
+      now,
+      RATES,
+    );
+    expect(m.affiliations.rows.find((r) => r.label === '〇〇工業')).toMatchObject({
+      jouyouManDays: 1.5, jouyouCost: 31_000, ukeoiManDays: 2, subcontractPaid: 60_000, manDays: 3.5, cost: 31_000, partnerAmount: 100_000, difference: 40_000,
+    });
+    expect(m.affiliations.total.cost).toBe(m.workers.total.cost);
+    // ④ 作業員別累計：鈴木の人工は出面（3）、労務費は原価に数える分（20,000 ＋ 0 ＋ 11,000）
+    expect(m.workers.rows.find((r) => r.workerName === '鈴木')).toMatchObject({ manDays: 3, cost: 31_000 });
   });
 
   it('マスターの所属を後から変えても、④-2 は行の写しのまま', () => {
@@ -595,8 +617,8 @@ describe('④ 所属の列・④-2 所属別の人工・労務費', () => {
   it('月の帳票も ④ と同じ範囲（月末までの累計）。請負金額は現場全体の額のまま', () => {
     const oct = buildCostReport(input(reports, { workers, suppliers, carryovers, sitePartners }), { kind: 'month', month: '2026-10' }, now, RATES);
     const a = oct.affiliations.rows.find((r) => r.label === '〇〇工業')!;
-    expect(a).toMatchObject({ jouyouManDays: 1, ukeoiManDays: 0, ukeoiCost: 0, partnerAmount: 100_000, difference: null });
-    expect(oct.affiliations.total.difference).toBeNull();
+    expect(a).toMatchObject({ jouyouManDays: 1, ukeoiManDays: 0, subcontractPaid: 0, partnerAmount: 100_000, difference: 100_000 });
+    expect(oct.affiliations.total.difference).toBe(150_000);
     expect(oct.affiliations.rows.map((r) => r.label)).not.toContain('所属なし');
     expect(oct.affiliations.total.manDays).toBe(oct.workers.total.manDays);
   });

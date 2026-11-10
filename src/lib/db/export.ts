@@ -187,7 +187,8 @@ export async function loadExportInput(siteId: string, month: string): Promise<Ex
     listVehicles(),
     listLeaseItems(),
     listCarryovers(siteId),
-    loadSummaryData(siteId),
+    // 台帳 Excel は雛形の式で労務費を出す（請負の人工も入る）ので、累計原価も行の金額のまま（労務費の決まりは当てない）
+    loadSummaryData(siteId, { labor: 'stored' }),
     loadMonthReports(siteId, month),
   ]);
   return {

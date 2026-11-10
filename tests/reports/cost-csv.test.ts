@@ -112,11 +112,11 @@ describe('buildCostCsv ④-2 所属別', () => {
   it('所属別の表を出し、取引先名の数式の注入は先頭に \' を付ける。請負金額の無い行は空欄', () => {
     const input = { ...costInput(), sitePartners: [{ supplierId: 'pX', supplierName: '=HYPERLINK("x")', amount: null }, { supplierId: 'pY', supplierName: '山本工業', amount: 80_000 }] };
     const csv = buildCostCsv(buildCostReport(input, { kind: 'all' }, NOW, RATES));
-    expect(csv).toContain('所属,常用人工,常用労務費(円),請負人工,請負労務費(円),合計人工,合計労務費(円),請負金額(円),差額(円)\r\n');
-    expect(csv).toContain('自社,2,36000,0,0,2,36000,,\r\n');
-    expect(csv).toContain('"\'=HYPERLINK(""x"")",0,0,0,0,0,0,,\r\n');
-    // 請負の日が無いので差額は空欄
-    expect(csv).toContain('山本工業,0,0,0,0,0,0,80000,\r\n');
-    expect(csv).toContain('所属なし,2,30000,0,0,2,30000,,\r\n');
+    expect(csv).toContain('所属,常用人工,常用労務費(円),請負人工(出面),合計人工,外注支払い(円),請負金額(円),差額(円)\r\n');
+    expect(csv).toContain('自社,2,36000,0,2,0,,\r\n');
+    expect(csv).toContain('"\'=HYPERLINK(""x"")",0,0,0,0,0,,\r\n');
+    // 差額 ＝ 請負金額 − 外注の支払い（外注の買掛なし）
+    expect(csv).toContain('山本工業,0,0,0,0,0,80000,80000\r\n');
+    expect(csv).toContain('所属なし,2,30000,0,2,0,,\r\n');
   });
 });

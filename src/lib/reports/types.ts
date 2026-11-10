@@ -3,6 +3,7 @@ import type { Issue, ReportHead } from '@/lib/db/reports';
 import type { Carryover, Site, SitePartner } from '@/lib/db/sites';
 import type { AffiliationKind, AffiliationManDays } from '@/lib/reports/affiliation-breakdown';
 import type { ChangeTotals } from '@/lib/calc/change';
+import type { LaborCostContext, LaborCostKind } from '@/lib/calc/labor-cost';
 import type { ChangeKind, InstructionMethod, IssueKind, ReportLine, SettlementMethod, TimeSpec } from '@/lib/types';
 
 // 帳票（第2計画（改）Task 2〜5）の型。モデルは数値だけを持ち、文字列の整形（#,##0・%・「—」・「（手入力）」）は
@@ -43,6 +44,11 @@ export interface CostReportInput {
   issues: Issue[];
   /** 現場の協力会社（gn_site_partners。amount は請負金額で任意）。④-2 所属別の請負金額の比較に使う。 */
   sitePartners: Pick<SitePartner, 'supplierId' | 'supplierName' | 'amount'>[];
+  /**
+   * 労務費の決まり（src/lib/calc/labor-cost.ts。2026-11-17）の材料：労務の計算設定と、実行予算の会社ごとの常用の単価
+   * （社員・管理者だけ）。労務費はすべて「原価に数える分」（請負の行はうち常用の時間の分だけ）。人工（出面）は全部。
+   */
+  laborCost: LaborCostContext;
 }
 
 export type CostReportPeriod = { kind: 'all' } | { kind: 'month'; month: string };
@@ -190,8 +196,9 @@ export interface WorkerSection {
 
 /**
  * ④-2 所属別の人工・労務費の 1 行（④ と同じ範囲：繰越初期値 ＋ 繰越の基準日以降〜期間末の日報）。所属は労務の行の写し。
- * 常用・請負は行の laborContract（null は常用）。労務費は ④ と同じ保存値（人工 × 設定日当、残業を含む）で、請負の日も入る。
- * 繰越初期値は自社の常用に入れる。
+ * 常用・請負は行に保存した laborContract（null は常用）を労務費の決まり（laborCostSplit）で読む（2026-11-17）：
+ * 常用の人工・労務費＝原価に数える分（自社・常用の行は全部、請負の行はうち常用の時間の分）、請負の人工＝出面だけの分。
+ * 外注の支払い＝その会社への外注の買掛の合計（同じ範囲）。繰越初期値は自社の常用に入れる。
  */
 export interface AffiliationRow {
   key: string;
@@ -201,13 +208,17 @@ export interface AffiliationRow {
   label: string;
   jouyouManDays: number;
   jouyouCost: number;
+  /** 請負の人工（出面だけ。原価に数えない）。 */
   ukeoiManDays: number;
-  ukeoiCost: number;
+  /** 外注の支払い（その会社への外注の買掛の合計）。 */
+  subcontractPaid: number;
+  /** 出面の人工（常用 ＋ 請負）。 */
   manDays: number;
+  /** 原価に数える労務費（＝ jouyouCost）。 */
   cost: number;
   /** 現場の協力会社の請負金額（gn_site_partners.amount。現場全体の額で、月の帳票でもそのまま）。協力会社以外・未入力は null。 */
   partnerAmount: number | null;
-  /** 請負金額 − 請負労務費（請負の日の人工 × 設定日当）。請負金額が無ければ null。 */
+  /** 請負金額 − 外注の支払い。請負金額が無ければ null。 */
   difference: number | null;
 }
 
@@ -336,6 +347,8 @@ export interface DailyReportInput {
   cumulativeOutputBefore: number;
   /** 実行予算の工種 id → 名前（外注の買掛の品名の頭【外注・工種名】に使う。2026-11-17）。省略・無い工種は【外注】だけ。 */
   tradeNames?: Record<string, string>;
+  /** 労務費の決まりの材料（2026-11-17）。作業員の行の労務費・本日原価の労務費は原価に数える分。 */
+  laborCost: LaborCostContext;
 }
 
 // ─── 出力（DailyReportModel）。並びは雛形の日報シートと同じ ───
@@ -366,12 +379,17 @@ export interface DailyWorkerRow {
   gapMin: number | null;
   /** 実働 H（労務の saved.hours。保存値が無ければ null）。 */
   hours: number | null;
-  /** 人工・残業 H・労務費（stored の man_days・overtime_hours・amount）。 */
+  /** 人工（出面。stored.man_days）・残業 H（stored.overtime_hours）。 */
   manDays: number;
   overtimeHours: number;
   /** 日当（行に保存された値）。 */
   dailyRate: number | null;
+  /** 労務費＝原価に数える分（労務費の決まり。自社・常用の行は stored.amount、請負の行はうち常用の時間の分）。 */
   cost: number;
+  /** 区分（自社・常用・請負）と、請負の行のうち常用の時間（H。それ以外は null）・原価に数えない請負の人工。 */
+  contract: LaborCostKind;
+  jouyouHours: number | null;
+  ukeoiManDays: number;
   note: string;
 }
 
@@ -447,7 +465,7 @@ export interface DailyReportModel {
   isEmpty: boolean;
   header: DailyHeader;
   /** 合計の実働 H は保存値のある行だけを足す。 */
-  workers: { rows: DailyWorkerRow[]; total: { hours: number; manDays: number; overtimeHours: number; cost: number } };
+  workers: { rows: DailyWorkerRow[]; total: { hours: number; manDays: number; ukeoiManDays: number; overtimeHours: number; cost: number } };
   vehicles: { rows: DailyVehicleRow[]; total: { distanceKm: number; cost: number } };
   leases: { rows: DailyLeaseRow[]; total: { amount: number } };
   cash: { rows: DailyPurchaseRow[]; total: { amount: number } };
@@ -505,7 +523,8 @@ export interface DailyReportModel {
 // ─── 変更増減の一覧（第2計画（改）Task 11。src/lib/reports/change-model.ts） ───
 
 /** buildChangeLedger の入力。CostReportInput がそのまま使える（現場・全日報・全日報の件だけを読む）。 */
-export type ChangeLedgerInput = Pick<CostReportInput, 'site' | 'reports' | 'issues'> & Partial<Pick<CostReportInput, 'suppliers'>>;
+/** laborCost を省略したときは設定の既定・実行予算の単価なし（EMPTY_LABOR_COST_CONTEXT）で労務費の決まりを当てる。 */
+export type ChangeLedgerInput = Pick<CostReportInput, 'site' | 'reports' | 'issues'> & Partial<Pick<CostReportInput, 'suppliers' | 'laborCost'>>;
 
 /**
  * 件の精算の提案額に掛ける率（gn_settings。0.151 = 15.1%。DB は % で持つ）。社内だけ（客先用には出さない）。

@@ -5,6 +5,7 @@ import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import type { ChangeLedgerModel, CostReportInput, CostReportModel, CostReportPeriod, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
+import { EMPTY_LABOR_COST_CONTEXT } from '@/lib/calc/labor-cost';
 
 type WorkLineSaved = Extract<SavedReportLine, { kind: 'work' }>;
 
@@ -44,6 +45,7 @@ const report = (date: string, status: ReportWithLines['status']): ReportWithLine
 export const costInput = (reports: ReportWithLines[] = [report('2026-10-20', 'approved'), report('2026-11-02', 'submitted')]): CostReportInput => ({
   site,
   reports,
+  laborCost: EMPTY_LABOR_COST_CONTEXT,
   carryovers: [],
   workers: [{ id: 'w1', name: '田中', trade: '大工', note: null, active: true, rates: [], overtimeRate: null, affiliation: 'own', supplierId: null, ...touched }],
   suppliers: [{ id: 'sp1', name: '山田商店', category: null, contact: null, note: null, active: true, isVendor: true, isPartner: false, ...touched }],

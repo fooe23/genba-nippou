@@ -5,6 +5,7 @@ import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import type { ChangeLedgerInput, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
 import type { ChangeKind, WorkLine } from '@/lib/types';
+import { DEFAULT_LABOR_RULE } from '@/lib/calc/report';
 
 // ─── 小さな手作りの入力 ───
 
@@ -102,6 +103,19 @@ describe('dayCostBasis・laborShare（労務の実績原価）', () => {
   });
   it('dayCostBasis は保存値（stored）だけを足す（日当・数量は見ない）', () => {
     expect(dayCostBasis(nov5())).toEqual({ laborCost: 18000, laborManDays: 1 });
+  });
+  it('請負の会社の行は、うち常用の時間の分だけ（労務費の決まり。2026-11-17）：平均日当に請負の人工が入らない', () => {
+    const partnerLabor = (jouyouHours: number | null): SavedReportLine =>
+      ({ ...labor(1, 22000), dailyRate: 22000, affiliation: 'partner', supplierId: 'tohoku', laborContract: 'ukeoi', jouyouHours }) as SavedReportLine;
+    // 大江（自社 1 人工 ¥20,000）＋ A（請負・うち常用 4 H → 0.5 人工 ¥11,000）＋ B（請負・空欄 → 0）
+    const day = dayCostBasis(report('2026-11-10', [labor(1, 20000), partnerLabor(4), partnerLabor(null)]));
+    expect(day).toEqual({ laborCost: 31000, laborManDays: 1.5 });
+    expect(laborShare(day, 1)).toBeCloseTo(31000 / 1.5, 9);
+    // 実行予算の常用の単価（¥25,000）を渡せば A は ¥12,500
+    expect(dayCostBasis(report('2026-11-10', [partnerLabor(4)]), { jouyouRates: { tohoku: 25000 }, rule: DEFAULT_LABOR_RULE })).toEqual({
+      laborCost: 12500,
+      laborManDays: 0.5,
+    });
   });
 });
 
@@ -311,6 +325,14 @@ describe('件の精算：根拠に選んだ行だけ・法定福利費・材料�
     const [i] = ledger([nov10()]).issues;
     expect(i).toMatchObject({ id: 'm1', lineCount: 1, manDays: 1, proposal: 61317, settled: 61317, settledBasis: 'proposal', actualCost: 45000 });
     expect(i.breakdown).toEqual({ laborAmount: 25000, laborCost: 20000, material: 25000, lease: 0, fuel: 0, subcontract: 0, missingAmountLines: 0 });
+  });
+  it('施工金額の無い行の仮の労務・実績原価は、原価に数える労務費だけの平均日当（請負の会社の人工は除く。2026-11-17）', () => {
+    const b = { ...labor(1, 22000), dailyRate: 22000, affiliation: 'partner', supplierId: 'tohoku', laborContract: 'ukeoi', jouyouHours: null } as SavedReportLine;
+    const r = report('2026-11-10', [labor(1, 20000), b, work('extra', 1, 1, null, { issueId: 'm1' })]);
+    const [i] = ledger([r]).issues;
+    // 平均日当 = 20,000 ÷ 1（B の 1 人工・¥22,000 は入らない）
+    expect(i.breakdown).toMatchObject({ laborAmount: 20000, laborCost: 20000, missingAmountLines: 1 });
+    expect(i.actualCost).toBe(20000);
   });
   it('根拠に件を選んだ外注は率を掛けずにそのまま足す（61,317 ＋ 170,000）', () => {
     const [i] = ledger([nov10([], 'm1')]).issues;

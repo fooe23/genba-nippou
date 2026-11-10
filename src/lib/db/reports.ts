@@ -1,4 +1,5 @@
 import 'server-only';
+import { EMPTY_LABOR_COST_CONTEXT, laborCountedCost, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { getCurrentProfile, isEmployeeOrAdmin, requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
@@ -616,36 +617,94 @@ export async function subcontractColumnsReady(): Promise<boolean> {
   throw new Error(error.message);
 }
 
+interface AdjustmentRow {
+  report_id: string;
+  kind: string;
+  amount: number | string | null;
+  affiliation?: string | null;
+  supplier_id?: string | null;
+  labor_contract?: string | null;
+  jouyou_hours?: number | string | null;
+  hours?: number | string | null;
+  man_days?: number | string | null;
+  overtime_hours?: number | string | null;
+  unit_price?: number | string | null;
+  overtime_rate?: number | string | null;
+}
+
+const ADJUST_LABOR_COLUMNS = 'affiliation, supplier_id, labor_contract, hours, man_days, overtime_hours, unit_price, overtime_rate';
+
+function adjNum(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 /**
- * 日報ごとの外注の買掛の合計（2026-11-17）。見出しの cost_total は外注の買掛を含まないので、原価を見せる所（現場の累計原価・
- * 承認待ちの本日原価）はこれを足す。日報の id 200 件ずつ、1000 行ずつ読む。協力会社のアカウントには RLS で外注の行が来ない（0）。
- * DB に区分の列が無い（SQL の前。42703）なら外注は無いので空。
+ * 日報ごとの、見出しの cost_total に足す調整（2026-11-17）。cost_total ＋ 調整 ＝ 明細から出した原価（集計・帳票と同じ）。
+ * - 外注の買掛（cost_total に入っていない）。協力会社のアカウントには RLS で外注の行が来ない（0）。
+ * - 請負の作業員の行（保存した常用・請負が請負）：原価に数える分 − 行の金額（労務費の決まり。src/lib/calc/labor-cost.ts）。
+ * 現場承認待ちの本日原価・現場の累計原価に使う。laborCost は日報の現場ごとの材料（無い現場は既定）。
+ * 日報の id 200 件ずつ、1000 行ずつ読む。DB に区分・うち常用の時間の列が無い（SQL の前。42703）ときは、請負の作業員の行だけ
+ * （うち常用の時間なし）で読む。
  */
-export async function loadSubcontractTotals(reportIds: string[]): Promise<Map<string, number>> {
+export async function loadCostAdjustments(
+  reports: { id: string; siteId: string }[],
+  laborCost: ReadonlyMap<string, LaborCostContext>,
+): Promise<Map<string, number>> {
   const out = new Map<string, number>();
-  if (reportIds.length === 0) return out;
+  if (reports.length === 0) return out;
+  const siteOf = new Map(reports.map((r) => [r.id, r.siteId]));
   const supabase = await createServerSupabase();
-  try {
-    const pages = await Promise.all(
-      chunk(reportIds, 200).map((part) =>
-        fetchAllPages<{ report_id: string; amount: number | string | null }>(async (from, to) => {
+  const read = (columns: string, filter: string) =>
+    Promise.all(
+      chunk(
+        reports.map((r) => r.id),
+        200,
+      ).map((part) =>
+        fetchAllPages<AdjustmentRow>(async (from, to) => {
           const { data, error } = await supabase
             .from('gn_report_lines')
-            .select('report_id, amount')
+            .select(columns)
             .in('report_id', part)
-            .eq('kind', 'credit')
-            .eq('purchase_kind', 'subcontract')
+            .or(filter)
             .order('id', { ascending: true }) // ページ境界で重複・欠落しないよう並びを固定する
             .range(from, to);
           if (error) throw Object.assign(new Error(error.message), { code: error.code });
-          return (data ?? []) as { report_id: string; amount: number | string | null }[];
+          return (data ?? []) as unknown as AdjustmentRow[];
         }),
       ),
+    ).then((pages) => pages.flat());
+  let rows: AdjustmentRow[];
+  try {
+    rows = await read(
+      `report_id, kind, amount, purchase_kind, jouyou_hours, ${ADJUST_LABOR_COLUMNS}`,
+      'and(kind.eq.credit,purchase_kind.eq.subcontract),and(kind.eq.labor,labor_contract.eq.ukeoi)',
     );
-    for (const r of pages.flat()) out.set(r.report_id, (out.get(r.report_id) ?? 0) + Number(r.amount ?? 0));
   } catch (e) {
-    if ((e as { code?: string }).code === '42703') return new Map();
-    throw e;
+    if ((e as { code?: string }).code !== '42703') throw e;
+    rows = await read(`report_id, kind, amount, ${ADJUST_LABOR_COLUMNS}`, 'and(kind.eq.labor,labor_contract.eq.ukeoi)');
+  }
+  for (const r of rows) {
+    const amount = Number(r.amount ?? 0);
+    let add = amount;
+    if (r.kind === 'labor') {
+      const ctx = laborCost.get(siteOf.get(r.report_id) ?? '') ?? EMPTY_LABOR_COST_CONTEXT;
+      const counted = laborCountedCost(
+        {
+          affiliation: r.affiliation === 'partner' ? 'partner' : r.affiliation === 'own' ? 'own' : null,
+          supplierId: r.supplier_id ?? null,
+          laborContract: r.labor_contract === 'ukeoi' ? 'ukeoi' : r.labor_contract === 'jouyou' ? 'jouyou' : null,
+          jouyouHours: adjNum(r.jouyou_hours),
+          dailyRate: adjNum(r.unit_price),
+          overtimeRate: adjNum(r.overtime_rate),
+          stored: { amount, manDays: adjNum(r.man_days) ?? 0, overtimeHours: adjNum(r.overtime_hours) ?? 0, hours: adjNum(r.hours) ?? 0 },
+        },
+        ctx,
+      );
+      add = counted - amount;
+    }
+    out.set(r.report_id, (out.get(r.report_id) ?? 0) + add);
   }
   return out;
 }

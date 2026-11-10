@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { jpDate, jpDateTime, yen } from '@/lib/calc/format';
 import { requireProfile } from '@/lib/db/profile';
-import { listFixRequests, listSubmittedReports, loadSubcontractTotals, type FixRequest, type SubmittedReport } from '@/lib/db/reports';
+import { loadLaborCostContexts } from '@/lib/db/labor-cost';
+import { listFixRequests, listSubmittedReports, loadCostAdjustments, type FixRequest, type SubmittedReport } from '@/lib/db/reports';
 import { Chevron, linkTitleClass, rowLinkClass } from '@/components/ui/tappable';
 
 export const metadata = { title: '承認' };
@@ -19,8 +20,10 @@ function groupBySite(reports: SubmittedReport[]): { siteId: string; siteName: st
 export default async function ApprovalsPage() {
   await requireProfile();
   const [reports, fixRequests] = await Promise.all([listSubmittedReports(), listFixRequests()]);
-  // 本日原価 ＝ 見出しの cost_total（外注の買掛を含まない）＋ 外注の買掛（2026-11-17。明細から 1 回の問い合わせで読む）。
-  const subcontract = await loadSubcontractTotals(reports.map((r) => r.id));
+  // 本日原価 ＝ 見出しの cost_total（外注の買掛を含まない・労務は行の金額）＋ 外注の買掛 ＋ 請負の作業員の行の（原価に数える分 −
+  // 行の金額）（2026-11-17。労務費の決まり。明細から 1 回の問い合わせで読む）。
+  const laborCost = await loadLaborCostContexts(reports.map((r) => r.siteId));
+  const adjustments = await loadCostAdjustments(reports, laborCost);
   const groups = groupBySite(reports);
 
   return (
@@ -52,7 +55,7 @@ export default async function ApprovalsPage() {
                     </span>
                     <span className="shrink-0 text-right text-sm tabular-nums">
                       <span className="block">出来高 {yen(r.outputTotal)}</span>
-                      <span className="block text-gray-600 dark:text-gray-400">本日原価 {yen(r.costTotal + (subcontract.get(r.id) ?? 0))}</span>
+                      <span className="block text-gray-600 dark:text-gray-400">本日原価 {yen(r.costTotal + (adjustments.get(r.id) ?? 0))}</span>
                     </span>
                     <Chevron />
                   </Link>

@@ -4,6 +4,8 @@ import {
   SP_NONE, SP_PAINT, SP_TWO, T_BLAST, T_PAINT, T_SCAFF, T_SEAL,
   nakanoData, nakanoInput, noAffiliation, own, partner, work,
 } from './fixture-nakano';
+import type { BudgetLine } from '@/lib/budget/types';
+import type { SavedReportLine } from '@/lib/reports/types';
 
 const trade = (m: BudgetModel, id: string): TradeRow => {
   const t = m.trades.find((x) => x.tradeId === id);
@@ -415,5 +417,37 @@ describe('buildBudgetModel（第 2 段階の見直し）', () => {
     const u = unmappedTradeTextsOf(input);
     expect(u.map((x) => x.text)).toEqual(['片付け（予算外）']);
     expect(u[0]).toMatchObject({ lineCount: 1, manDays: 1 });
+  });
+});
+
+describe('労務費の決まり（2026-11-17）：請負の行は、うち常用の時間の分だけ実績に入る', () => {
+  // 10/01：〇〇塗装の 2 人を、保存した区分「請負」にする（1 人は実働 8 H のうち常用 4 H、もう 1 人は空欄）
+  const ukeoi = (l: SavedReportLine, jouyouHours: number | null): SavedReportLine => ({ ...l, laborContract: 'ukeoi', jouyouHours }) as SavedReportLine;
+  const base = nakanoInput();
+  const input = {
+    ...base,
+    reports: base.reports.map((r) =>
+      r.date !== '2026-10-01'
+        ? r
+        : { ...r, lines: r.lines.map((l) => (l.kind === 'labor' && l.workerName === '〇〇 1' ? ukeoi(l, 4) : l.kind === 'labor' && l.workerName === '〇〇 2' ? ukeoi(l, null) : l)) },
+    ),
+  };
+  const before = buildBudgetModel(base);
+  const m = buildBudgetModel(input);
+
+  it('〇〇塗装の実績：44,000・2.0 人工 → 常用 0.5 人工 × 日当 ¥22,000 ＝ 11,000・0.5 人工', () => {
+    const b = performer(trade(before, T_PAINT), SP_PAINT)!;
+    const a = performer(trade(m, T_PAINT), SP_PAINT)!;
+    expect(b.actualAmount - a.actualAmount).toBe(33000);
+    expect(r2(b.actualManDays - a.actualManDays)).toBe(1.5);
+  });
+
+  it('実行予算に〇〇塗装の常用の行があれば、その単価で数える', () => {
+    const jouyou: BudgetLine = { id: 'jx', tradeId: T_PAINT, performer: 'partner', supplierId: SP_PAINT, item: 'jouyou', note: '', qty: 1, unit: '人工', unitPrice: 30000, amount: 30000, sortOrder: 99 };
+    const withRate = buildBudgetModel({ ...input, data: { ...input.data, budgetLines: [...input.data.budgetLines, jouyou] } });
+    const withRateBase = buildBudgetModel({ ...base, data: { ...base.data, budgetLines: [...base.data.budgetLines, jouyou] } });
+    const a = performer(trade(withRate, T_PAINT), SP_PAINT)!;
+    const b = performer(trade(withRateBase, T_PAINT), SP_PAINT)!;
+    expect(b.actualAmount - a.actualAmount).toBe(44000 - 15000);
   });
 });
