@@ -153,16 +153,19 @@ export function dailyTable(model: BudgetModel): SectionTable {
     col.num('投入人工', 1.4),
     col.num('振り分けた人工', 1.6),
     col.num('振り分けた労務費', 2),
+    col.num('外注の支払い', 2),
   ];
   const rows: Cell[][] = [];
   const boldRows: number[] = [];
   const add = (name: string, days: TradeDay[], subtotalQty: Cell, subtotalUnit: string) => {
     let manDays = 0;
     let amount = 0;
+    let sub = 0;
     let work = 0;
     for (const d of days) {
       manDays += d.manDays;
       amount += d.amount;
+      sub += d.subcontract;
       work += d.workManDays;
       const lines = d.lines.length > 0 ? d.lines : [null];
       lines.forEach((l, i) => {
@@ -178,6 +181,7 @@ export function dailyTable(model: BudgetModel): SectionTable {
           l ? qty(l.manDays) : '',
           first ? qty(d.manDays) : '',
           first ? yen(d.amount) : '',
+          first && d.subcontract !== 0 ? yen(d.subcontract) : '',
         ]);
       });
     }
@@ -193,6 +197,7 @@ export function dailyTable(model: BudgetModel): SectionTable {
       qty(Math.round(work * 100) / 100),
       qty(Math.round(manDays * 100) / 100),
       yen(amount),
+      yen(sub),
     ]);
   };
   for (const t of model.trades) add(t.name, t.days, t.actual.qty === null ? '' : qty(t.actual.qty), t.actual.qty === null ? '' : (t.actual.unit ?? ''));
@@ -225,13 +230,13 @@ function monthsBetween(from: string, to: string): string[] {
 
 const monthLabel = (month: string) => `${month.slice(0, 4)}年${month.slice(5, 7)}月`;
 
-/** ④ 月ごとの人工・労務費・燃料・リース・現金・掛けと、工種ごとの数量からの進み具合（月末の時点の累計）。 */
+/** ④ 月ごとの人工・労務費・外注・燃料・リース・現金・買掛（仕入）と、工種ごとの数量からの進み具合（月末の時点の累計）。 */
 export function monthlyTables(input: BudgetModelInput, model: BudgetModel): { costs: SectionTable; progress: SectionTable } | null {
   const reports = input.reports.filter((r) => r.date <= model.asOf);
   if (reports.length === 0) return null;
   const dates = reports.map((r) => r.date).sort();
   const months = monthsBetween(dates[0].slice(0, 7), model.asOf.slice(0, 7));
-  const acc = new Map(months.map((m) => [m, { manDays: 0, labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0 }]));
+  const acc = new Map(months.map((m) => [m, { manDays: 0, labor: 0, subcontract: 0, fuel: 0, lease: 0, cash: 0, credit: 0 }]));
   for (const d of [...model.trades.flatMap((t) => t.days), ...model.outside.days]) {
     const a = acc.get(d.date.slice(0, 7));
     if (!a) continue;
@@ -242,7 +247,8 @@ export function monthlyTables(input: BudgetModelInput, model: BudgetModel): { co
     const a = acc.get(r.date.slice(0, 7));
     if (!a) continue;
     for (const l of r.lines) {
-      if (l.kind === 'fuel' || l.kind === 'lease' || l.kind === 'cash' || l.kind === 'credit') a[l.kind] += l.stored.amount;
+      if (l.kind === 'credit' && l.purchaseKind === 'subcontract') a.subcontract += l.stored.amount;
+      else if (l.kind === 'fuel' || l.kind === 'lease' || l.kind === 'cash' || l.kind === 'credit') a[l.kind] += l.stored.amount;
     }
   }
   const costRows: Cell[][] = months.map((m) => {
@@ -251,23 +257,25 @@ export function monthlyTables(input: BudgetModelInput, model: BudgetModel): { co
       monthLabel(m),
       qty(Math.round(a.manDays * 100) / 100),
       yen(a.labor),
+      yen(a.subcontract),
       yen(a.fuel),
       yen(a.lease),
       yen(a.cash),
       yen(a.credit),
-      yen(a.labor + a.fuel + a.lease + a.cash + a.credit),
+      yen(a.labor + a.subcontract + a.fuel + a.lease + a.cash + a.credit),
     ];
   });
-  const sum = (k: 'manDays' | 'labor' | 'fuel' | 'lease' | 'cash' | 'credit') => [...acc.values()].reduce((s, a) => s + a[k], 0);
+  const sum = (k: 'manDays' | 'labor' | 'subcontract' | 'fuel' | 'lease' | 'cash' | 'credit') => [...acc.values()].reduce((s, a) => s + a[k], 0);
   const costs: SectionTable = {
     columns: [
       col.text('月', 1.6),
       col.num('人工', 1.4),
       col.num('労務費', 2),
+      col.num('外注', 2),
       col.num('燃料', 2),
       col.num('リース', 2),
       col.num('現金', 2),
-      col.num('掛け', 2),
+      col.num('買掛（仕入）', 2),
       col.num('合計', 2),
     ],
     rows: costRows,
@@ -275,11 +283,12 @@ export function monthlyTables(input: BudgetModelInput, model: BudgetModel): { co
       '合計',
       qty(Math.round(sum('manDays') * 100) / 100),
       yen(sum('labor')),
+      yen(sum('subcontract')),
       yen(sum('fuel')),
       yen(sum('lease')),
       yen(sum('cash')),
       yen(sum('credit')),
-      yen(sum('labor') + sum('fuel') + sum('lease') + sum('cash') + sum('credit')),
+      yen(sum('labor') + sum('subcontract') + sum('fuel') + sum('lease') + sum('cash') + sum('credit')),
     ],
   };
 
@@ -382,21 +391,21 @@ export async function buildBudgetReportXlsx(
 
   // ① 予算と実績
   const ws1 = sheet(wb, s1, [34, 14, 14, 10, 14, 10, 14, 10, 14, 14, 22], true);
-  banner(ws1, `① ${BUDGET_REPORT_TITLE}`, model, meta, '見込み＝実績 ÷ 進み具合、見込みの粗利＝内訳の金額 − 見込み。進み具合は上書きがあればそれ、なければ数量から。');
+  banner(ws1, `① ${BUDGET_REPORT_TITLE}`, model, meta, '見込み＝請負の見込み（請負額。外注の支払いが超えたら支払い）＋ 人工の実績 ÷ 進み具合、見込みの粗利＝内訳の金額 − 見込み。進み具合は上書きがあればそれ、なければ数量から。外注の買掛は工種の実績に入れ、現場全体には入れない。');
   writeTable(ws1, budgetSummaryTable(model));
   subHead(ws1, '現場全体の内わけ');
   writeTable(ws1, budgetSiteWideTable(model));
   ws1.views = [{ state: 'frozen', ySplit: 5, xSplit: 1 }];
 
   // ② 工種×施工者
-  const ws2 = sheet(wb, s2, [18, 26, 11, 14, 11, 14, 14, 16], true);
-  banner(ws2, '② 工種×施工者の明細', model, meta, '実績は日報の労務費・人工を工種に振り分けた分。請負金額は現場の協力会社の欄の額（現場全体。工種に分けていない）。');
+  const ws2 = sheet(wb, s2, [18, 26, 8, 10, 14, 10, 14, 14, 14, 36], true);
+  banner(ws2, '② 工種×施工者の明細', model, meta, '労務・常用の実績は日報の労務費・人工を工種に振り分けた分（請負の会社の人工はうち常用の時間の分だけ。請負の人工は出面だけ）。請負の行は 実行予算の請負額・外注の買掛の支払い・見込み（請負額。支払いが超えたら支払い）。');
   writeTable(ws2, budgetPerformerTable(model));
   ws2.views = [{ state: 'frozen', ySplit: 5 }];
 
   // ③ 日々の実績
-  const ws3 = sheet(wb, s3, [12, 14, 16, 8, 36, 10, 8, 10, 12, 14], true);
-  banner(ws3, '③ 工種別の日々の実績', model, meta, '振り分けた人工・労務費は、その日の労務費・人工を作業内容の行の投入人工の比などで工種に分けた分（日の最初の行に出す）。');
+  const ws3 = sheet(wb, s3, [12, 14, 16, 8, 36, 10, 8, 10, 12, 14, 14], true);
+  banner(ws3, '③ 工種別の日々の実績', model, meta, '振り分けた人工・労務費は、その日の労務費・人工を作業内容の行の投入人工の比などで工種に分けた分（日の最初の行に出す）。外注の支払いは、その日の外注の買掛のうちその工種の分。');
   writeTable(ws3, dailyTable(model));
   ws3.views = [{ state: 'frozen', ySplit: 5 }];
 

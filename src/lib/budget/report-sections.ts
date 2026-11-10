@@ -1,5 +1,5 @@
 import type { BudgetModel, PerformerRow, TradeRow } from '@/lib/budget/budget-model';
-import { outsideTag, percentText, statusNote, statusTag } from '@/lib/budget/budget-view';
+import { attendanceText, outsideTag, percentText, performerForecastNote, performerLabel, statusNote, statusTag, subcontractTag, tradeSubcontractTag } from '@/lib/budget/budget-view';
 import { jpDateTime } from '@/lib/calc/format';
 import { cell, col, slashDate, type Cell, type CostSection, type SectionTable } from '@/lib/reports/cost-sections';
 
@@ -31,10 +31,12 @@ export function budgetReportHeader(model: BudgetModel, meta: BudgetReportMeta): 
 }
 
 /** 判定の文字（札と注記。例「赤字の見込み」「—（内訳の識別がまだです）」）。 */
-export function statusText(t: Pick<TradeRow, 'status' | 'forecast' | 'contractItemCount'>): string {
+export function statusText(t: Pick<TradeRow, 'status' | 'forecast' | 'contractItemCount'> & Partial<Pick<TradeRow, 'budget'>>): string {
   const label = statusTag(t.status).label;
   const note = statusNote(t);
-  return note ? `${label}（${note}）` : label;
+  const sub = t.budget ? tradeSubcontractTag({ budget: t.budget }) : null;
+  const text = note ? `${label}（${note}）` : label;
+  return sub ? `${text}・${sub.label}` : text;
 }
 
 /** 進み具合の文字（使っている %。上書きなら「上書き」を添える）。 */
@@ -87,6 +89,9 @@ export function budgetSummaryTable(model: BudgetModel): SectionTable {
     outside.amount !== 0 ? yen(-outside.amount) : '',
     outTag ? outTag.label : '',
   ]);
+  if (outside.subcontractPaid !== 0) {
+    rows.push(['うち工種なしの外注', '', '', '', yen(outside.subcontractPaid), '', '', '', '', '', '日報で工種を選んでください']);
+  }
   if (outside.carryover) {
     rows.push(['繰越（工種なし）', '', '', '', yen(outside.carryover.amount), qty(outside.carryover.manDays), '', '', '', '', '']);
   }
@@ -117,51 +122,77 @@ export function budgetSummaryTable(model: BudgetModel): SectionTable {
 }
 
 const PERFORMER_COLUMNS = [
-  col.text('工種', 2.6),
-  col.text('施工者', 2.8),
-  col.num('予算の人工', 1.6),
-  col.num('実行予算', 2.2),
-  col.num('実績の人工', 1.6),
-  col.num('実績（労務費）', 2.2),
-  col.num('予算 − 実績', 2.2),
-  col.num('請負金額（現場全体）', 2.4),
+  col.text('工種', 2.2),
+  col.text('施工者', 3),
+  col.text('区分', 1.1),
+  col.num('予算の人工', 1.4),
+  col.num('実行予算・請負額', 2.1),
+  col.num('実績の人工', 1.4),
+  col.num('実績（労務費・支払い）', 2.1),
+  col.num('予算 − 実績', 2.1),
+  col.num('このままの見込み', 2.1),
+  col.text('備考', 3.4),
 ];
 
-function performerName(p: PerformerRow): string {
-  return p.performer === 'partner' ? `${p.name}（協力会社）` : p.name;
+const ITEM_TEXT: Record<PerformerRow['item'], string> = { subcontract: '請負', labor: '労務', jouyou: '常用' };
+
+function performerNote(p: PerformerRow, withForecast: boolean): string {
+  const parts: string[] = [];
+  if (p.item === 'subcontract') {
+    const tag = subcontractTag(p);
+    if (tag) parts.push(tag.label);
+    if (p.issuePaid !== 0) parts.push(`うち追加の発注（件） ${p.issuePaid.toLocaleString('ja-JP')} 円`);
+  }
+  if (withForecast && p.forecast !== null) parts.push(`見込み＝${performerForecastNote(p)}`);
+  return parts.join('・');
 }
 
-function performerRow(trade: string, p: PerformerRow): Cell[] {
+function performerRow(trade: string, p: PerformerRow, withForecast: boolean): Cell[] {
+  const sub = p.item === 'subcontract';
   return [
     trade,
-    performerName(p),
-    qty(p.budgetManDays),
+    performerLabel(p),
+    ITEM_TEXT[p.item],
+    sub ? '' : qty(p.budgetManDays),
     yen(p.budgetAmount),
-    qty(p.actualManDays),
+    sub ? '' : qty(p.actualManDays),
     yen(p.actualAmount),
     yen(p.budgetAmount - p.actualAmount),
-    '',
+    withForecast ? yen(p.forecast) : '',
+    performerNote(p, withForecast),
   ];
 }
 
 /**
- * ② 工種ごとの施工者の明細：工種の下に自社・協力会社の行（予算の人工・金額、実績の人工・労務費）、工種ごとの小計（太字）、
- * 予算外の作業、合計。請負金額は現場の協力会社の欄の額（現場全体。工種に分けない）。
+ * ② 工種ごとの施工者の明細：工種の下に 請負（請負額・支払い・見込み）→ 自社・労務 → 常用 の行、出面の 1 行、工種ごとの小計
+ * （太字）、予算外の作業、合計。請負額は実行予算の請負の行、支払いは外注の買掛。
  */
 export function budgetPerformerTable(model: BudgetModel): SectionTable {
   const rows: Cell[][] = [];
   const boldRows: number[] = [];
-  const subtotal = (label: string, budgetManDays: number | null, budgetAmount: number, actualManDays: number, actualAmount: number) => {
+  const subtotal = (
+    label: string,
+    budgetManDays: number | null,
+    budgetAmount: number,
+    actualManDays: number,
+    actualAmount: number,
+    forecast: Cell,
+  ) => {
     boldRows.push(rows.length);
-    rows.push([label, '小計', qty(budgetManDays), yen(budgetAmount), qty(actualManDays), yen(actualAmount), yen(budgetAmount - actualAmount), '']);
+    rows.push([label, '小計', '', qty(budgetManDays), yen(budgetAmount), qty(actualManDays), yen(actualAmount), yen(budgetAmount - actualAmount), forecast, '']);
+  };
+  const attendanceRow = (text: string) => {
+    if (text) rows.push(['', '出面', '', '', '', '', '', '', '', `${text.replace(/^出面：/, '')}（請負の人工は原価に数えない）`]);
   };
   for (const t of model.trades) {
-    t.budget.byPerformer.forEach((p, i) => rows.push(performerRow(i === 0 ? t.name : '', p)));
-    subtotal(t.name, t.budget.manDays, t.budget.amount, t.actual.manDays, t.actual.amount);
+    t.budget.byPerformer.forEach((p, i) => rows.push(performerRow(i === 0 ? t.name : '', p, true)));
+    attendanceRow(attendanceText(t.attendance));
+    subtotal(t.name, t.budget.manDays, t.budget.amount, t.actual.manDays, t.actual.amount, yen(t.forecast));
   }
   const { outside } = model;
-  outside.byPerformer.forEach((p, i) => rows.push(performerRow(i === 0 ? '予算外の作業' : '', p)));
-  subtotal('予算外の作業', outside.budget.manDays, outside.budget.amount, outside.manDays, outside.amount);
+  outside.byPerformer.forEach((p, i) => rows.push(performerRow(i === 0 ? '予算外の作業' : '', p, false)));
+  attendanceRow(attendanceText(outside.attendance));
+  subtotal('予算外の作業', outside.budget.manDays, outside.budget.amount, outside.manDays, outside.amount, '');
 
   const budgetManDays = model.trades.reduce((s, t) => s + t.budget.manDays, 0) + outside.budget.manDays;
   const budgetAmount = model.trades.reduce((s, t) => s + t.budget.amount, 0) + outside.budget.amount;
@@ -174,17 +205,19 @@ export function budgetPerformerTable(model: BudgetModel): SectionTable {
     total: [
       '合計（繰越・現場全体を除く）',
       '',
+      '',
       qty(Math.round(budgetManDays * 100) / 100),
       yen(budgetAmount),
       qty(Math.round(actualManDays * 100) / 100),
       yen(actualAmount),
       yen(budgetAmount - actualAmount),
       '',
+      '',
     ],
   };
 }
 
-/** 現場全体の内わけ：実行予算（材料・リース・その他）と実績（燃料・リース・現金・掛け）。 */
+/** 現場全体の内わけ：実行予算（材料・リース・その他）と実績（燃料・リース・現金・買掛（仕入））。外注の買掛は工種へ。 */
 export function budgetSiteWideTable(model: BudgetModel): SectionTable {
   const { budget, actual } = model.siteWide;
   return {
@@ -195,7 +228,7 @@ export function budgetSiteWideTable(model: BudgetModel): SectionTable {
       ['その他', yen(budget.other), null],
       ['燃料', null, yen(actual.fuel)],
       ['現金（材料など）', null, yen(actual.cash)],
-      ['掛け（材料など）', null, yen(actual.credit)],
+      ['買掛（仕入）', null, yen(actual.credit)],
     ],
     total: ['合計', yen(budget.amount), yen(actual.amount)],
   };
@@ -206,14 +239,14 @@ export function budgetReportSections(model: BudgetModel): CostSection[] {
   return [
     {
       title: '予算と実績（工種ごと）',
-      note: '見込み＝実績 ÷ 進み具合、見込みの粗利＝内訳の金額 − 見込み',
+      note: '見込み＝請負の見込み（請負額。支払いが超えたら支払い）＋ 人工の実績 ÷ 進み具合、見込みの粗利＝内訳の金額 − 見込み',
       tables: [budgetSummaryTable(model)],
     },
     {
       title: '工種ごとの施工者の明細',
-      note: '実績は日報の労務費を工種に振り分けた分。請負金額は現場全体の額',
+      note: '労務・常用の実績は日報の労務費を工種に振り分けた分（請負の人工は出面だけ）。請負の実績は外注の買掛の支払い',
       tables: [budgetPerformerTable(model)],
     },
-    { title: '現場全体（材料・リース・燃料・その他）', tables: [budgetSiteWideTable(model)] },
+    { title: '現場全体（材料・リース・燃料・その他）', note: '外注の買掛は工種の請負の実績に入れ、ここには入れない', tables: [budgetSiteWideTable(model)] },
   ];
 }

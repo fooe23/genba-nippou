@@ -605,19 +605,17 @@ export function buildBudgetModel(input: BudgetModelInput): BudgetModel {
   };
 
   const attendanceOf = (bucket: string): AttendanceRow[] => {
-    const list = [...(attendance.get(bucket)?.values() ?? [])]
-      .map((a) => ({
-        supplierId: a.partner ? a.supplierId : null,
-        name: a.partner ? partnerName(a.supplierId) : OWN_LABEL,
-        manDays: round9(a.jouyou + a.ukeoi),
-        ukeoiManDays: round9(a.ukeoi),
-        jouyouManDays: round9(a.jouyou),
-        own: !a.partner,
-      }))
-      .filter((a) => a.manDays !== 0);
-    const own = list.filter((a) => a.own);
-    const partners = list.filter((a) => !a.own).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-    return [...own, ...partners].map(({ own: _own, ...a }) => a);
+    const toRow = (a: AttendanceAcc): AttendanceRow => ({
+      supplierId: a.partner ? a.supplierId : null,
+      name: a.partner ? partnerName(a.supplierId) : OWN_LABEL,
+      manDays: round9(a.jouyou + a.ukeoi),
+      ukeoiManDays: round9(a.ukeoi),
+      jouyouManDays: round9(a.jouyou),
+    });
+    const accs = [...(attendance.get(bucket)?.values() ?? [])];
+    const own = accs.filter((a) => !a.partner).map(toRow);
+    const partners = accs.filter((a) => a.partner).map(toRow).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+    return [...own, ...partners].filter((a) => a.manDays !== 0);
   };
 
   const daysOf = (bucket: string, unit: string | null): TradeDay[] =>

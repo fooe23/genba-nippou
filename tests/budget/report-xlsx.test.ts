@@ -6,6 +6,7 @@ import { budgetReportFileName, buildBudgetReportXlsx, REPORT_SHEET_NAMES } from 
 import { budgetSummaryTable, statusText } from '@/lib/budget/report-sections';
 import { neutralizeFormula } from '@/lib/reports/csv';
 import { SP_NONE, SP_PAINT, SP_TWO, nakanoData, nakanoInput, own } from './fixture-nakano';
+import { SP_TOHOKU, murayamaInput } from './fixture-murayama';
 
 const partners = [
   { id: SP_PAINT, name: '〇〇塗装' },
@@ -123,7 +124,30 @@ describe('予算と実績の集計 Excel', () => {
     const monthly = rowsOf(wb.getWorksheet('月別の推移')!);
     const oct = monthly.find((r) => r[0] === '2026年10月')!;
     expect(oct[2]).toBe(model.trades.reduce((s, t) => s + t.actual.amount, 0) + model.outside.amount);
-    expect(oct[3]).toBe(3000);
+    expect(oct[3]).toBe(0); // 外注
+    expect(oct[4]).toBe(3000); // 燃料
+  });
+
+  it('村山様邸：② 請負の行（請負額・支払い・見込み）と出面、① の工種の行、③ ④ の外注', async () => {
+    const input = murayamaInput();
+    const wb = await load(await buildBudgetReportXlsx(input, { ...meta, siteName: '村山様邸' }, [{ id: SP_TOHOKU, name: '東北建興' }]));
+    const perf = rowsOf(wb.getWorksheet('工種×施工者')!);
+    const head = perf.find((r) => r[0] === '工種')!;
+    expect(head).toEqual(['工種', '施工者', '区分', '予算の人工', '実行予算・請負額', '実績の人工', '実績（労務費・支払い）', '予算 − 実績', 'このままの見込み', '備考']);
+    expect(perf.find((r) => r[1] === '東北建興・請負')).toEqual(['タイル', '東北建興・請負', '請負', '', 270000, '', 100000, 170000, 270000, '見込み＝請負額']);
+    expect(perf.find((r) => r[1] === '自社・労務')?.slice(2, 9)).toEqual(['労務', 2, 40000, 1.5, 30000, 10000, 75000]);
+    expect(perf.find((r) => r[1] === '東北建興・常用（請負外）')?.slice(6, 9)).toEqual([11000, -11000, 27500]);
+    expect(perf.find((r) => r[1] === '出面')?.[9]).toBe('自社 1.5 人工　東北建興 2.0 人工（うち請負 1.5・常用 0.5）（請負の人工は原価に数えない）');
+    expect(perf.find((r) => r[0] === 'タイル' && r[1] === '小計')?.slice(6, 9)).toEqual([141000, 169000, 372500]);
+
+    const summary = rowsOf(wb.getWorksheet('予算と実績')!);
+    expect(summary.find((r) => r[0] === 'タイル')?.slice(1, 11)).toEqual([783000, 310000, 2, 141000, 2, '40%（上書き）', '—', 372500, 410500, '予算超え']);
+    expect(summary.find((r) => r[0] === '買掛（仕入）')?.[2]).toBe(18000);
+
+    const daily = rowsOf(wb.getWorksheet('日々の実績')!);
+    expect(daily.find((r) => r[0] === '小計' && r[1] === 'タイル')?.[10]).toBe(100000);
+    const monthly = rowsOf(wb.getWorksheet('月別の推移')!);
+    expect(monthly.find((r) => r[0] === '2026年11月')?.slice(2, 9)).toEqual([41000, 100000, 0, 0, 0, 18000, 159000]);
   });
 
   it('ファイル名', () => {

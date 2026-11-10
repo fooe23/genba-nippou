@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  attendanceText,
   budgetManDaysSummary,
+  performerForecastNote,
+  performerLabel,
+  subcontractTag,
+  tradeSubcontractTag,
   canOverrideProgress,
   canViewBudget,
   manDaysText,
@@ -13,7 +18,8 @@ import {
   statusTag,
   yenText,
 } from '@/lib/budget/budget-view';
-import type { PerformerRow } from '@/lib/budget/budget-model';
+import { buildBudgetModel, type PerformerRow } from '@/lib/budget/budget-model';
+import { murayamaInput, subcontract } from './fixture-murayama';
 
 const employee = { isAdmin: false, accountType: 'employee' as const };
 const partner = { isAdmin: false, accountType: 'partner' as const };
@@ -123,5 +129,34 @@ describe('% の入力', () => {
     }
     expect(parsePercentInput(' 5 0 ')).toEqual({ ok: true, value: 50 }); // 空白は除く
     expect(parsePercentInput('０５')).toEqual({ ok: true, value: 5 });
+  });
+});
+
+describe('請負の行の文言（村山様邸）', () => {
+  const tile = buildBudgetModel(murayamaInput()).trades[0];
+
+  it('施工者の行の見出し', () => {
+    expect(tile.budget.byPerformer.map(performerLabel)).toEqual(['東北建興・請負', '自社・労務', '東北建興・常用（請負外）']);
+    expect(performerLabel({ item: 'jouyou', name: '△△工業', outsideContract: false })).toBe('△△工業・常用');
+  });
+
+  it('見込みの注記', () => {
+    expect(tile.budget.byPerformer.map(performerForecastNote)).toEqual(['請負額', '実績 ÷ 進み具合', '実績 ÷ 進み具合']);
+  });
+
+  it('出面の 1 行', () => {
+    expect(attendanceText(tile.attendance)).toBe('出面：自社 1.5 人工　東北建興 2.0 人工（うち請負 1.5・常用 0.5）');
+    expect(attendanceText([])).toBe('');
+  });
+
+  it('請負額を超えたら札、請負額の無い会社への外注は別の札', () => {
+    expect(tradeSubcontractTag(tile)).toBeNull();
+    const input = murayamaInput();
+    input.reports[1].lines.push(subcontract(200000));
+    const over = buildBudgetModel(input).trades[0];
+    expect(tradeSubcontractTag(over)).toEqual({ label: '請負額を超えています', tone: 'ng' });
+    expect(performerForecastNote(over.budget.byPerformer[0])).toBe('支払い');
+    expect(subcontractTag({ budgetAmount: 0, overContract: true })).toEqual({ label: '実行予算に請負額がありません', tone: 'warn' });
+    expect(subcontractTag({ budgetAmount: 1, overContract: false })).toBeNull();
   });
 });

@@ -7,6 +7,8 @@ import { renderBudgetReportPdf } from '@/lib/pdf/budget-report-pdf';
 import { renderBudgetSetupPdf } from '@/lib/pdf/budget-setup-pdf';
 import { formatCell, type Cell } from '@/lib/reports/cost-sections';
 import { SP_PAINT, SP_TWO, nakanoData, nakanoInput } from './fixture-nakano';
+import { murayamaInput, subcontract } from './fixture-murayama';
+import { budgetPerformerTable } from '@/lib/budget/report-sections';
 
 const meta = { siteName: '中野橋', projectNo: '0612', outputAt: '2026-10-10T03:00:00Z' };
 const names = { [SP_PAINT]: '〇〇塗装', [SP_TWO]: '△△工業' };
@@ -34,6 +36,17 @@ describe('予算と実績の帳票の表（budgetReportSections）', () => {
     expect(t.rows[1][10]).toBe(statusText(paint));
     expect(text(t.total![1])).toBe(model.total.contractAmount.toLocaleString('ja-JP'));
     expect(t.after?.map((r) => r[0])).toEqual(['うち減分', 'うち工種なしの内訳']);
+  });
+
+  it('② 村山様邸：請負 → 自社・労務 → 常用（請負外）→ 出面 → 小計、請負額を超えたら備考と判定に出す', () => {
+    const t = budgetPerformerTable(buildBudgetModel(murayamaInput()));
+    expect(t.rows.map((r) => r[1])).toEqual(['東北建興・請負', '自社・労務', '東北建興・常用（請負外）', '出面', '小計', '小計']);
+    const input = murayamaInput();
+    input.reports[1].lines.push(subcontract(200000));
+    const over = buildBudgetModel(input);
+    const row = budgetPerformerTable(over).rows[0];
+    expect(row[9]).toBe('請負額を超えています・見込み＝支払い');
+    expect(statusText(over.trades[0])).toBe('予算超え・請負額を超えています');
   });
 
   it('判定の文字：内訳の識別がまだなら注記つき', () => {

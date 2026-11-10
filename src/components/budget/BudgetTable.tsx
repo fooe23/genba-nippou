@@ -1,9 +1,12 @@
 'use client';
 
 import { Fragment, useState, type ReactNode } from 'react';
-import type { BudgetModel, PerformerRow, TradeRow } from '@/lib/budget/budget-model';
+import type { AttendanceRow, BudgetModel, PerformerRow, TradeRow } from '@/lib/budget/budget-model';
 import {
+  attendanceText,
   budgetManDaysSummary,
+  performerForecastNote,
+  tradeSubcontractTag,
   manDaysText,
   outsideTag,
   profitClass,
@@ -13,7 +16,7 @@ import {
   type ProgressHistoryEntry,
 } from '@/lib/budget/budget-view';
 import { ProgressOverride } from './ProgressOverride';
-import { PerformerName, TradeDetail, performerActualText, performerBudgetText } from './TradeDetail';
+import { PerformerName, TradeDetail, performerActualText, performerBudgetText, performerKey } from './TradeDetail';
 import { ProgressCell, Tag, smallTextClass } from './budget-parts';
 
 export interface BudgetViewProps {
@@ -58,18 +61,40 @@ function Amount({ value, sub }: { value: string; sub?: string }) {
   );
 }
 
-function PerformerSubRows({ performers }: { performers: PerformerRow[] }) {
-  return performers.map((p) => (
-    <tr key={`${p.performer}:${p.supplierId ?? ''}`}>
-      <td className={subTdFirst}>
-        <PerformerName p={p} />
-      </td>
-      <td className={subTd} />
-      <td className={subTd}>{performerBudgetText(p)}</td>
-      <td className={subTd}>{performerActualText(p)}</td>
-      <td className={subTd} colSpan={4} />
-    </tr>
-  ));
+/** 施工者の行（請負：請負額／支払い／見込み、労務・常用：予算／実績／見込み）と出面の 1 行。 */
+function PerformerSubRows({ performers, attendance, showForecast }: { performers: PerformerRow[]; attendance: AttendanceRow[]; showForecast: boolean }) {
+  const att = attendanceText(attendance);
+  return (
+    <>
+      {performers.map((p) => (
+        <tr key={performerKey(p)}>
+          <td className={subTdFirst}>
+            <PerformerName p={p} />
+          </td>
+          <td className={subTd} />
+          <td className={subTd}>
+            <Amount value={performerBudgetText(p)} sub={p.item === 'subcontract' ? '請負額' : undefined} />
+          </td>
+          <td className={subTd}>
+            <Amount
+              value={performerActualText(p)}
+              sub={p.item === 'subcontract' ? (p.issuePaid !== 0 ? `支払い（うち追加の発注 ${yenText(p.issuePaid)}）` : '支払い（外注の買掛）') : undefined}
+            />
+          </td>
+          <td className={subTd} />
+          <td className={subTd}>{showForecast && <Amount value={yenText(p.forecast)} sub={p.forecast !== null ? performerForecastNote(p) : undefined} />}</td>
+          <td className={subTd} colSpan={2} />
+        </tr>
+      ))}
+      {att && (
+        <tr>
+          <td colSpan={COLS} className={`${subTdFirst} text-xs`}>
+            {att}（請負の人工は出面だけで、原価に数えません）
+          </td>
+        </tr>
+      )}
+    </>
+  );
 }
 
 function DetailRow({ children }: { children: ReactNode }) {
@@ -102,6 +127,7 @@ export function BudgetTable({ siteId, model, history, canOverride, readOnly }: B
   const tradeRow = (t: TradeRow) => {
     const isOpen = open.has(t.tradeId);
     const tag = statusTag(t.status);
+    const subTag = tradeSubcontractTag(t);
     return (
       <Fragment key={t.tradeId}>
         <tr>
@@ -125,11 +151,16 @@ export function BudgetTable({ siteId, model, history, canOverride, readOnly }: B
           <td className={`${td} text-left`}>
             <Tag {...tag} />
             {statusNote(t) && <span className={smallTextClass}>{statusNote(t)}</span>}
+            {subTag && (
+              <span className="mt-1 block">
+                <Tag {...subTag} />
+              </span>
+            )}
           </td>
         </tr>
         {isOpen && (
           <>
-            <PerformerSubRows performers={t.budget.byPerformer} />
+            <PerformerSubRows performers={t.budget.byPerformer} attendance={t.attendance} showForecast />
             <DetailRow>
               <ProgressOverride
                 siteId={siteId}
@@ -141,7 +172,7 @@ export function BudgetTable({ siteId, model, history, canOverride, readOnly }: B
                 canOverride={canOverride}
                 readOnly={readOnly}
               />
-              <TradeDetail performers={t.budget.byPerformer} days={t.days} showPerformers={false} />
+              <TradeDetail performers={t.budget.byPerformer} attendance={t.attendance} days={t.days} showPerformers={false} />
             </DetailRow>
           </>
         )}
@@ -177,6 +208,11 @@ export function BudgetTable({ siteId, model, history, canOverride, readOnly }: B
                 予算外の作業
               </ToggleName>
               <span className={`${smallTextClass} pl-5`}>常用・契約外・現場判断の件</span>
+              {outside.subcontractPaid !== 0 && (
+                <span className={`${smallTextClass} pl-5`}>
+                  工種なしの外注 {yenText(outside.subcontractPaid)}（日報の外注の行で工種を選んでください）
+                </span>
+              )}
             </td>
             <td className={td}>—</td>
             <td className={td}>{outside.budget.amount !== 0 ? yenText(outside.budget.amount) : '—'}</td>
@@ -192,10 +228,10 @@ export function BudgetTable({ siteId, model, history, canOverride, readOnly }: B
           </tr>
           {outsideOpen && (
             <>
-              <PerformerSubRows performers={outside.byPerformer} />
+              <PerformerSubRows performers={outside.byPerformer} attendance={outside.attendance} showForecast={false} />
               <tr>
                 <td colSpan={COLS} className="border-b border-gray-200 bg-gray-50 px-3 py-3 dark:border-gray-700 dark:bg-gray-900">
-                  <TradeDetail performers={outside.byPerformer} days={outside.days} showPerformers={false} />
+                  <TradeDetail performers={outside.byPerformer} attendance={outside.attendance} days={outside.days} showPerformers={false} />
                 </td>
               </tr>
             </>
@@ -227,7 +263,7 @@ export function BudgetTable({ siteId, model, history, canOverride, readOnly }: B
             <td className={td}>
               <Amount
                 value={yenText(siteWide.actual.amount)}
-                sub={`燃料 ${yenText(siteWide.actual.fuel)}・リース ${yenText(siteWide.actual.lease)}・現金 ${yenText(siteWide.actual.cash)}・掛け ${yenText(siteWide.actual.credit)}`}
+                sub={`燃料 ${yenText(siteWide.actual.fuel)}・リース ${yenText(siteWide.actual.lease)}・現金 ${yenText(siteWide.actual.cash)}・買掛（仕入） ${yenText(siteWide.actual.credit)}`}
               />
             </td>
             <td className={td} colSpan={4} />

@@ -1,5 +1,5 @@
 import { yen } from '@/lib/calc/format';
-import type { PerformerRow, TradeRow } from '@/lib/budget/budget-model';
+import type { AttendanceRow, PerformerRow, TradeRow } from '@/lib/budget/budget-model';
 
 // 予算と実績の画面の表示用の純関数（DB・React に依存しない）。
 
@@ -87,6 +87,48 @@ export function budgetManDaysSummary(performers: PerformerRow[]): string {
     .filter((p) => p.budgetManDays !== null && p.budgetManDays !== 0)
     .map((p) => `${p.name} ${manDaysText(p.budgetManDays as number)}`)
     .join('・');
+}
+
+/** 施工者の行の見出し（「東北建興・請負」「自社・労務」「東北建興・常用（請負外）」「△△工業・常用」）。 */
+export function performerLabel(p: Pick<PerformerRow, 'item' | 'name' | 'outsideContract'>): string {
+  if (p.item === 'subcontract') return `${p.name}・請負`;
+  if (p.item === 'labor') return `${p.name}・労務`;
+  return p.outsideContract ? `${p.name}・常用（請負外）` : `${p.name}・常用`;
+}
+
+/**
+ * 請負の札：件なしの支払いが請負額を超えた → 「請負額を超えています」、請負額の無い会社への外注 →
+ * 「実行予算に請負額がありません」。それ以外は null。
+ */
+export function subcontractTag(p: { budgetAmount: number; overContract: boolean }): { label: string; tone: TagTone } | null {
+  if (!p.overContract) return null;
+  return p.budgetAmount === 0 ? { label: '実行予算に請負額がありません', tone: 'warn' } : { label: '請負額を超えています', tone: 'ng' };
+}
+
+/** 工種の請負の札（請負の行のどれかが超えていれば）。 */
+export function tradeSubcontractTag(t: Pick<TradeRow, 'budget'>): { label: string; tone: TagTone } | null {
+  const tags = t.budget.byPerformer.filter((p) => p.item === 'subcontract').map(subcontractTag);
+  return tags.find((x) => x?.tone === 'ng') ?? tags.find((x) => x !== null) ?? null;
+}
+
+/** 施工者の行の見込みの注記（請負は「請負額」か「支払い」、労務・常用は「実績 ÷ 進み具合」）。 */
+export function performerForecastNote(p: PerformerRow): string {
+  if (p.item !== 'subcontract') return '実績 ÷ 進み具合';
+  const base = p.overContract ? '支払い' : '請負額';
+  return p.issuePaid !== 0 ? `${base}＋追加の発注` : base;
+}
+
+const plainManDays = (n: number) => n.toLocaleString('ja-JP', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
+
+/** 出面の 1 行（例「出面：東北建興 2.0 人工（うち請負 1.5・常用 0.5）　自社 1.5 人工」）。出面が無ければ空。 */
+export function attendanceText(rows: AttendanceRow[]): string {
+  if (rows.length === 0) return '';
+  const parts = rows.map((a) =>
+    a.ukeoiManDays !== 0
+      ? `${a.name} ${manDaysText(a.manDays)}（うち請負 ${plainManDays(a.ukeoiManDays)}・常用 ${plainManDays(a.jouyouManDays)}）`
+      : `${a.name} ${manDaysText(a.manDays)}`,
+  );
+  return `出面：${parts.join('　')}`;
 }
 
 /** 予算と実績を見られるか（社員・管理者。協力会社は画面を notFound に）。DB の gn_is_employee_or_admin() と同じ。 */

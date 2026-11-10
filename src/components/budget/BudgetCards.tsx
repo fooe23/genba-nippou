@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import type { TradeRow } from '@/lib/budget/budget-model';
-import { budgetManDaysSummary, manDaysText, outsideTag, profitClass, statusNote, statusTag, yenText } from '@/lib/budget/budget-view';
+import { budgetManDaysSummary, manDaysText, outsideTag, profitClass, statusNote, statusTag, tradeSubcontractTag, yenText } from '@/lib/budget/budget-view';
 import { BudgetTable, totalContractNote, type BudgetViewProps } from './BudgetTable';
 import { ProgressOverride } from './ProgressOverride';
 import { TradeDetail } from './TradeDetail';
@@ -35,7 +35,9 @@ function OpenButton({ open, onClick, label }: { open: boolean; onClick: () => vo
 function TradeCard({ t, siteId, history, canOverride, readOnly }: { t: TradeRow } & Omit<BudgetViewProps, 'model'>) {
   const [open, setOpen] = useState(false);
   const tag = statusTag(t.status);
+  const subTag = tradeSubcontractTag(t);
   const summary = budgetManDaysSummary(t.budget.byPerformer);
+  const hasSub = t.budget.byPerformer.some((p) => p.item === 'subcontract');
   return (
     <li className={cardClass}>
       <div className="flex items-start justify-between gap-2">
@@ -43,6 +45,11 @@ function TradeCard({ t, siteId, history, canOverride, readOnly }: { t: TradeRow 
         <span className="shrink-0 text-right">
           <Tag {...tag} />
           {statusNote(t) && <span className={smallTextClass}>{statusNote(t)}</span>}
+          {subTag && (
+            <span className="mt-1 block">
+              <Tag {...subTag} />
+            </span>
+          )}
         </span>
       </div>
       <div className="mt-1 text-sm">
@@ -51,11 +58,25 @@ function TradeCard({ t, siteId, history, canOverride, readOnly }: { t: TradeRow 
           {yenText(t.budget.amount)}
           {summary && <span className={smallTextClass}>{summary}</span>}
         </Line>
-        <Line label={`実績（${manDaysText(t.actual.manDays)}）`}>{yenText(t.actual.amount)}</Line>
+        <Line label={`実績（${manDaysText(t.actual.manDays)}）`}>
+          {yenText(t.actual.amount)}
+          {hasSub && (
+            <span className={smallTextClass}>
+              うち外注 {yenText(t.subcontract.paid + t.subcontract.issuePaid)}
+            </span>
+          )}
+        </Line>
         <Line label="進み具合">
           <ProgressCell progress={t.progress} />
         </Line>
-        <Line label="このままの見込み">{yenText(t.forecast)}</Line>
+        <Line label="このままの見込み">
+          {yenText(t.forecast)}
+          {hasSub && t.forecast !== null && (
+            <span className={smallTextClass}>
+              請負 {yenText(t.subcontract.forecast)}＋人工 {yenText(t.laborForecast)}
+            </span>
+          )}
+        </Line>
         <Line label="見込みの粗利" valueClass={profitClass(t.forecastProfit)}>
           {yenText(t.forecastProfit)}
         </Line>
@@ -73,7 +94,7 @@ function TradeCard({ t, siteId, history, canOverride, readOnly }: { t: TradeRow 
             canOverride={canOverride}
             readOnly={readOnly}
           />
-          <TradeDetail performers={t.budget.byPerformer} days={t.days} showPerformers />
+          <TradeDetail performers={t.budget.byPerformer} attendance={t.attendance} days={t.days} showPerformers />
         </div>
       )}
     </li>
@@ -108,6 +129,18 @@ export function BudgetCards(props: BudgetViewProps) {
               {yenText(-outside.amount)}
             </Line>
           )}
+          {outside.subcontractPaid !== 0 && (
+            <Line
+              label={
+                <>
+                  うち工種なしの外注
+                  <span className={smallTextClass}>日報の外注の行で工種を選んでください</span>
+                </>
+              }
+            >
+              {yenText(outside.subcontractPaid)}
+            </Line>
+          )}
           {outside.carryover && (
             <Line
               label={
@@ -124,7 +157,7 @@ export function BudgetCards(props: BudgetViewProps) {
         <OpenButton open={outsideOpen} onClick={() => setOutsideOpen((v) => !v)} label="施工者・日報の作業を開く" />
         {outsideOpen && (
           <div className="mt-3">
-            <TradeDetail performers={outside.byPerformer} days={outside.days} showPerformers />
+            <TradeDetail performers={outside.byPerformer} attendance={outside.attendance} days={outside.days} showPerformers showForecast={false} />
           </div>
         )}
       </li>
@@ -145,7 +178,7 @@ export function BudgetCards(props: BudgetViewProps) {
               燃料 {yenText(siteWide.actual.fuel)}・リース {yenText(siteWide.actual.lease)}
             </span>
             <span className={smallTextClass}>
-              現金 {yenText(siteWide.actual.cash)}・掛け {yenText(siteWide.actual.credit)}
+              現金 {yenText(siteWide.actual.cash)}・買掛（仕入） {yenText(siteWide.actual.credit)}
             </span>
           </Line>
         </div>

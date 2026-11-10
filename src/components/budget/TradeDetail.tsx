@@ -1,45 +1,115 @@
 'use client';
 
 import { useState } from 'react';
-import type { PerformerRow, TradeDay } from '@/lib/budget/budget-model';
-import { manDaysText, yenText } from '@/lib/budget/budget-view';
+import type { AttendanceRow, PerformerRow, TradeDay } from '@/lib/budget/budget-model';
+import { attendanceText, manDaysText, performerForecastNote, performerLabel, subcontractTag, yenText } from '@/lib/budget/budget-view';
 import { jpDate } from '@/lib/calc/format';
-import { smallTextClass } from './budget-parts';
+import { Tag, smallTextClass } from './budget-parts';
 
 const DAYS_FIRST = 20;
 
-/** 施工者の行の「予算・実績」の文字（例「¥900,000（45.0 人工）」）。 */
+/** 施工者の行の「予算・実績」の文字（例「¥900,000（45.0 人工）」。請負の行は金額だけ）。 */
 export function performerBudgetText(p: PerformerRow): string {
   return p.budgetManDays !== null ? `${yenText(p.budgetAmount)}（${manDaysText(p.budgetManDays)}）` : yenText(p.budgetAmount);
 }
 export function performerActualText(p: PerformerRow): string {
-  return `${yenText(p.actualAmount)}（${manDaysText(p.actualManDays)}）`;
+  return p.item === 'subcontract' ? yenText(p.actualAmount) : `${yenText(p.actualAmount)}（${manDaysText(p.actualManDays)}）`;
 }
 
-/** 施工者の名前。 */
+/** 施工者の行の鍵（同じ会社の請負と常用は別の行）。 */
+export function performerKey(p: PerformerRow): string {
+  return `${p.item}:${p.supplierId ?? p.name}`;
+}
+
+/** 施工者の見出し（「東北建興・請負」など）と、請負の札。 */
 export function PerformerName({ p }: { p: PerformerRow }) {
-  return <span className="font-medium">{p.performer === 'partner' ? `${p.name}（協力会社）` : p.name}</span>;
+  const tag = p.item === 'subcontract' ? subcontractTag(p) : null;
+  return (
+    <>
+      <span className="font-medium">{performerLabel(p)}</span>
+      {tag && (
+        <span className="mt-0.5 block">
+          <Tag {...tag} />
+        </span>
+      )}
+    </>
+  );
 }
 
-/** 施工者ごとの予算と実績（カード・予算外の行で使う一覧）。 */
-function PerformerList({ performers }: { performers: PerformerRow[] }) {
-  if (performers.length === 0) return <p className="text-sm text-gray-600 dark:text-gray-400">施工者の行はありません。</p>;
+function Pair({ label, value, note }: { label: string; value: string; note?: string }) {
   return (
-    <ul className="space-y-2">
-      {performers.map((p) => (
-        <li key={`${p.performer}:${p.supplierId ?? ''}`} className="rounded-lg bg-gray-50 p-2 text-sm dark:bg-gray-900">
-          <PerformerName p={p} />
-          <span className="mt-1 flex flex-wrap justify-between gap-x-3">
-            <span>実行予算</span>
-            <span className="tabular-nums">{performerBudgetText(p)}</span>
-          </span>
-          <span className="flex flex-wrap justify-between gap-x-3">
-            <span>実績</span>
-            <span className="tabular-nums">{performerActualText(p)}</span>
-          </span>
-        </li>
-      ))}
-    </ul>
+    <span className="flex flex-wrap justify-between gap-x-3">
+      <span>{label}</span>
+      <span className="text-right tabular-nums">
+        {value}
+        {note && <span className={smallTextClass}>{note}</span>}
+      </span>
+    </span>
+  );
+}
+
+/** 請負の行のカード：請負額／支払い（うち追加の発注）／見込み。 */
+function SubcontractCard({ p, showForecast }: { p: PerformerRow; showForecast: boolean }) {
+  return (
+    <li className="rounded-lg bg-gray-50 p-2 text-sm dark:bg-gray-900">
+      <PerformerName p={p} />
+      <span className="mt-1 block space-y-0.5">
+        <Pair label="請負額（実行予算）" value={yenText(p.budgetAmount)} />
+        <Pair
+          label="支払い（外注の買掛）"
+          value={yenText(p.actualAmount)}
+          note={p.issuePaid !== 0 ? `うち追加の発注（件） ${yenText(p.issuePaid)}` : undefined}
+        />
+        {showForecast && <Pair label="見込み" value={yenText(p.forecast)} note={performerForecastNote(p)} />}
+      </span>
+    </li>
+  );
+}
+
+/** 労務・常用の行のカード：実行予算／実績／見込み。 */
+function LaborCard({ p, showForecast }: { p: PerformerRow; showForecast: boolean }) {
+  return (
+    <li className="rounded-lg bg-gray-50 p-2 text-sm dark:bg-gray-900">
+      <PerformerName p={p} />
+      <span className="mt-1 block space-y-0.5">
+        <Pair label="実行予算" value={performerBudgetText(p)} />
+        <Pair label="実績" value={performerActualText(p)} />
+        {showForecast && <Pair label="見込み" value={yenText(p.forecast)} note={p.forecast !== null ? performerForecastNote(p) : undefined} />}
+      </span>
+    </li>
+  );
+}
+
+/** 施工者ごとの予算と実績（カード・予算外で使う）。請負と人工（自社・常用）を 2 つのまとまりに分ける。 */
+function PerformerList({ performers, attendance, showForecast }: { performers: PerformerRow[]; attendance: AttendanceRow[]; showForecast: boolean }) {
+  if (performers.length === 0) return <p className="text-sm text-gray-600 dark:text-gray-400">施工者の行はありません。</p>;
+  const subs = performers.filter((p) => p.item === 'subcontract');
+  const labor = performers.filter((p) => p.item !== 'subcontract');
+  const att = attendanceText(attendance);
+  return (
+    <div className="space-y-3">
+      {subs.length > 0 && (
+        <div className="space-y-1">
+          <h5 className="text-xs font-bold text-gray-700 dark:text-gray-300">請負（外注の支払い）</h5>
+          <ul className="space-y-2">
+            {subs.map((p) => (
+              <SubcontractCard key={performerKey(p)} p={p} showForecast={showForecast} />
+            ))}
+          </ul>
+        </div>
+      )}
+      {labor.length > 0 && (
+        <div className="space-y-1">
+          <h5 className="text-xs font-bold text-gray-700 dark:text-gray-300">人工（自社・常用）</h5>
+          <ul className="space-y-2">
+            {labor.map((p) => (
+              <LaborCard key={performerKey(p)} p={p} showForecast={showForecast} />
+            ))}
+          </ul>
+        </div>
+      )}
+      {att && <p className="text-xs text-gray-700 dark:text-gray-300">{att}（請負の人工は出面だけで、原価に数えません）</p>}
+    </div>
   );
 }
 
@@ -58,6 +128,7 @@ function DayList({ days }: { days: TradeDay[] }) {
               <span className="font-bold">{jpDate(d.date)}</span>
               <span className="tabular-nums">
                 {manDaysText(d.manDays)}・{yenText(d.amount)}
+                {d.subcontract !== 0 && `・外注 ${yenText(d.subcontract)}`}
               </span>
             </span>
             {d.lines.length > 0 && (
@@ -93,25 +164,30 @@ function DayList({ days }: { days: TradeDay[] }) {
  */
 export function TradeDetail({
   performers,
+  attendance,
   days,
   showPerformers,
+  showForecast = true,
 }: {
   performers: PerformerRow[];
+  attendance: AttendanceRow[];
   days: TradeDay[];
   showPerformers: boolean;
+  /** 施工者の見込みを出すか（予算外の作業は見込みを出さない）。 */
+  showForecast?: boolean;
 }) {
   return (
     <div className="space-y-3">
       {showPerformers && (
         <section className="space-y-2">
           <h4 className="text-sm font-bold">施工者ごと</h4>
-          <PerformerList performers={performers} />
+          <PerformerList performers={performers} attendance={attendance} showForecast={showForecast} />
         </section>
       )}
       <section className="space-y-2">
         <h4 className="text-sm font-bold">日報の作業</h4>
         <p className="text-xs text-gray-600 dark:text-gray-400">
-          人工・金額は、1 日の労務費・人工を作業内容の行の投入人工の比などで振り分けた分です。
+          人工・金額は、1 日の労務費・人工を作業内容の行の投入人工の比などで振り分けた分です（請負の人工は原価に数えません）。外注は、その日の外注の買掛のうちこの工種の分です。
         </p>
         <DayList days={days} />
       </section>
