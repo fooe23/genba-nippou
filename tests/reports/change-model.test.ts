@@ -364,6 +364,46 @@ describe('件の精算：根拠に選んだ行だけ・法定福利費・材料�
     const r = nov10([work('minus', 0, 1, 3000, { issueId: 'm1' })]);
     expect(ledger([r]).issues[0]).toMatchObject({ lineCount: 2, proposal: 61317 - 3000, settled: 58317 });
   });
+  it('減の件に根拠を選んだ材料・リース・燃料・外注は数えない（減は申告額だけ）', () => {
+    const minusIssue = issue('d1', '2026-11-10', '減の件', { kind: 'minus' });
+    const r = report('2026-11-10', [
+      labor(1, 20000),
+      work('minus', 0, 1, 3000, { issueId: 'd1' }),
+      credit(25000, { issueId: 'd1' }),
+      cash(1000, { issueId: 'd1' }),
+      lease(1000, { issueId: 'd1' }),
+      fuel(1000, { issueId: 'd1' }),
+      credit(50000, { purchaseKind: 'subcontract', issueId: 'd1' }),
+    ]);
+    const m = ledger([r], [minusIssue]);
+    expect(m.issues[0]).toMatchObject({ proposal: -3000, settled: -3000, actualCost: 0 });
+    expect(m.issues[0].breakdown).toMatchObject({ material: 0, lease: 0, fuel: 0, subcontract: 0 });
+    expect(m.summary.minus).toMatchObject({ proposal: -3000, settled: -3000 });
+    // 根拠の行だけの減の件は載らない
+    expect(ledger([report('2026-11-10', [credit(25000, { issueId: 'd1' })])], [minusIssue]).issues).toEqual([]);
+  });
+  it('区分ごとの提案額（サマリーの列）は未定の件の根拠の材料・外注を含む（村山様邸：追加 61,317 ＝ 精算額）', () => {
+    const m = ledger([nov10()]);
+    expect(m.summary.extra).toMatchObject({ count: 1, proposal: 61317, settled: 61317 });
+    expect(ledger([nov10([], 'm1')]).summary.extra.proposal).toBe(231317);
+    // 根拠の行だけの未定の件も提案額に入る
+    expect(ledger([report('2026-11-10', [credit(10000, { issueId: 'm1' })])]).summary.extra.proposal).toBe(12096);
+  });
+  it('区分ごとの提案額は件の区分に入れ、月の期間ではその月の行と根拠の行だけ', () => {
+    const changeIssue = issue('m1', '2026-11-10', '変更の件', { kind: 'change' });
+    const dec = report('2026-12-01', [credit(7000, { issueId: 'm1' })]);
+    const nov = buildChangeLedger(input([nov10(), dec], { issues: [changeIssue] }), DEF, NOV);
+    expect(nov.summary.extra.proposal).toBe(0);
+    expect(nov.summary.change.proposal).toBe(61317);
+    const decM = buildChangeLedger(input([nov10(), dec], { issues: [changeIssue] }), DEF, { kind: 'month', month: '2026-12' });
+    expect(decM.summary.change.proposal).toBe(8468); // 7,000 × 1.12 × 1.08 = 8,467.2 → 8,468
+  });
+  it('一式・常用・やり直しの件と件なしの行は、行の区分に行の提案額（施工金額から）', () => {
+    const lump = ledger([nov10()], [issue('m1', '2026-11-10', '一式', { settlementMethod: 'lump_sum', fixedAmount: 60000 })]);
+    expect(lump.summary.extra.proposal).toBe(31077); // 25,000 × 1.151 × 1.08 = 31,077
+    const rework = ledger([nov10()], [issue('m1', '2026-11-10', 'やり直し', { kind: 'rework' })]);
+    expect(rework.summary.extra.proposal).toBe(31077);
+  });
 });
 
 describe('settleIssue（件ごとの精算額の規則）', () => {

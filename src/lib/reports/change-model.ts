@@ -40,6 +40,11 @@ import type {
 //   増（同じ流れの中で数量が増えたもの）の計算・集計は追加（新しく別の仕事が増えたもの）と同じ。
 //   所属別の人工（社内用）= 行の投入人工を、その日の労務の行の所属（写し）別の人工比で按分（apportionManDays。和は元の人工）。
 //
+//   減の区分の件（settlementCategory が minus）に根拠を選んだ材料・リース・燃料・外注は数えない（減は申告額だけ）。
+//   区分ごとの提案額（summary.proposal。社内確認用のサマリーの提案額の列）= 未定の件（やり直しを除く）は件の区分に、
+//              期間内のその件の行と根拠の行から件の提案額と同じ式で出した額（材料・リース・燃料・外注を含む）。
+//              ほか（件なし・一式・見積・常用・やり直しの件に紐づく行）は行の区分に、行の提案額。
+//
 // 期間が月のときは、一覧（rows）・区分ごとの件数・申告額・提案額・契約内の出来高はその月の日報の行だけ（回目は現場の
 // 全日報で数える）。件ごとの精算・区分ごとの精算額・精算提案額（settlement）はその月末までの全部の行と、月末までに
 // 載せる件で計算する（工事原価集計表 ② と同じ範囲）。一式・見積・常用の件は件の日報日が月末以前なら載せる（確定日は見ない）。
@@ -270,19 +275,53 @@ function settleIssues(
   return settled.sort((a, b) => a.reportDate.localeCompare(b.reportDate));
 }
 
-function summarize(rows: ChangeLedgerRow[]): Record<ChangeLedgerKind, ChangeKindSummary> {
+function addTagged(map: Map<string, TaggedCosts>, issueId: string, l: ReportWithLines['lines'][number]): void {
+  const t = map.get(issueId) ?? { material: 0, lease: 0, fuel: 0, subcontract: 0, lines: 0 };
+  map.set(issueId, t);
+  t.lines += 1;
+  if (l.kind === 'fuel') t.fuel += l.stored.amount;
+  else if (l.kind === 'lease') t.lease += l.stored.amount;
+  else if (l.kind === 'credit' && l.purchaseKind === 'subcontract') t.subcontract += l.stored.amount;
+  else t.material += l.stored.amount;
+}
+
+/**
+ * 区分ごとの件数・申告額・実績原価・提案額（期間内の行。rows）。提案額は、未定の件（やり直しを除く）の分を件の区分に
+ * 件の提案額と同じ式（期間内の行と根拠の行の内訳から settlementProposal ＋ 減の行の申告額）でまとめて足し、ほかの行は
+ * 行の区分に行の提案額を足す（工期全体では、未定の件の提案額の列 ＝ 件の精算額になる）。
+ */
+function summarize(
+  rows: ChangeLedgerRow[],
+  issues: Issue[],
+  taggedInPeriod: Map<string, TaggedCosts>,
+  rates: ChangeRates,
+): Record<ChangeLedgerKind, ChangeKindSummary> {
   const summary: Record<ChangeLedgerKind, ChangeKindSummary> = {
     extra: emptySummary(),
     increase: emptySummary(),
     change: emptySummary(),
     minus: emptySummary(),
   };
+  // 提案額を件でまとめる未定の件（区分のある件）
+  const pooled = new Map<string, { category: ChangeLedgerKind; rows: ChangeLedgerRow[] }>();
+  for (const i of issues) {
+    const category = settlementCategory(i.kind);
+    if (i.settlementMethod === 'undecided' && category !== null) pooled.set(i.id, { category, rows: [] });
+  }
   for (const row of rows) {
     const s = summary[row.changeKind];
     s.count += 1;
     s.declared += row.declared;
     s.actualCost += row.actualCost;
-    s.proposal += row.proposal;
+    const pool = row.issue ? pooled.get(row.issue.id) : undefined;
+    if (pool) pool.rows.push(row);
+    else s.proposal += row.proposal;
+  }
+  for (const [id, pool] of pooled) {
+    const tagged = taggedInPeriod.get(id);
+    if (pool.rows.length === 0 && !tagged) continue;
+    const declaredMinus = pool.rows.filter((r) => r.proposalBasis === 'declared').reduce((s, r) => s + r.proposal, 0);
+    summary[pool.category].proposal += settlementProposal(issueBreakdown(pool.rows, tagged), rates) + declaredMinus;
   }
   return summary;
 }
@@ -300,6 +339,8 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
   const throughRows: ChangeLedgerRow[] = [];
   /** 根拠に件を選んだ現金・買掛・リース・燃料（月末まで。読めない件は数えない）。 */
   const taggedByIssue = new Map<string, TaggedCosts>();
+  /** そのうち期間内の日報の分（区分ごとの提案額に使う）。 */
+  const taggedInPeriod = new Map<string, TaggedCosts>();
   let contractOutput = 0;
   for (const r of reports) {
     if (through !== null && r.reportDate > through) continue;
@@ -308,14 +349,11 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
     const visit = visitNumbers(reportDates, r.reportDate);
     for (const l of r.lines) {
       if (l.kind === 'fuel' || l.kind === 'lease' || l.kind === 'cash' || l.kind === 'credit') {
-        if (l.issueId === null || !refs.has(l.issueId)) continue;
-        const t = taggedByIssue.get(l.issueId) ?? { material: 0, lease: 0, fuel: 0, subcontract: 0, lines: 0 };
-        taggedByIssue.set(l.issueId, t);
-        t.lines += 1;
-        if (l.kind === 'fuel') t.fuel += l.stored.amount;
-        else if (l.kind === 'lease') t.lease += l.stored.amount;
-        else if (l.kind === 'credit' && l.purchaseKind === 'subcontract') t.subcontract += l.stored.amount;
-        else t.material += l.stored.amount;
+        const issue = l.issueId === null ? undefined : refs.get(l.issueId);
+        // 読めない件・減の区分の件（減は申告額だけ）の根拠の行は数えない
+        if (!issue || settlementCategory(issue.kind) === 'minus') continue;
+        addTagged(taggedByIssue, issue.id, l);
+        if (inPeriod(r.reportDate)) addTagged(taggedInPeriod, issue.id, l);
         continue;
       }
       if (l.kind !== 'work') continue;
@@ -358,7 +396,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
   }
 
   const rows = throughRows.filter((row) => inPeriod(row.date));
-  const summary = summarize(rows);
+  const summary = summarize(rows, input.issues, taggedInPeriod, rates);
   const confirmedReportIds = new Set(input.reports.filter((r) => r.clientConfirmedAt !== null).map((r) => r.id));
   const issues = settleIssues(input.issues, throughRows, taggedByIssue, through, refs, confirmedReportIds, rates);
   const unlinkedRows = throughRows.filter((row) => row.issue === null);

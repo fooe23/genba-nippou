@@ -614,6 +614,10 @@ export interface ChangeKindSummary {
   count: number;
   declared: number;
   actualCost: number;
+  /**
+   * 提案額（集計期間の分）。未定の件（やり直しを除く）は件の区分に、期間内のその件の行と根拠の材料・リース・燃料・外注から
+   * 件の提案額と同じ式でまとめて出した額。ほかの行（件なし・一式・見積・常用・やり直しの件）は行の区分に行の提案額。
+   */
   proposal: number;
   /**
    * 精算額（期間末までの累計。月の期間でもその月だけではない）= 載せる件のうち合計に入れる（countsToward）区分が
