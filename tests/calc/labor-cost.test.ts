@@ -96,6 +96,15 @@ describe('労務費の決まり（請負の会社の人工は原価に数えな�
     expect(laborCountedCost(partner(TOHOKU, 'ukeoi', { jouyouHours: 4 }), budgetCtx)).toBe(12500);
   });
 
+  it('常用の行の並びが同じなら id の小さい行（渡す順に依らない。予算と実績・原価の読み込みで同じ行を選ぶ）', () => {
+    const lines = [
+      budgetLine({ id: 'b9', supplierId: TOHOKU, unitPrice: 30000, sortOrder: 1 }),
+      budgetLine({ id: 'b2', supplierId: TOHOKU, unitPrice: 25000, sortOrder: 1 }),
+    ];
+    expect(laborCostContextFrom(lines).jouyouRates).toEqual({ [TOHOKU]: 25000 });
+    expect(laborCostContextFrom([...lines].reverse()).jouyouRates).toEqual({ [TOHOKU]: 25000 });
+  });
+
   it('残業：実働 10.0 H・1.0 人工・残業 2.0 H・日当 ¥22,000・うち常用 3.0 H → 6,600 ＋ 2.0 H × ¥3,438 ＝ ¥13,476', () => {
     const s = laborCostSplit(partner(TOHOKU, 'ukeoi', { hours: 10, overtimeHours: 2, jouyouHours: 3, amount: 22000 + 2 * 3438 }), ctx);
     expect(s).toEqual({ contract: 'ukeoi', manDays: 1, jouyouManDays: 0.3, ukeoiManDays: 0.7, jouyouOvertimeHours: 2, countedCost: 13476 });

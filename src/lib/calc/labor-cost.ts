@@ -27,13 +27,16 @@ export interface LaborCostContext {
 
 export const EMPTY_LABOR_COST_CONTEXT: LaborCostContext = { jouyouRates: {}, rule: DEFAULT_LABOR_RULE };
 
-/** 実行予算の行から：会社ごとの常用の行（item 'jouyou'）のうち並び（sortOrder）の先頭の単価。 */
+/**
+ * 実行予算の行から：会社ごとの常用の行（item 'jouyou'）のうち並び（sortOrder → 同じなら id）の先頭の単価。
+ * 渡す行の順に依らない（予算と実績の loadBudgetData と、原価の loadLaborCostContexts で同じ行を選ぶ）。
+ */
 export function laborCostContextFrom(budgetLines: readonly BudgetLine[], rule: LaborRule = DEFAULT_LABOR_RULE): LaborCostContext {
   const best = new Map<string, BudgetLine>();
   for (const b of budgetLines) {
     if (b.item !== 'jouyou' || !b.supplierId) continue;
     const cur = best.get(b.supplierId);
-    if (!cur || b.sortOrder < cur.sortOrder) best.set(b.supplierId, b);
+    if (!cur || b.sortOrder < cur.sortOrder || (b.sortOrder === cur.sortOrder && b.id < cur.id)) best.set(b.supplierId, b);
   }
   return { jouyouRates: Object.fromEntries([...best].map(([id, b]) => [id, b.unitPrice])), rule };
 }

@@ -114,7 +114,9 @@ export async function loadBudgetData(siteId: string): Promise<BudgetData> {
       .from('gn_budget_lines')
       .select('id, trade_id, performer, supplier_id, item, note, qty, unit, unit_price, amount, sort_order')
       .eq('site_id', siteId)
-      .order('sort_order', { ascending: true }),
+      .order('sort_order', { ascending: true })
+      // 同じ並びの行は id で固定する（常用の単価の行の選び方 laborCostContextFrom と同じ）
+      .order('id', { ascending: true }),
     supabase
       .from('gn_trade_progress')
       .select('id, trade_id, percent, set_by, set_at')
