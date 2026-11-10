@@ -153,7 +153,7 @@ export async function replaceBudgetLines(siteId: string, lines: BudgetLineInput[
 }
 
 /**
- * 元請けの内訳を入れる。mode：'replace'＝全部入れ替える、'appendChange'＝今の行の後ろに「変更」の行として足す
+ * 受注の内訳を入れる。mode：'replace'＝全部入れ替える、'appendChange'＝今の行の後ろに「変更」の行として足す
  * （区分は DB が「変更」にする）。
  */
 export async function replaceContractItems(
@@ -168,7 +168,7 @@ export async function replaceContractItems(
   const m = contractModeSchema.safeParse(mode);
   if (!m.success) return { ok: false, error: firstIssueMessage(m.error) };
   const parsed = contractItemsInputSchema.safeParse(items);
-  if (!parsed.success) return { ok: false, error: firstIssueMessage(parsed.error, '元請けの内訳の') };
+  if (!parsed.success) return { ok: false, error: firstIssueMessage(parsed.error, '受注の内訳の') };
   try {
     const supabase = await createServerSupabase();
     const { error } = await supabase.rpc('gn_replace_contract_items', {

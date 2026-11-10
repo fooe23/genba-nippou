@@ -12,7 +12,7 @@ import { renderBudgetReportPdf } from '@/lib/pdf/budget-report-pdf';
 import { renderBudgetSetupPdf } from '@/lib/pdf/budget-setup-pdf';
 import { isUuid } from '@/lib/uuid';
 
-// 実行予算・元請けの内訳（kind=setup）と予算と実績（kind=report）の PDF。
+// 実行予算・受注の内訳（kind=setup）と予算と実績（kind=report）の PDF。
 // GET /api/budget/pdf?site=<uuid>&kind=setup|report&disposition=inline|attachment
 // 社員・管理者だけ（協力会社は 403。金額の表は RLS でも読めない）。disposition=inline のときだけブラウザで開く（アプリの
 // PDF ビューアー /pdf から）。それ以外は attachment。失敗は JSON { ok: false, error }。

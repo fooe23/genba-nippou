@@ -6,7 +6,7 @@ import type { BudgetData } from '@/lib/budget/types';
 // * Excel に新しい名前 → 足す（addTrades）。
 // * Excel に無い工種 → 使われていなければ消す（removeTrades）、使われていれば残して知らせる（keptMissingTrades）。
 //   「使われている」＝日報の作業内容の行・読み替え表・進み具合の上書き、それに取り込みで入れ替えない予算・内訳の行。
-// * 実行予算の行は全部入れ替える。元請けの内訳は mode（全部入れ替える／変更の行として足す）。
+// * 実行予算の行は全部入れ替える。受注の内訳は mode（全部入れ替える／変更の行として足す）。
 // * 行の無いシート（または無いシート）は変えない（空の雛形を取り込んで予算や内訳を消してしまわないため）。
 
 export interface ImportDiff {
@@ -15,7 +15,7 @@ export interface ImportDiff {
   removeTrades: string[];
   /** 入れ替える実行予算の行の数（0＝実行予算は変えない）。 */
   budgetLinesCount: number;
-  /** 入れる元請けの内訳の行の数（0＝内訳は変えない）。 */
+  /** 入れる受注の内訳の行の数（0＝内訳は変えない）。 */
   contractItemsCount: number;
 }
 

@@ -10,6 +10,7 @@ import {
   SHEET_BUDGET,
   SHEET_CHOICES,
   SHEET_CONTRACT,
+  SHEET_CONTRACT_LEGACY,
   SITE_WIDE_LABEL,
   normalizeName,
 } from '@/lib/budget/template-format';
@@ -25,7 +26,7 @@ import {
   type ContractSection,
 } from '@/lib/budget/types';
 
-// 実行予算・元請けの内訳の Excel 雛形の取り込み（template-xlsx.ts の形。parse-sheet.ts と同じく SheetJS で読み、
+// 実行予算・受注の内訳の Excel 雛形の取り込み（template-xlsx.ts の形。parse-sheet.ts と同じく SheetJS で読み、
 // 列は見出しの文字で決める）。金額の列は読まない（アプリが数量 × 単価で計算し直す）。
 // 読めない行は errors（シート名と Excel の行番号つき）に入れ、その行は結果に入れない。
 
@@ -71,7 +72,7 @@ export interface ParsedBudgetWorkbook {
   errors: ParseError[];
   /** 取り込みは止めないが、確認の画面で知らせること。 */
   warnings: string[];
-  /** 実行予算・元請けの内訳のシートがあったか（無いシートは取り込みで変えない）。 */
+  /** 実行予算・受注の内訳のシートがあったか（無いシートは取り込みで変えない）。 */
   hasBudgetSheet: boolean;
   hasContractSheet: boolean;
 }
@@ -296,8 +297,7 @@ function parseBudgetSheet(grid: Grid, opts: ParseOptions, errors: ParseError[]):
   return out;
 }
 
-function parseContractSheet(grid: Grid, errors: ParseError[]): ParsedContractItem[] {
-  const sheet = SHEET_CONTRACT;
+function parseContractSheet(grid: Grid, errors: ParseError[], sheet: string): ParsedContractItem[] {
   const found = findColumns(grid, ['tag', 'section', 'name', 'spec', 'qty', 'unit', 'unitPrice', 'amount'], ['name', 'qty']);
   if (!found) {
     errors.push({ sheet, row: 0, message: '見出し（名称・数量）が見つかりません。アプリから書き出した雛形を使ってください' });
@@ -374,20 +374,22 @@ function parseContractSheet(grid: Grid, errors: ParseError[]): ParsedContractIte
 }
 
 /**
- * 実行予算・元請けの内訳の雛形を読む。工種は選択肢のシートの A 列（3 行目から）の順、続いて予算・内訳にだけ
+ * 実行予算・受注の内訳の雛形を読む。工種は選択肢のシートの A 列（3 行目から）の順、続いて予算・内訳にだけ
  * 出てくる名前（出てきた順）。シートが 1 つも無ければ errors に入れる。
  */
 export function parseBudgetWorkbook(buf: ArrayBuffer | Uint8Array, opts: ParseOptions): ParsedBudgetWorkbook {
-  const wb = XLSX.read(buf, { type: 'array', cellFormula: false, cellHTML: false, sheets: [SHEET_BUDGET, SHEET_CONTRACT, SHEET_CHOICES] });
+  const wb = XLSX.read(buf, { type: 'array', cellFormula: false, cellHTML: false, sheets: [SHEET_BUDGET, SHEET_CONTRACT, SHEET_CONTRACT_LEGACY, SHEET_CHOICES] });
   const errors: ParseError[] = [];
   const budgetGrid = sheetGrid(wb, SHEET_BUDGET);
-  const contractGrid = sheetGrid(wb, SHEET_CONTRACT);
+  // 内訳のシートは今の名前「受注の内訳」、無ければ前の名前「元請けの内訳」（2026-11-17 より前に書き出した雛形）
+  const contractSheet = wb.Sheets[SHEET_CONTRACT] ? SHEET_CONTRACT : SHEET_CONTRACT_LEGACY;
+  const contractGrid = sheetGrid(wb, contractSheet);
   if (!budgetGrid && !contractGrid) {
     errors.push({ sheet: SHEET_BUDGET, row: 0, message: `シート「${SHEET_BUDGET}」「${SHEET_CONTRACT}」が見つかりません。アプリから書き出した雛形を使ってください` });
   }
   const trades = choiceTrades(sheetGrid(wb, SHEET_CHOICES), errors);
   const budgetLines = budgetGrid ? parseBudgetSheet(budgetGrid, opts, errors) : [];
-  const contractItems = contractGrid ? parseContractSheet(contractGrid, errors) : [];
+  const contractItems = contractGrid ? parseContractSheet(contractGrid, errors, contractSheet) : [];
   for (const name of [...budgetLines.map((l) => l.tradeName), ...contractItems.map((i) => i.tradeName)]) {
     if (name !== null && !trades.includes(name)) trades.push(name);
   }

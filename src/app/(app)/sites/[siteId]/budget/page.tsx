@@ -53,7 +53,7 @@ export default async function BudgetPage({ params }: PageProps<'/sites/[siteId]/
             href={`/sites/${siteId}/budget/setup`}
             className="inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400"
           >
-            実行予算・元請けの内訳 →
+            実行予算・受注の内訳 →
           </Link>
         </div>
         <div className="my-2 flex flex-wrap gap-2">
@@ -81,7 +81,7 @@ export default async function BudgetPage({ params }: PageProps<'/sites/[siteId]/
         <p role="status" className="rounded-lg border border-amber-500 bg-amber-50 p-3 text-amber-900 dark:bg-amber-950 dark:text-amber-50">
           まだ工種がありません。「
           <Link href={`/sites/${siteId}/budget/setup`} className="font-bold underline">
-            実行予算・元請けの内訳
+            実行予算・受注の内訳
           </Link>
           」で工種・実行予算・内訳を入れると、工種ごとに比べられます（いまの実績はすべて予算外の作業に入っています）。
         </p>

@@ -35,7 +35,7 @@ describe('予算と実績の集計 Excel', () => {
   it('シート名と順（7 枚＋隠した選択肢）', async () => {
     const wb = await load(await buildBudgetReportXlsx(nakanoInput(), meta, partners));
     expect(wb.worksheets.map((w) => w.name)).toEqual([...REPORT_SHEET_NAMES, '選択肢']);
-    expect(REPORT_SHEET_NAMES).toEqual(['予算と実績', '工種×施工者', '日々の実績', '月別の推移', '出面', '元請けの内訳と数量', '実行予算']);
+    expect(REPORT_SHEET_NAMES).toEqual(['予算と実績', '工種×施工者', '日々の実績', '月別の推移', '出面', '受注の内訳と数量', '実行予算']);
     expect(wb.getWorksheet('選択肢')!.state).toBe('hidden');
     expect(wb.worksheets.filter((w) => w.state !== 'hidden')).toHaveLength(7);
   });

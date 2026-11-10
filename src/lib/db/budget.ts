@@ -95,7 +95,7 @@ function latestProgress(rows: Record<string, unknown>[]): TradeProgress[] {
 }
 
 /**
- * 予算の画面・集計が読むもの一式（工種・元請けの内訳・実行予算・読み替え表・進み具合の上書き）。
+ * 予算の画面・集計が読むもの一式（工種・受注の内訳・実行予算・読み替え表・進み具合の上書き）。
  * 社員・管理者以外（協力会社・未ログイン）が呼べば空を返す。
  */
 export async function loadBudgetData(siteId: string): Promise<BudgetData> {

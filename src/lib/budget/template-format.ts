@@ -1,16 +1,18 @@
 import { fileNameStem } from '@/lib/export/payload';
 import { BUDGET_ITEMS, BUDGET_ITEM_LABEL, CONTRACT_SECTIONS, CONTRACT_SECTION_LABEL } from '@/lib/budget/types';
 
-// 実行予算・元請けの内訳の Excel 雛形の形（書き出し template-xlsx.ts と取り込み parse-template.ts で共有。純粋）。
+// 実行予算・受注の内訳の Excel 雛形の形（書き出し template-xlsx.ts と取り込み parse-template.ts で共有。純粋）。
 // 見本：.superpowers/brainstorm/24602-1794232833/content/excel-1.html。1 行目＝現場の見出し、2 行目＝列見出し、3 行目から入力。
 
 export const SHEET_BUDGET = '実行予算';
-export const SHEET_CONTRACT = '元請けの内訳';
+export const SHEET_CONTRACT = '受注の内訳';
+/** 2026-11-17 より前の雛形のシート名（取り込みでは今の名前と同じに読む。書き出しは今の名前だけ）。 */
+export const SHEET_CONTRACT_LEGACY = '元請けの内訳';
 export const SHEET_CHOICES = '選択肢';
 
 /** 実行予算の列（A〜H）。 */
 export const BUDGET_HEADERS = ['工種', '施工者', '項目', '内容・メモ', '数量', '単位', '単価', '金額'] as const;
-/** 元請けの内訳の列（A〜H）。 */
+/** 受注の内訳の列（A〜H）。 */
 export const CONTRACT_HEADERS = ['区分', '名称', '規格・仕様', '数量', '単位', '単価', '金額', '工種（識別）'] as const;
 
 /** 列見出しの行・入力の始まりの行（1 始まり）。 */

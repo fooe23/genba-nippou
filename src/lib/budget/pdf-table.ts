@@ -1,7 +1,7 @@
 import { lineAmount } from '@/lib/budget/schemas';
 import type { ContractCategory, ContractSection } from '@/lib/budget/types';
 
-// 元請けの内訳（注文書・内訳書）の文字 PDF から、表の行と列を推定する純関数。
+// 受注の内訳（注文書・内訳書）の文字 PDF から、表の行と列を推定する純関数。
 // 入力は pdf.js のテキスト項目（ページごと。x・y はページの左上を原点にした座標で、y は下へ増える。y は文字の基準線）。
 // 1. 行：y が近い項目（文字の高さの半分まで）を 1 行にまとめる。
 // 2. セル：行の中で x の隙間が文字の高さの 0.6 倍より広いところで区切る。

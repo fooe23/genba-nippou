@@ -68,7 +68,7 @@ function rowAmount(r: Row): number | null {
 }
 
 /**
- * 元請けの内訳：行（区分・名称・規格・数量・単位・単価・金額・工種（識別））を足す・消す・直す。
+ * 受注の内訳：行（区分・名称・規格・数量・単位・単価・金額・工種（識別））を足す・消す・直す。
  * 保存すると全部の行を replaceContractItems（全部入れ替える）で入れる（Excel の取り込みと同じ Action）。
  * 「経費」「減分」は工種に入れず、内訳の金額の合計にだけ数える。
  */
@@ -116,7 +116,7 @@ export function ContractItemsEditor({
     for (let i = 0; i < rows.length; i++) {
       const res = contractItemInputSchema.safeParse(toInput({ ...rows[i], tag: tagOf(rows[i]) }));
       if (!res.success) {
-        setLocalError(`元請けの内訳の${i + 1}行目：${res.error.issues[0]?.message ?? '入力が正しくありません'}`);
+        setLocalError(`受注の内訳の${i + 1}行目：${res.error.issues[0]?.message ?? '入力が正しくありません'}`);
         return;
       }
     }
@@ -137,13 +137,13 @@ export function ContractItemsEditor({
   return (
     <section aria-labelledby="contract-items" className="space-y-3">
       <h2 id="contract-items" className={sectionHeadingClass}>
-        元請けの内訳（{rows.length}行）
+        受注の内訳（{rows.length}行）
       </h2>
       <p className="text-sm text-gray-700 dark:text-gray-300">
-        元請けから届いた内訳（注文書）の行です。右端の「工種（識別）」で、どの工種の分かを選びます。「経費」「減分」は工種に入れず、内訳の金額の合計にだけ数えます。変更の内訳が届いたら、区分を「変更」にして行を足します。
+        受注した内訳の行です（下請の現場は元請けから届いた内訳（注文書）、自社が元請けの現場はお客様に出した見積書の内訳）。右端の「工種（識別）」で、どの工種の分かを選びます。「経費」「減分」は工種に入れず、内訳の金額の合計にだけ数えます。変更の内訳が届いたら、区分を「変更」にして行を足します。
       </p>
       {rows.length === 0 ? (
-        <EmptyText>元請けの内訳はまだありません。</EmptyText>
+        <EmptyText>受注の内訳はまだありません。</EmptyText>
       ) : (
         <ul className="space-y-2">
           {rows.map((r, i) => {
@@ -256,14 +256,14 @@ export function ContractItemsEditor({
             ＋ 行を足す
           </button>
           <button type="button" onClick={save} disabled={pending || !dirty} className={`${primaryButtonClass} sm:flex-1`}>
-            {pending ? '保存中…' : '元請けの内訳を保存'}
+            {pending ? '保存中…' : '受注の内訳を保存'}
           </button>
         </div>
       )}
       <DirtyNote dirty={dirty} />
       {saved && (
         <p role="status" className="text-sm font-medium text-green-800 dark:text-green-300">
-          元請けの内訳を保存しました。
+          受注の内訳を保存しました。
         </p>
       )}
       <ErrorText message={localError ?? error} />

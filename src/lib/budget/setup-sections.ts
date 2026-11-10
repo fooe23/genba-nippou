@@ -10,9 +10,9 @@ import {
 import { jpDateTime } from '@/lib/calc/format';
 import { cell, col, type Cell, type CostSection, type SectionTable } from '@/lib/reports/cost-sections';
 
-// 実行予算・元請けの内訳の帳票（PDF。⑥ の内訳の表は集計 Excel でも使う）の表を、PDF・Excel 共通の形にする（純関数）。
+// 実行予算・受注の内訳の帳票（PDF。⑥ の内訳の表は集計 Excel でも使う）の表を、PDF・Excel 共通の形にする（純関数）。
 
-export const BUDGET_SETUP_TITLE = '実行予算・元請けの内訳';
+export const BUDGET_SETUP_TITLE = '実行予算・受注の内訳';
 
 const { yen, qty } = cell;
 
@@ -74,7 +74,7 @@ export function budgetLinesTable(data: Pick<BudgetData, 'trades' | 'budgetLines'
   };
 }
 
-/** 元請けの内訳の行（区分・名称・規格・数量・単位・単価・金額・工種（識別））と合計。 */
+/** 受注の内訳の行（区分・名称・規格・数量・単位・単価・金額・工種（識別））と合計。 */
 export function contractItemsTable(data: Pick<BudgetData, 'trades' | 'contractItems'>): SectionTable {
   const names = new Map(data.trades.map((t) => [t.id, t.name]));
   const items = [...data.contractItems].sort((a, b) => a.sortOrder - b.sortOrder);
@@ -126,7 +126,7 @@ export function contractByTradeTable(data: Pick<BudgetData, 'trades' | 'contract
   };
 }
 
-/** 実行予算・元請けの内訳の帳票の欄。 */
+/** 実行予算・受注の内訳の帳票の欄。 */
 export function budgetSetupSections(data: BudgetData, supplierNames: Readonly<Record<string, string>>): CostSection[] {
   return [
     {
@@ -135,7 +135,7 @@ export function budgetSetupSections(data: BudgetData, supplierNames: Readonly<Re
       tables: [budgetLinesTable(data, supplierNames)],
     },
     {
-      title: '元請けの内訳',
+      title: '受注の内訳',
       note: '経費・減分は工種に入れず、内訳の金額の合計にだけ数える',
       tables: [contractItemsTable(data)],
     },

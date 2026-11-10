@@ -10,7 +10,7 @@ import { getSite } from '@/lib/db/sites';
 import { contentDisposition } from '@/lib/export/query';
 import { isUuid } from '@/lib/uuid';
 
-// 実行予算・元請けの内訳の Excel 雛形。GET /api/budget/template?site=<uuid>&mode=empty|current
+// 実行予算・受注の内訳の Excel 雛形。GET /api/budget/template?site=<uuid>&mode=empty|current
 // current＝いまの工種・予算・内訳入り（直して、また取り込める）、empty＝工種だけの空の雛形。
 // 社員・管理者だけ（協力会社は 403。金額の表は RLS でも読めない）。失敗は JSON { ok: false, error }。
 
@@ -31,7 +31,7 @@ export async function GET(request: Request): Promise<Response> {
 
   const profile = await getCurrentProfile();
   if (!profile) return fail(401, 'ログインしてください');
-  if (!isEmployeeOrAdmin(profile)) return fail(403, '実行予算・元請けの内訳は社員・管理者だけが出力できます');
+  if (!isEmployeeOrAdmin(profile)) return fail(403, '実行予算・受注の内訳は社員・管理者だけが出力できます');
 
   const site = await getSite(siteId);
   if (!site || site.deletedAt !== null) return fail(404, '現場が見つかりません');

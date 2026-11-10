@@ -1,11 +1,11 @@
-// 積算連携（元請けの内訳・実行予算・読み替え表・進み具合の上書き）の型。
+// 積算連携（受注の内訳・実行予算・読み替え表・進み具合の上書き）の型。
 // DB の表：gn_site_trades・gn_contract_items・gn_budget_lines・gn_trade_aliases・gn_trade_progress（update_2026-11-15_budget.sql）。
 // 金額（内訳・予算・進み具合）を読めるのは社員・管理者だけ。協力会社のアカウントは工種の名前と読み替え表だけ読める。
 
-/** 元請けの内訳の区分：当初・変更。 */
+/** 受注の内訳の区分：当初・変更。 */
 export const CONTRACT_SECTIONS = ['initial', 'change'] as const;
 export type ContractSection = (typeof CONTRACT_SECTIONS)[number];
-/** 元請けの内訳の識別：工種・経費・減分（経費・減分は工種に入れず、内訳の金額の合計にだけ数える）。 */
+/** 受注の内訳の識別：工種・経費・減分（経費・減分は工種に入れず、内訳の金額の合計にだけ数える）。 */
 export const CONTRACT_CATEGORIES = ['trade', 'expense', 'reduction'] as const;
 export type ContractCategory = (typeof CONTRACT_CATEGORIES)[number];
 /** 実行予算の施工者：自社・協力会社。 */
@@ -38,7 +38,7 @@ export interface SiteTrade {
   sortOrder: number;
 }
 
-/** 元請けの内訳の行。amount は DB が計算した round(数量 × 単価)。tradeId は識別が工種の行だけ（null＝まだ識別していない）。 */
+/** 受注の内訳の行。amount は DB が計算した round(数量 × 単価)。tradeId は識別が工種の行だけ（null＝まだ識別していない）。 */
 export interface ContractItem {
   id: string;
   section: ContractSection;

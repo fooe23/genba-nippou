@@ -18,10 +18,10 @@ import { neutralizeFormula } from '@/lib/reports/csv';
 import { fileNameStem } from '@/lib/export/payload';
 
 // 予算と実績の集計 Excel（社内用・画面より細かい）。シートの順：
-// ① 予算と実績 ② 工種×施工者 ③ 日々の実績 ④ 月別の推移 ⑤ 出面 ⑥ 元請けの内訳と数量 ⑦ 実行予算。
+// ① 予算と実績 ② 工種×施工者 ③ 日々の実績 ④ 月別の推移 ⑤ 出面 ⑥ 受注の内訳と数量 ⑦ 実行予算。
 // ⑦ は取り込み用の雛形（template-xlsx.ts）と同じ形で、シート名も「実行予算」（このファイルをそのまま「Excel で入れる」に
 // 渡すと実行予算だけを取り込み直せる。プルダウンと工種の並びのための「選択肢」のシートを隠して最後に置く）。
-// ⑥ はシート名を「元請けの内訳」にしない（取り込みが内訳として読まないように）。
+// ⑥ はシート名を「受注の内訳」にしない（取り込みが内訳として読まないように）。
 // 数式の注入対策：①〜⑥ の文字は先頭が = + - @ なら ' を付ける（CSV と同じ。neutralizeFormula）。⑦ は取り込み直すと
 // 同じ中身になるよう文字をそのまま書く（exceljs は文字を文字のセルとして書くので数式にはならない）。
 
@@ -31,7 +31,7 @@ export const REPORT_SHEET_NAMES = [
   '日々の実績',
   '月別の推移',
   '出面',
-  '元請けの内訳と数量',
+  '受注の内訳と数量',
   SHEET_BUDGET,
 ] as const;
 
@@ -347,7 +347,7 @@ export function attendanceTable(input: BudgetModelInput, asOf: string): SectionT
   };
 }
 
-// ─── ⑥ 元請けの内訳と数量の進み具合 ───
+// ─── ⑥ 受注の内訳と数量の進み具合 ───
 
 export function quantityProgressTable(model: BudgetModel): SectionTable {
   return {
@@ -434,9 +434,9 @@ export async function buildBudgetReportXlsx(
     ws5.addRow(['労務の行がありません']);
   }
 
-  // ⑥ 元請けの内訳と数量の進み具合
+  // ⑥ 受注の内訳と数量の進み具合
   const ws6 = sheet(wb, s6, [14, 36, 18, 12, 12, 12, 14, 18], true);
-  banner(ws6, '⑥ 元請けの内訳と数量の進み具合', model, meta, '経費・減分は工種に入れず、内訳の金額の合計にだけ数える。数量から＝日報の数量の合計 ÷ 単位が同じ内訳の行の数量の合計。');
+  banner(ws6, '⑥ 受注の内訳と数量の進み具合', model, meta, '経費・減分は工種に入れず、内訳の金額の合計にだけ数える。数量から＝日報の数量の合計 ÷ 単位が同じ内訳の行の数量の合計。');
   writeTable(ws6, contractItemsTable(input.data));
   subHead(ws6, '工種ごとの数量の進み具合');
   writeTable(ws6, quantityProgressTable(model));

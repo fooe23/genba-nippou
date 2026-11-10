@@ -100,7 +100,7 @@ describe('実行予算の行の組み合わせ', () => {
   });
 });
 
-describe('元請けの内訳の行', () => {
+describe('受注の内訳の行', () => {
   const item = (o: Record<string, unknown>) => ({ section: 'initial', name: '鉄骨建方', spec: '', qty: 12.5, unit: 't', unitPrice: 1001, tradeId: T1, category: 'trade', ...o });
   it('金額は round(数量 × 単価)。減分の負の単価も可', () => {
     const r = contractItemInputSchema.safeParse(item({}));
@@ -140,8 +140,8 @@ describe('進み具合の上書き（%）と読み替え表', () => {
 
 describe('budgetErrorMessage', () => {
   it('DB の拒否の理由を日本語にする', () => {
-    expect(budgetErrorMessage('trade_in_use', '鉄骨工')).toBe('工種「鉄骨工」は日報・読み替え表・実行予算・元請けの内訳・進み具合で使われているため消せません');
-    expect(budgetErrorMessage('trade_in_use')).toBe('日報・読み替え表・実行予算・元請けの内訳・進み具合で使われている工種は消せません');
+    expect(budgetErrorMessage('trade_in_use', '鉄骨工')).toBe('工種「鉄骨工」は日報・読み替え表・実行予算・受注の内訳・進み具合で使われているため消せません');
+    expect(budgetErrorMessage('trade_in_use')).toBe('日報・読み替え表・実行予算・受注の内訳・進み具合で使われている工種は消せません');
     expect(budgetErrorMessage('site_closed')).toContain('完了');
     expect(budgetErrorMessage('not_employee')).toContain('社員・管理者だけ');
     expect(budgetErrorMessage('not_partner')).toContain('協力会社の印');

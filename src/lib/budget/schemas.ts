@@ -128,7 +128,7 @@ export const tradesInputSchema = z
     });
   });
 
-// ─── 元請けの内訳 ───
+// ─── 受注の内訳 ───
 
 export const contractItemInputSchema = z
   .object({
@@ -151,8 +151,8 @@ export type ContractItemInput = z.input<typeof contractItemInputSchema>;
 export type ContractItemValue = z.output<typeof contractItemInputSchema>;
 
 export const contractItemsInputSchema = z
-  .array(contractItemInputSchema, { error: '元請けの内訳の形式が正しくありません' })
-  .max(MAX_CONTRACT_ITEMS, `元請けの内訳が多すぎます（${MAX_CONTRACT_ITEMS}行まで）`);
+  .array(contractItemInputSchema, { error: '受注の内訳の形式が正しくありません' })
+  .max(MAX_CONTRACT_ITEMS, `受注の内訳が多すぎます（${MAX_CONTRACT_ITEMS}行まで）`);
 
 export const CONTRACT_MODES = ['replace', 'appendChange'] as const;
 export type ContractMode = (typeof CONTRACT_MODES)[number];
@@ -235,7 +235,7 @@ export function firstIssueMessage(error: z.ZodError, label = ''): string {
   return typeof index === 'number' ? `${label}${index + 1}行目：${issue.message}` : issue.message;
 }
 
-export const BUDGET_FORBIDDEN_MESSAGE = '実行予算・元請けの内訳・工種は社員・管理者だけが変更できます';
+export const BUDGET_FORBIDDEN_MESSAGE = '実行予算・受注の内訳・工種は社員・管理者だけが変更できます';
 export const BUDGET_CLOSED_MESSAGE = 'この現場は完了（または削除）されているため変更できません';
 export const PROGRESS_FORBIDDEN_MESSAGE = '進み具合を上書きできるのは、管理者と、この現場の確認者・承認者（社員）だけです';
 export const BUDGET_SAVE_FAILED = '保存に失敗しました。通信状況を確認してもう一度お試しください。';
@@ -249,8 +249,8 @@ export function budgetErrorMessage(dbMessage: string | null | undefined, detail?
   if (m.includes('trade_in_use')) {
     const name = detail?.trim();
     return name
-      ? `工種「${name}」は日報・読み替え表・実行予算・元請けの内訳・進み具合で使われているため消せません`
-      : '日報・読み替え表・実行予算・元請けの内訳・進み具合で使われている工種は消せません';
+      ? `工種「${name}」は日報・読み替え表・実行予算・受注の内訳・進み具合で使われているため消せません`
+      : '日報・読み替え表・実行予算・受注の内訳・進み具合で使われている工種は消せません';
   }
   if (m.includes('site_closed')) return BUDGET_CLOSED_MESSAGE;
   if (m.includes('not_employee') || m.includes('not_member')) return BUDGET_FORBIDDEN_MESSAGE;

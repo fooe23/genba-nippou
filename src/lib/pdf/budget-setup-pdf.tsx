@@ -6,8 +6,8 @@ import { PdfSection, pairLines, TitleBar } from '@/lib/pdf/budget-report-pdf';
 import { Footer, InfoGrid, s } from '@/lib/pdf/common';
 import { registerPdfFonts } from '@/lib/pdf/fonts';
 
-// 実行予算・元請けの内訳の PDF（社内用。A4 縦・余白 15mm）。実行予算（工種ごとの施工者の行・小計、予算外、現場全体、合計）、
-// 元請けの内訳（当初・変更・工種の識別）、工種ごとの内訳の金額。行は途中で切らない。
+// 実行予算・受注の内訳の PDF（社内用。A4 縦・余白 15mm）。実行予算（工種ごとの施工者の行・小計、予算外、現場全体、合計）、
+// 受注の内訳（当初・変更・工種の識別）、工種ごとの内訳の金額。行は途中で切らない。
 
 function BudgetSetupDocument({
   data,
@@ -36,7 +36,7 @@ function BudgetSetupDocument({
   );
 }
 
-/** 実行予算・元請けの内訳の PDF を作る（Node で実行）。 */
+/** 実行予算・受注の内訳の PDF を作る（Node で実行）。 */
 export async function renderBudgetSetupPdf(
   data: BudgetData,
   supplierNames: Readonly<Record<string, string>>,

@@ -101,7 +101,7 @@ async function edit(buf: Buffer, fn: (wb: ExcelJS.Workbook) => void): Promise<Ar
   return toArrayBuffer(Buffer.from((await wb.xlsx.writeBuffer()) as ArrayBuffer));
 }
 
-describe('実行予算・元請けの内訳の雛形：書き出し → 取り込み', () => {
+describe('実行予算・受注の内訳の雛形：書き出し → 取り込み', () => {
   it('直さずに取り込み直すと、工種・予算の行・内訳の行がまったく同じ（id を除く）', async () => {
     const data = sample();
     const buf = await buildBudgetWorkbook(data, site, partners);
@@ -161,14 +161,14 @@ describe('実行予算・元請けの内訳の雛形：書き出し → 取り�
     const buf = await buildBudgetWorkbook(sample(), site, partners);
     const wb = new ExcelJS.Workbook();
     await wb.xlsx.load(await toArrayBuffer(buf));
-    expect(wb.worksheets.map((w) => w.name)).toEqual(['実行予算', '元請けの内訳', '選択肢']);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['実行予算', '受注の内訳', '選択肢']);
     const b = wb.getWorksheet('実行予算')!;
     expect(String(b.getCell('A1').value)).toContain('中野橋');
     expect(String(b.getCell('A1').value)).toContain('予算の標準日当 20,000');
     expect([1, 2, 3, 4, 5, 6, 7, 8].map((c) => b.getRow(2).getCell(c).value)).toEqual([
       '工種', '施工者', '項目', '内容・メモ', '数量', '単位', '単価', '金額',
     ]);
-    const c = wb.getWorksheet('元請けの内訳')!;
+    const c = wb.getWorksheet('受注の内訳')!;
     expect([1, 2, 3, 4, 5, 6, 7, 8].map((i) => c.getRow(2).getCell(i).value)).toEqual([
       '区分', '名称', '規格・仕様', '数量', '単位', '単価', '金額', '工種（識別）',
     ]);
@@ -262,7 +262,7 @@ describe('取り込みの誤り（行番号つき）', () => {
   it('内訳：区分・数量の誤りと、単価の無い一式の行', async () => {
     const buf = await buildBudgetWorkbook(emptyBudgetData(), site, partners);
     const ab = await edit(buf, (wb) => {
-      const ws = wb.getWorksheet('元請けの内訳')!;
+      const ws = wb.getWorksheet('受注の内訳')!;
       const rows: (string | number | null)[][] = [
         ['追加', '名称', '', 1, '式', 100, null, ''], // 3：区分の誤り
         ['当初', '数量なし', '', null, '式', 100, null, ''], // 4：数量なし
@@ -273,8 +273,8 @@ describe('取り込みの誤り（行番号つき）', () => {
     });
     const parsed = parseBudgetWorkbook(ab, { partners, dailyRate: null });
     expect(parsed.errors.map((e) => [e.sheet, e.row])).toEqual([
-      ['元請けの内訳', 3],
-      ['元請けの内訳', 4],
+      ['受注の内訳', 3],
+      ['受注の内訳', 4],
     ]);
     expect(parsed.contractItems).toEqual([
       { row: 5, section: 'initial', name: '一式の行', spec: '', qty: 1, unit: '式', unitPrice: 50000, category: 'expense', tradeName: null },
@@ -282,10 +282,24 @@ describe('取り込みの誤り（行番号つき）', () => {
     ]);
   });
 
+  it('前の名前のシート「元請けの内訳」（2026-11-17 より前に書き出した雛形）も内訳として読む', async () => {
+    const buf = await buildBudgetWorkbook(emptyBudgetData(), site, partners);
+    const ab = await edit(buf, (wb) => {
+      const ws = wb.getWorksheet('受注の内訳')!;
+      ws.name = '元請けの内訳';
+      ['当初', '一式の行', '', 1, '式', 50000, null, '経費'].forEach((v, j) => (ws.getRow(3).getCell(j + 1).value = v));
+      ['追加', '区分の誤り', '', 1, '式', 100, null, ''].forEach((v, j) => (ws.getRow(4).getCell(j + 1).value = v));
+    });
+    const parsed = parseBudgetWorkbook(ab, { partners, dailyRate: null });
+    expect(parsed.hasContractSheet).toBe(true);
+    expect(parsed.contractItems.map((i) => i.name)).toEqual(['一式の行']);
+    expect(parsed.errors.map((e) => [e.sheet, e.row])).toEqual([['元請けの内訳', 4]]);
+  });
+
   it('内訳：△・▲・全角のマイナスの負の数を読む、工種の名前に「経費」などは使えない', async () => {
     const buf = await buildBudgetWorkbook(emptyBudgetData(), site, partners);
     const ab = await edit(buf, (wb) => {
-      const ws = wb.getWorksheet('元請けの内訳')!;
+      const ws = wb.getWorksheet('受注の内訳')!;
       const rows: (string | number | null)[][] = [
         ['変更', '減工分', '', 1, '式', '△1,819,800', null, '減分'],
         ['変更', '減工分2', '', 1, '式', '▲500', null, '減分'],

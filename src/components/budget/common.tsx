@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-// 実行予算・元請けの内訳の画面で共通の小物。
+// 実行予算・受注の内訳の画面で共通の小物。
 
 export const smallButtonClass =
   'min-h-11 min-w-11 rounded-lg border border-gray-400 px-3 text-base font-medium disabled:opacity-40 dark:border-gray-600';

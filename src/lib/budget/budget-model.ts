@@ -40,7 +40,7 @@ import type { ChangeKind, LaborRule } from '@/lib/types';
 //   に足す。分けた和はその日の労務費・人工と一致する（affiliation-breakdown.ts の apportionManDays と同じやり方）。
 //
 // 現場全体：燃料・リース・現金・掛け（仕入の買掛だけ。外注の買掛は上のとおり工種へ）の実績の合計と、実行予算の材料・リース・その他。
-// 元請けの内訳：工種の識別が付いた行（category 'trade' かつ tradeId あり）だけ工種の内訳の金額に入る。経費・減分・
+// 受注の内訳：工種の識別が付いた行（category 'trade' かつ tradeId あり）だけ工種の内訳の金額に入る。経費・減分・
 // まだ識別していない行は工種に入れず、合計の内訳の金額にだけ数える。
 // 実行予算の労務・請負・常用で工種の無い行（現場全体の労務）は「予算外」の行の予算に入れる。
 //
@@ -159,7 +159,7 @@ export interface TradeRow {
   tradeId: string;
   name: string;
   contractAmount: number;
-  /** その工種に識別した元請けの内訳の行の数（0＝内訳の識別がまだ）。 */
+  /** その工種に識別した受注の内訳の行の数（0＝内訳の識別がまだ）。 */
   contractItemCount: number;
   budget: { amount: number; manDays: number; byPerformer: PerformerRow[] };
   /** qty・unit は進み具合の単位の日報の施工数量、contractQty はその単位の内訳の数量（当初＋変更。数量からの分母。単位が無ければ null）。 */
@@ -198,12 +198,12 @@ export interface SiteWideRow {
   budget: { material: number; lease: number; other: number; amount: number };
   /** credit は仕入の買掛だけ（外注の買掛は工種・予算外の請負の行）。 */
   actual: { fuel: number; lease: number; cash: number; credit: number; amount: number };
-  /** 元請けの内訳の経費の金額。 */
+  /** 受注の内訳の経費の金額。 */
   contractExpense: number;
 }
 
 export interface TotalRow {
-  /** 元請けの内訳の金額の合計（工種・経費・減分・未識別のすべて）。 */
+  /** 受注の内訳の金額の合計（工種・経費・減分・未識別のすべて）。 */
   contractAmount: number;
   /** うち工種の付いた行。 */
   contractTradeAmount: number;

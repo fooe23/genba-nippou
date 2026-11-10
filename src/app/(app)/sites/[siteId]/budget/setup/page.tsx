@@ -14,10 +14,10 @@ import { ImportDialog } from '@/components/budget/ImportDialog';
 import { PdfImport } from '@/components/budget/PdfImport';
 import { TradesEditor } from '@/components/budget/TradesEditor';
 
-export const metadata = { title: '実行予算・元請けの内訳' };
+export const metadata = { title: '実行予算・受注の内訳' };
 
 /**
- * 現場の「実行予算・元請けの内訳」：工種、実行予算（工種 × 施工者）、元請けの内訳を画面で入れる・Excel で取り込む・書き出す。
+ * 現場の「実行予算・受注の内訳」：工種、実行予算（工種 × 施工者）、受注の内訳を画面で入れる・Excel で取り込む・書き出す。
  * 社員・管理者だけ（協力会社は notFound。金額の表は RLS でも読めない）。完了現場は閲覧と書き出しだけ。
  */
 export default async function BudgetSetupPage({ params }: PageProps<'/sites/[siteId]/budget/setup'>) {
@@ -49,7 +49,7 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
           ← {site.name}
         </Link>
         <div className="mb-2 flex flex-wrap items-baseline justify-between gap-x-4">
-          <h1 className="text-xl font-bold">実行予算・元請けの内訳</h1>
+          <h1 className="text-xl font-bold">実行予算・受注の内訳</h1>
           <Link href={`/sites/${siteId}/budget`} className="inline-flex min-h-11 items-center text-base font-medium text-blue-700 dark:text-blue-400">
             予算と実績を見る →
           </Link>
@@ -59,7 +59,7 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
         </p>
         <div className="mt-2 flex flex-wrap gap-2">
           {/* 保存済みの実行予算・内訳の PDF（画面で編集中の内容は入らない） */}
-          <BudgetPdfLinks siteId={siteId} kind="setup" title={`実行予算・元請けの内訳 ${site.name}`} back={`/sites/${siteId}/budget/setup`} />
+          <BudgetPdfLinks siteId={siteId} kind="setup" title={`実行予算・受注の内訳 ${site.name}`} back={`/sites/${siteId}/budget/setup`} />
         </div>
         {readOnly && (
           <p role="status" className="mt-3 rounded-lg border border-blue-500 bg-blue-50 p-3 font-bold text-blue-900 dark:bg-blue-950 dark:text-blue-50">
@@ -75,7 +75,7 @@ export default async function BudgetSetupPage({ params }: PageProps<'/sites/[sit
         dailyRate={dailyRate}
         readOnly={readOnly}
       />
-      {/* 元請けの内訳だけを文字 PDF から読み取る（完了現場では出さない） */}
+      {/* 受注の内訳だけを文字 PDF から読み取る（完了現場では出さない） */}
       <PdfImport siteId={siteId} trades={data.trades} readOnly={readOnly} />
       <TradesEditor siteId={siteId} trades={data.trades} readOnly={readOnly} />
       <BudgetLinesEditor

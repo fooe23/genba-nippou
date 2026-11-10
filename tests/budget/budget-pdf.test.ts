@@ -79,7 +79,7 @@ describe('実行予算・内訳の帳票の表（budgetSetupSections）', () => 
     expect((t.total![7] as { value: number }).value).toBe(data.budgetLines.reduce((s, l) => s + l.amount, 0));
   });
 
-  it('元請けの内訳：区分・識別の文字、工種ごとの当初・変更', () => {
+  it('受注の内訳：区分・識別の文字、工種ごとの当初・変更', () => {
     const items = contractItemsTable(data);
     expect(items.rows.map((r) => r[7])).toEqual(['ブラスト', 'ブラスト', '塗装', '塗装', '足場', 'シール', '（未識別）', '経費', '減分']);
     const byTrade = contractByTradeTable(data);

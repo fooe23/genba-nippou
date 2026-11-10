@@ -32,7 +32,7 @@ import { replaceContractItems } from '@/lib/db/budget-actions';
 import { ErrorText, Field, inputClass, primaryButtonClass, secondaryButtonClass } from '@/components/masters/common';
 import { cardClass, numText, parseNum, rowKey, smallButtonClass } from './common';
 
-// 元請けの内訳を文字 PDF から読み取る：PDF を選ぶ → ブラウザで pdf.js が文字と位置を取り出す → 表の行と列を推定（pdf-table.ts）
+// 受注の内訳を文字 PDF から読み取る：PDF を選ぶ → ブラウザで pdf.js が文字と位置を取り出す → 表の行と列を推定（pdf-table.ts）
 // → 列の割り当て・行の取り込む／取り込まない・区分・工種（識別）を直す → replaceContractItems（全部入れ替える／変更の行として足す）。
 // 画像だけの PDF（スキャン）は文字が取れないので対象外（Excel に貼り付けて取り込む）。
 
@@ -432,7 +432,7 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
       try {
         const res = await replaceContractItems(siteId, included.map(toInput), mode);
         if (!res.ok) {
-          setError(`元請けの内訳を取り込めませんでした：${res.error}`);
+          setError(`受注の内訳を取り込めませんでした：${res.error}`);
           return;
         }
         setDone(`PDF から ${included.length} 行を取り込みました。`);
@@ -476,7 +476,7 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
         </button>
       </div>
       <p className="text-sm text-gray-700 dark:text-gray-300">
-        元請けの注文書・内訳書の PDF（文字を選べる PDF）から表を読み取ります。取り込む前に、列の割り当て・取り込む行・区分・工種（識別）を確かめて直せます。スキャンした画像の PDF は読み取れません。
+        元請けの注文書・内訳書や、お客様に出した見積書の PDF（文字を選べる PDF）から表を読み取ります。取り込む前に、列の割り当て・取り込む行・区分・工種（識別）を確かめて直せます。スキャンした画像の PDF は読み取れません。
       </p>
       <Field label="取り込む PDF">
         <input
@@ -716,7 +716,7 @@ export function PdfImport({ siteId, trades, readOnly }: { siteId: string; trades
               disabled={pending || included.length === 0 || rowErrors.length > 0}
               className={`${primaryButtonClass} sm:flex-1`}
             >
-              {pending ? '取り込み中…' : mode === 'replace' ? '元請けの内訳を全部入れ替える' : '変更の行として足す'}
+              {pending ? '取り込み中…' : mode === 'replace' ? '受注の内訳を全部入れ替える' : '変更の行として足す'}
             </button>
             <button type="button" onClick={reset} disabled={pending} className={secondaryButtonClass}>
               やり直す

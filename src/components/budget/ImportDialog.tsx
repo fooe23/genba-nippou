@@ -119,7 +119,7 @@ export function ImportDialog({
         if (diff.contractItemsCount > 0) {
           const res = await replaceContractItems(siteId, toContractItemInputs(parsed, ids), mode);
           if (!res.ok) {
-            setError(`元請けの内訳を取り込めませんでした（工種${diff.budgetLinesCount > 0 ? '・実行予算' : ''}は取り込み済み）：${res.error}`);
+            setError(`受注の内訳を取り込めませんでした（工種${diff.budgetLinesCount > 0 ? '・実行予算' : ''}は取り込み済み）：${res.error}`);
             router.refresh();
             return;
           }
@@ -148,7 +148,7 @@ export function ImportDialog({
         Excel で入れる・書き出す
       </h2>
       <p className="text-sm text-gray-700 dark:text-gray-300">
-        書き出した Excel（シート「実行予算」「元請けの内訳」「選択肢」）を直して取り込むと、画面で入れたのと同じ中身になります。工種・施工者・項目はプルダウンから選べます。
+        書き出した Excel（シート「実行予算」「受注の内訳」「選択肢」）を直して取り込むと、画面で入れたのと同じ中身になります。工種・施工者・項目はプルダウンから選べます。
       </p>
       <div className="flex flex-col gap-2 sm:flex-row">
         <a href={`/api/budget/template?site=${enc}&mode=current`} className={linkClass}>
@@ -223,12 +223,12 @@ export function ImportDialog({
           </p>
           <div className="space-y-2">
             <p className="text-sm">
-              <span className="font-bold">元請けの内訳：</span>
+              <span className="font-bold">受注の内訳：</span>
               {diff.contractItemsCount > 0 ? `${diff.contractItemsCount} 行を入れます。` : '行が無いので、いまの内訳は変えません。'}
             </p>
             {diff.contractItemsCount > 0 && (
               <fieldset className="space-y-1">
-                <legend className="sr-only">元請けの内訳の取り込み方</legend>
+                <legend className="sr-only">受注の内訳の取り込み方</legend>
                 {(
                   [
                     ['replace', '全部入れ替える（新しい注文書が届いたとき）'],
@@ -245,7 +245,7 @@ export function ImportDialog({
           </div>
           {mode === 'appendChange' && diff.contractItemsCount > 0 && parsed.contractItems.some((i) => i.section === 'initial') && (
             <p role="alert" className="text-sm font-medium text-amber-800 dark:text-amber-300">
-              Excel の元請けの内訳に区分「当初」の行が {parsed.contractItems.filter((i) => i.section === 'initial').length} 行あります。「変更の行として足す」では、それらも「変更」として足されます。「いまの予算・内訳を書き出す」で出した Excel なら、当初の行が二重になります。変更の行だけを残すか、「全部入れ替える」を選んでください。
+              Excel の受注の内訳に区分「当初」の行が {parsed.contractItems.filter((i) => i.section === 'initial').length} 行あります。「変更の行として足す」では、それらも「変更」として足されます。「いまの予算・内訳を書き出す」で出した Excel なら、当初の行が二重になります。変更の行だけを残すか、「全部入れ替える」を選んでください。
             </p>
           )}
           {nothing && <p className="text-sm font-medium">取り込む行がありません。</p>}

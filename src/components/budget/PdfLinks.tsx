@@ -10,7 +10,7 @@ export function budgetPdfSrc(siteId: string, kind: 'setup' | 'report'): string {
 
 /**
  * 「PDF で見る」（アプリの PDF ビューアー。同じタブで開き、「戻る」で back に戻る）と「PDF を保存」（ダウンロード）。
- * 実行予算・元請けの内訳（kind=setup）と予算と実績（kind=report）の画面で使う。
+ * 実行予算・受注の内訳（kind=setup）と予算と実績（kind=report）の画面で使う。
  */
 export function BudgetPdfLinks({ siteId, kind, title, back }: { siteId: string; kind: 'setup' | 'report'; title: string; back: string }) {
   const src = budgetPdfSrc(siteId, kind);

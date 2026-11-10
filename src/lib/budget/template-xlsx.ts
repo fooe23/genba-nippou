@@ -25,7 +25,7 @@ import {
   type ContractItem,
 } from '@/lib/budget/types';
 
-// 実行予算・元請けの内訳の Excel 雛形（取り込み用と同じ形の書き出し）。シート「実行予算」「元請けの内訳」「選択肢」。
+// 実行予算・受注の内訳の Excel 雛形（取り込み用と同じ形の書き出し）。シート「実行予算」「受注の内訳」「選択肢」。
 // 工種・施工者・項目・区分・識別はプルダウン（選択肢のシートを指す。新しい工種の名前も打てるよう警告だけ）。
 // 黄色＝入力、青＝自動計算（金額＝ROUND(数量 × 単価)。取り込みでは読まず、アプリが計算し直す）。見本の行は入れない。
 
@@ -141,7 +141,7 @@ function contractTag(item: ContractItem, names: Map<string, string>): string {
 }
 
 /**
- * 実行予算・元請けの内訳の雛形を作る。data の工種・予算の行・内訳の行をそのまま書く（空の雛形は行の無い data を渡す）。
+ * 実行予算・受注の内訳の雛形を作る。data の工種・予算の行・内訳の行をそのまま書く（空の雛形は行の無い data を渡す）。
  * partners は施工者のプルダウンと、予算の行の会社の名前に使う（協力会社の印のある会社を全部渡す）。
  */
 export async function buildBudgetWorkbook(
@@ -158,9 +158,9 @@ export async function buildBudgetWorkbook(
 }
 
 /**
- * 雛形のシート（実行予算・［元請けの内訳］・選択肢）を wb の後ろに足す。取り込み（parse-template.ts）はシート名で読むので、
+ * 雛形のシート（実行予算・［受注の内訳］・選択肢）を wb の後ろに足す。取り込み（parse-template.ts）はシート名で読むので、
  * ここで足したシートはそのまま取り込める。
- * - contract：元請けの内訳のシートも足す（予算と実績の集計 Excel の ⑦ は false。実行予算だけを取り込み直せるように）。
+ * - contract：受注の内訳のシートも足す（予算と実績の集計 Excel の ⑦ は false。実行予算だけを取り込み直せるように）。
  * - hideChoices：選択肢のシートを隠す（集計 Excel では補助のシート。プルダウンと工種の並びのために置く）。
  */
 export function addBudgetTemplateSheets(
@@ -205,7 +205,7 @@ export function addBudgetTemplateSheets(
   const lastB = FIRST_DATA_ROW + lines.length + SPARE_ROWS - 1;
   styleRows(wsB, lastB, BUDGET_HEADERS.length, { qty: 5, price: 7, amount: 8 }, budgetAmounts);
 
-  // ─── 元請けの内訳 ───
+  // ─── 受注の内訳 ───
   const contract = opts.contract ? writeContractSheet(wb, data.contractItems ?? [], site, tradeNames) : null;
 
   // ─── 選択肢 ───
@@ -234,7 +234,7 @@ function writeContractSheet(
   tradeNames: Map<string, string>,
 ): { ws: ExcelJS.Worksheet; lastRow: number } {
   const wsC = wb.addWorksheet(SHEET_CONTRACT, { properties: { tabColor: { argb: 'FF047857' } } });
-  writeHeader(wsC, `${siteBanner(site, '元請けの内訳')}　経費・減分は工種に入れず、内訳の金額の合計にだけ数えます`, CONTRACT_HEADERS, [8, 36, 18, 10, 8, 12, 14, 16]);
+  writeHeader(wsC, `${siteBanner(site, '受注の内訳')}　経費・減分は工種に入れず、内訳の金額の合計にだけ数えます`, CONTRACT_HEADERS, [8, 36, 18, 10, 8, 12, 14, 16]);
   const items = [...contractItems].sort((a, b) => a.sortOrder - b.sortOrder);
   const contractAmounts = new Map<number, number>();
   items.forEach((it, i) => {
