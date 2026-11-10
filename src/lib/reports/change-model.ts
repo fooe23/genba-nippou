@@ -33,8 +33,9 @@ import type {
 //              ×（1＋諸経費率）＋ 外注）（settlementProposal）。材料 = 仕入の買掛 ＋ 現金。外注（外注の買掛）は率を掛けない
 //   行の提案額 = 追加・増・変更：その行の労務だけで settlementProposal、減：申告額（入力の施工単価 × 数量。負）そのまま
 //   実績原価（参考） = 行の投入人工 × その日の平均日当（laborShare）＋ 根拠にその件を選んだ材料・リース・燃料・外注。減の行は 0
-//              平均日当 = その日の原価に数える労務費 ÷ 原価に数える人工（労務費の決まり src/lib/calc/labor-cost.ts。2026-11-17：
-//              請負の会社の人工は、うち常用の時間の分だけ入る）
+//              平均日当 = その日の原価に数える労務費 ÷ 出面の人工（労務費の決まり src/lib/calc/labor-cost.ts。2026-11-17：
+//              労務費は請負の会社の人工のうち常用の時間の分だけ。分母は出面の全部なので、作業内容の投入人工の和が出面と
+//              同じなら実績原価の和は原価に数える労務費と一致する）
 //   件ごとの精算額 = 一式・見積：確定額、常用：ceil(紐づく行の人工の合計 × 常用単価)（率は掛けない）、
 //              未定：件の提案額（内訳から settlementProposal ＋ 紐づく減の行の申告額）（settleIssue）
 //              区分は件の種別から（settlementCategory）。減の区分の一式・見積・常用は負。やり直しは参考で合計に入れない
@@ -56,7 +57,10 @@ import type {
 export interface DayCostBasis {
   /** 原価に数える労務費（自社・常用の行は amount、請負の行はうち常用の時間の分）。 */
   laborCost: number;
-  /** 原価に数える人工（自社・常用の行は man_days 全部、請負の行はうち常用の分）。 */
+  /**
+   * 出面の人工（労務の行の man_days 全部。請負の行も全部）。平均日当の分母（2026-11-17）：作業内容の投入人工は請負の人工も
+   * 含めて入るので、分母も出面にして、その日の作業内容の行の実績原価の和が原価に数える労務費を超えないようにする。
+   */
   laborManDays: number;
 }
 
@@ -66,13 +70,13 @@ export function dayCostBasis(report: ReportWithLines, ctx: LaborCostContext = EM
     if (l.kind !== 'labor') continue;
     const s = laborCostSplit(l, ctx);
     day.laborCost += s.countedCost;
-    day.laborManDays += s.jouyouManDays;
+    day.laborManDays += s.manDays;
   }
   return day;
 }
 
 /**
- * 行の労務の実績原価 = 行の投入人工 × その日の平均日当（その日の労務費 ÷ その日の労務の人工）。労務の人工が 0 の日は 0。
+ * 行の労務の実績原価 = 行の投入人工 × その日の平均日当（その日の原価に数える労務費 ÷ その日の出面の人工）。労務の人工が 0 の日は 0。
  * 労務の人工と作業内容の投入人工は別に入力するので、合計がその日の労務費と一致するとは限らない。円未満は丸めない。
  */
 export function laborShare(day: DayCostBasis, manDays: number): number {
