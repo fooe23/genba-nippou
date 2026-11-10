@@ -1,13 +1,25 @@
 import type { ChangeTotals } from '@/lib/calc/change';
 import type { ChangeKind, SettlementMethod } from '@/lib/types';
 
-// 契約内の作業と、契約外（追加・増・変更・減。精算が必要）の作業を分けて見せるための純関数（日報の画面・PDF で共通）。
+// 契約内の作業と、契約外（追加・増・変更・減。精算が必要）の作業を分けて見せるための純関数（日報の画面・PDF で共通）と、
+// 作業員と作業内容の人工のずれ・精算の金額の無い行の知らせ。
 
 /** (a) 人工のある作業員がいるのに、作業内容の行が無い。 */
 export const MISSING_CONTRACT_WORK_NONE = '作業員の人工がありますが、作業内容が入っていません。契約内の作業を入れてください。';
 /** (b) 人工のある作業員がいて、作業内容が追加・増・変更・減の行だけ。 */
 export const MISSING_CONTRACT_WORK_ALL_CHANGES =
   '作業内容が追加・変更の行だけです。契約内の作業が入っていないと、作業員の人工が全部その件に付きます。';
+
+/** (c) 作業員の人工の合計と、作業内容の投入人工の合計が合わない。 */
+export function manDaysMismatchMessage(workers: number, work: number): string {
+  return `作業員の人工（${manDaysText(workers)} 人工）と作業内容の投入人工（${manDaysText(work)} 人工）が合っていません。`;
+}
+
+/** 人工の表示（小数 1 桁は必ず付け、2 桁目があれば 2 桁：1 → '1.0'、1.5 → '1.5'、0.25 → '0.25'）。 */
+export function manDaysText(n: number): string {
+  const two = (Math.round(n * 100) / 100).toFixed(2);
+  return two.endsWith('0') ? two.slice(0, -1) : two;
+}
 
 /** 区分が契約外（追加・増・変更・減）で、あとで精算が必要な行か。 */
 export function needsSettlement(changeKind: ChangeKind): boolean {
@@ -23,6 +35,24 @@ export function contractWorkWarning(laborManDays: readonly number[], work: reado
   if (work.length === 0) return MISSING_CONTRACT_WORK_NONE;
   if (work.every((l) => needsSettlement(l.changeKind))) return MISSING_CONTRACT_WORK_ALL_CHANGES;
   return null;
+}
+
+/**
+ * 作業員の人工の合計（人工が 0 より大きい行だけ）と作業内容の投入人工の合計（空欄は 0）がずれているときの知らせ（保存は止めない）。
+ * 作業員の人工が 0・作業内容の行が無いときは出さない（(a) の知らせのほうを出す）。差が 0.01 人工未満なら出さない。
+ */
+export function manDaysMismatchWarning(laborManDays: readonly number[], work: readonly { manDays: number | null }[]): string | null {
+  const workers = laborManDays.filter((d) => Number.isFinite(d) && d > 0).reduce((s, d) => s + d, 0);
+  if (workers <= 0 || work.length === 0) return null;
+  const planned = work.reduce((s, l) => s + (l.manDays !== null && Number.isFinite(l.manDays) ? l.manDays : 0), 0);
+  // 浮動小数の誤差（0.1 ＋ 0.2 など）を落としてから比べる
+  if (Math.round(Math.abs(workers - planned) * 1e6) / 1e6 < 0.01) return null;
+  return manDaysMismatchMessage(workers, planned);
+}
+
+/** 作業員と作業内容の知らせ（当てはまるものを全部。(a)・(b) のどちらかと人工のずれ）。無ければ空。 */
+export function workWarnings(laborManDays: readonly number[], work: readonly { changeKind: ChangeKind; manDays: number | null }[]): string[] {
+  return [contractWorkWarning(laborManDays, work), manDaysMismatchWarning(laborManDays, work)].filter((m): m is string => m !== null);
 }
 
 /**

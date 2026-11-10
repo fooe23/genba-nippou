@@ -44,7 +44,7 @@ export function ReportSummary({
   tentative = false,
   estimatedAmount = null,
   showMoney,
-  workWarning = null,
+  workWarnings = [],
 }: {
   totals: ReportTotals;
   /** 作業内容の区分ごとの金額（減は負）。 */
@@ -57,8 +57,8 @@ export function ReportSummary({
   estimatedAmount?: number | null;
   /** 請負金額・概算金額・進捗率を出すか（社員・管理者だけ true。協力会社は行ごと出さない）。 */
   showMoney: boolean;
-  /** 作業内容が無い・契約外だけの日の知らせ（編集できる画面だけ。1 行で出す）。 */
-  workWarning?: string | null;
+  /** 作業内容が無い・契約外だけ・人工のずれの知らせ（編集できる画面だけ。1 つ 1 行で出す）。 */
+  workWarnings?: readonly string[];
 }) {
   const cumulative = outputBefore + totals.output;
   const changeLine = changeText(changes);
@@ -66,7 +66,7 @@ export function ReportSummary({
   const rate = showMoney && contractAmount ? progressRate(cumulative, contractAmount) * 100 : null;
   return (
     <section aria-label="本日の集計" className="mb-8 grid gap-4 md:grid-cols-2">
-      <ContractWorkWarning message={workWarning} variant="line" className="md:col-span-2" />
+      <ContractWorkWarning messages={workWarnings} variant="line" className="md:col-span-2" />
       <div className="rounded-lg border border-gray-300 p-3 dark:border-gray-700">
         <h2 className="mb-1 text-lg font-bold">本日原価集計</h2>
         <dl>

@@ -20,7 +20,7 @@ import type { Issue, ReportFixRequest } from '@/lib/db/reports';
 import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
 import { issueOptions } from '@/lib/report/issue-options';
-import { contractWorkWarning } from '@/lib/report/contract-work';
+import { workWarnings as buildWorkWarnings } from '@/lib/report/contract-work';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeWarning } from '@/lib/report/unlinked-change-lines';
 import {
   INSTRUCTION_METHODS,
@@ -413,13 +413,14 @@ function ReportFormBody({
   }, [input, p.siteStartDate, p.today, p.masters.siteTrades, submittable, unlinked]);
   const dirty = json !== baseline;
   const changes = useMemo(() => changeTotals(state.rows.work.map((r) => r.line)), [state.rows.work]);
-  // 作業員の人工があるのに契約内の作業内容が無い日の知らせ（編集できる画面だけ。保存は止めない）。作業員を選んだ（名前のある）行だけ数える。
-  const workWarning = useMemo(() => {
-    if (p.readOnly) return null;
+  // 作業員の人工があるのに契約内の作業内容が無い日・作業員と作業内容の人工がずれている日の知らせ（編集できる画面だけ。
+  // 保存は止めない。当てはまるものを全部）。作業員を選んだ（名前のある）行だけ数える。
+  const workWarnings = useMemo((): string[] => {
+    if (p.readOnly) return [];
     const days = state.rows.labor
       .filter((r) => r.line.workerId !== null || r.line.workerName.trim() !== '')
       .map((r) => laborLineValues(r.line, state.common, p.rule).manDays);
-    return contractWorkWarning(days, state.rows.work.map((r) => r.line));
+    return buildWorkWarnings(days, state.rows.work.map((r) => r.line));
   }, [p.readOnly, p.rule, state.common, state.rows.labor, state.rows.work]);
   // 作業内容の根拠の件の候補：この日報の件と、現場の対応中の件（重複は WorkTable で除く）。
   // この日報に保存済みの作業員の所属・常用請負（サーバーが保存し直しで使う写しと同じ。表示をそろえる）。
@@ -673,7 +674,7 @@ function ReportFormBody({
             : '保存済み';
 
   return (
-    <div className={workWarning && !p.readOnly && !p.review ? 'pb-56' : 'pb-28'}>
+    <div className={workWarnings.length > 0 && !p.readOnly && !p.review ? 'pb-56' : 'pb-28'}>
       {!p.review && (
         <IssueBanner
           issues={p.openIssues}
@@ -906,7 +907,7 @@ function ReportFormBody({
           trades={p.masters.siteTrades ?? []}
           issueChoices={issueChoices}
         />
-        <ContractWorkWarning message={workWarning} className="mb-3" />
+        <ContractWorkWarning messages={workWarnings} className="mb-3" />
         <WorkTable
           rows={state.rows.work}
           onChange={setRows('work')}
@@ -927,7 +928,7 @@ function ReportFormBody({
           tentative={p.contractTentative}
           estimatedAmount={p.estimatedAmount}
           showMoney={p.isStaff}
-          workWarning={workWarning}
+          workWarnings={workWarnings}
         />
 
         <section aria-label="重要事項・連絡事項" className="mb-6 grid gap-4 md:grid-cols-2">
@@ -1027,7 +1028,7 @@ function ReportFormBody({
       {!p.readOnly && !p.review && (
         <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-10 border-t border-gray-300 bg-background/95 px-4 py-2 backdrop-blur dark:border-gray-700">
           {/* 保存ボタンのすぐ上にも出す（保存は止めない）。 */}
-          <ContractWorkWarning message={workWarning} variant="compact" className="mx-auto mb-2 max-w-6xl" />
+          <ContractWorkWarning messages={workWarnings} variant="compact" className="mx-auto mb-2 max-w-6xl" />
           <div className="mx-auto flex max-w-6xl items-center justify-between gap-2">
             <span className="min-w-0 truncate text-sm" aria-live="polite">
               {statusNote}
