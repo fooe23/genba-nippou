@@ -326,6 +326,19 @@ alter table public.gn_report_lines add column if not exists labor_contract text
 alter table public.gn_report_lines add column if not exists affiliation text
   check (affiliation in ('own','partner'));
 alter table public.gn_report_lines add column if not exists supplier_id uuid references public.gn_suppliers(id);
+-- 買掛の区分とうち常用の時間（2026-11-17。update_2026-11-17_subcontract.sql）。どちらも null 可・既定なし。
+--   * purchase_kind：買掛の行の区分。null・'material'＝仕入、'subcontract'＝外注（請負の支払い。工種 site_trade_id を持てる）。
+--     外注の買掛の行は社員・管理者だけが読み書きできる（RLS）。日報の cost_total には入れない（gn_save_report）。
+--   * jouyou_hours：作業員の行の「うち常用の時間」（時間）。請負の作業員の行で、常用として働いた時間。空欄は全部が請負。
+--   check は列の定義に書かない（自動の名前 gn_report_lines_<列>_check と重ねないため）。
+alter table public.gn_report_lines add column if not exists purchase_kind text;
+alter table public.gn_report_lines add column if not exists jouyou_hours numeric;
+alter table public.gn_report_lines drop constraint if exists gn_report_lines_purchase_kind_ck;
+alter table public.gn_report_lines add constraint gn_report_lines_purchase_kind_ck
+  check (purchase_kind is null or purchase_kind in ('material','subcontract'));
+alter table public.gn_report_lines drop constraint if exists gn_report_lines_jouyou_hours_ck;
+alter table public.gn_report_lines add constraint gn_report_lines_jouyou_hours_ck
+  check (jouyou_hours is null or (jouyou_hours >= 0 and jouyou_hours <= 24));
 -- 既存の労務の行を自社で埋める処理は update_2026-11-07_worker_affiliation.sql にある（承認済みの行も対象にするためガードを外す）。
 
 create table if not exists public.gn_carryovers (
@@ -981,6 +994,8 @@ create trigger gn_report_issues_delete_guard before delete on public.gn_report_i
 -- 労務の行の常用・請負と所属の写し（labor_contract・affiliation・supplier_id。2026-11-07）も p_lines から書く（労務の行だけ。他は null）。
 -- 作業内容の行の実行予算の工種（site_trade_id。2026-11-15。update_2026-11-15_budget.sql）も p_lines から書く（作業内容の行だけ。他は null）。
 -- 列と表（gn_site_trades）はこのファイルの末尾の「積算連携」で足す（plpgsql の本体は実行するときに解決されるので、ここで定義してよい）。
+-- 2026-11-17（update_2026-11-17_subcontract.sql）：買掛の区分（purchase_kind）・うち常用の時間（jouyou_hours）を書く。工種は外注の買掛の行にも、
+-- 根拠の件は作業員以外の行に書く。cost_total は外注の買掛を除いた合計（外注を含む原価はアプリが明細から出す）。
 create or replace function public.gn_save_report(p_report jsonb, p_lines jsonb)
 returns uuid language plpgsql security invoker set search_path = public as $$
 declare
@@ -1036,7 +1051,8 @@ begin
     overtime_hours, overtime_rate,
     change_kind, instructed_by, instruction_method, instructed_on, issue_id,
     labor_contract, affiliation, supplier_id,
-    site_trade_id
+    site_trade_id,
+    purchase_kind, jouyou_hours
   )
   select
     v_id, t.kind, coalesce(t.sort_order, e.ord::int), t.ref_id, t.name, t.spec, t.unit,
@@ -1045,13 +1061,19 @@ begin
     t.description, t.productivity, t.source, t.note,
     t.overtime_hours, t.overtime_rate,
     -- 区分は not null。送られない（作業内容以外の行・古い画面）なら契約内。
-    coalesce(t.change_kind, 'contract'), t.instructed_by, t.instruction_method, t.instructed_on, t.issue_id,
+    coalesce(t.change_kind, 'contract'), t.instructed_by, t.instruction_method, t.instructed_on,
+    -- 根拠の件（2026-11-17）は作業員以外の行（作業内容・燃料・リース・現金・買掛）。作業員の行は null。
+    case when t.kind <> 'labor' then t.issue_id end,
     -- 常用・請負とその日の所属の写し（2026-11-07）は労務の行だけ。それ以外の行は null。
     case when t.kind = 'labor' then t.labor_contract end,
     case when t.kind = 'labor' then t.affiliation end,
     case when t.kind = 'labor' then t.supplier_id end,
-    -- 実行予算の工種（2026-11-15）は作業内容の行だけ。それ以外の行は null。
-    case when t.kind = 'work' then t.site_trade_id end
+    -- 実行予算の工種（2026-11-15）は作業内容の行と、外注の買掛の行（2026-11-17）だけ。それ以外の行は null。
+    case when t.kind = 'work' or (t.kind = 'credit' and t.purchase_kind = 'subcontract') then t.site_trade_id end,
+    -- 買掛の区分（2026-11-17。null・'material'＝仕入、'subcontract'＝外注）は買掛の行だけ。
+    case when t.kind = 'credit' then t.purchase_kind end,
+    -- うち常用の時間（2026-11-17）は作業員の行だけ。
+    case when t.kind = 'labor' then t.jouyou_hours end
   from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) with ordinality as e(elem, ord),
        lateral jsonb_populate_record(null::public.gn_report_lines, e.elem) as t
   order by coalesce(t.sort_order, e.ord::int), e.ord;
@@ -1062,8 +1084,11 @@ begin
   update public.gn_daily_reports r set
     output_total   = coalesce((select sum(l.amount)   from public.gn_report_lines l
                                 where l.report_id = v_id and l.kind = 'work'), 0),
+    -- 原価の合計は外注の買掛を除く（2026-11-17。協力会社も読める列から外注の支払いが分からないように）。
+    -- 外注を含む原価はアプリが明細から出す。
     cost_total     = coalesce((select sum(l.amount)   from public.gn_report_lines l
-                                where l.report_id = v_id and l.kind <> 'work'), 0),
+                                where l.report_id = v_id and l.kind <> 'work'
+                                  and not (l.kind = 'credit' and l.purchase_kind is not distinct from 'subcontract')), 0),
     man_days_total = coalesce((select sum(l.man_days) from public.gn_report_lines l
                                 where l.report_id = v_id and l.kind = 'labor'), 0)
   where r.id = v_id;
@@ -1382,14 +1407,26 @@ drop policy if exists gn_report_issues_delete on public.gn_report_issues;
 create policy gn_report_issues_delete on public.gn_report_issues for delete to authenticated using (public.gn_is_site_member(site_id));
 
 -- 日報明細：親日報の site_id で同じ条件
+-- 外注の買掛の行（purchase_kind = 'subcontract'）は社員・管理者だけ（2026-11-17）。
 drop policy if exists gn_report_lines_select on public.gn_report_lines;
-create policy gn_report_lines_select on public.gn_report_lines for select to authenticated using (exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id)));
+create policy gn_report_lines_select on public.gn_report_lines for select to authenticated using (
+  exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id))
+  and (gn_report_lines.kind <> 'credit' or gn_report_lines.purchase_kind is distinct from 'subcontract' or public.gn_is_employee_or_admin()));
 drop policy if exists gn_report_lines_insert on public.gn_report_lines;
-create policy gn_report_lines_insert on public.gn_report_lines for insert to authenticated with check (exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id)));
+create policy gn_report_lines_insert on public.gn_report_lines for insert to authenticated with check (
+  exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id))
+  and (gn_report_lines.kind <> 'credit' or gn_report_lines.purchase_kind is distinct from 'subcontract' or public.gn_is_employee_or_admin()));
 drop policy if exists gn_report_lines_update on public.gn_report_lines;
-create policy gn_report_lines_update on public.gn_report_lines for update to authenticated using (exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id))) with check (exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id)));
+create policy gn_report_lines_update on public.gn_report_lines for update to authenticated using (
+  exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id))
+  and (gn_report_lines.kind <> 'credit' or gn_report_lines.purchase_kind is distinct from 'subcontract' or public.gn_is_employee_or_admin()))
+  with check (
+  exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id))
+  and (gn_report_lines.kind <> 'credit' or gn_report_lines.purchase_kind is distinct from 'subcontract' or public.gn_is_employee_or_admin()));
 drop policy if exists gn_report_lines_delete on public.gn_report_lines;
-create policy gn_report_lines_delete on public.gn_report_lines for delete to authenticated using (exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id)));
+create policy gn_report_lines_delete on public.gn_report_lines for delete to authenticated using (
+  exists (select 1 from public.gn_daily_reports r where r.id = gn_report_lines.report_id and public.gn_is_site_member(r.site_id))
+  and (gn_report_lines.kind <> 'credit' or gn_report_lines.purchase_kind is distinct from 'subcontract' or public.gn_is_employee_or_admin()));
 
 -- 協力会社アカウントの会社（2026-11-07）：本人と社員・管理者が読める。書けるのは管理者だけ。
 alter table public.gn_partner_accounts enable row level security;
@@ -2707,7 +2744,8 @@ drop trigger if exists gn_trade_progress_guard on public.gn_trade_progress;
 create trigger gn_trade_progress_guard before insert on public.gn_trade_progress
   for each row execute function public.gn_trade_progress_guard();
 
--- 日報の行の工種：作業内容以外の行は null にする。作業内容の行の工種は日報の現場のもの（trade_not_in_site）。
+-- 日報の行の工種・根拠の件（2026-11-17 に外注の買掛の工種と根拠の件の検査を足した。update_2026-11-17_subcontract.sql）。
+-- 作業内容の行と外注の買掛の行（2026-11-17）の工種は日報の現場のもの（trade_not_in_site）。それ以外の行（仕入の買掛を含む）は null。
 -- 承認済みの鍵・完了現場は gn_report_lines_guard が見る（このトリガーは工種だけを見る）。
 create or replace function public.gn_report_lines_trade()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -2717,7 +2755,7 @@ begin
   if new.site_trade_id is null then
     return new;
   end if;
-  if new.kind <> 'work' then
+  if not (new.kind = 'work' or (new.kind = 'credit' and new.purchase_kind = 'subcontract')) then
     new.site_trade_id := null;
     return new;
   end if;
@@ -2731,6 +2769,50 @@ $$;
 drop trigger if exists gn_report_lines_trade on public.gn_report_lines;
 create trigger gn_report_lines_trade before insert or update on public.gn_report_lines
   for each row execute function public.gn_report_lines_trade();
+
+-- 根拠の件（issue_id）は日報の現場の件（issue_not_in_site）。作業員の行は null にする。件は RLS に関係なく読む。
+create or replace function public.gn_report_lines_issue()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  v_site  uuid;
+  v_isite uuid;
+begin
+  if new.issue_id is null then
+    return new;
+  end if;
+  if new.kind = 'labor' then
+    new.issue_id := null;
+    return new;
+  end if;
+  select r.site_id into v_site from public.gn_daily_reports r where r.id = new.report_id;
+  select i.site_id into v_isite from public.gn_report_issues i where i.id = new.issue_id;
+  if v_site is null or v_isite is null or v_isite <> v_site then
+    raise exception using message = 'issue_not_in_site';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists gn_report_lines_issue on public.gn_report_lines;
+create trigger gn_report_lines_issue before insert or update on public.gn_report_lines
+  for each row execute function public.gn_report_lines_issue();
+
+-- 請負の会社の一覧（2026-11-17）。
+-- その現場の実行予算で請負（subcontract）の行に入っている会社の id（重複なし）。金額は返さない。
+-- 呼んだ人がその現場のメンバー（gn_is_site_member。協力会社も）のときだけ返す。それ以外は 0 行。
+create or replace function public.gn_site_ukeoi_suppliers(p_site uuid)
+returns table (supplier_id uuid)
+language sql stable security definer set search_path = public as $$
+  select distinct b.supplier_id
+    from public.gn_budget_lines b
+   where auth.uid() is not null
+     and p_site is not null
+     and b.site_id = p_site
+     and b.item = 'subcontract'
+     and b.supplier_id is not null
+     and public.gn_is_site_member(p_site);
+$$;
+revoke all on function public.gn_site_ukeoi_suppliers(uuid) from public, anon;
+grant execute on function public.gn_site_ukeoi_suppliers(uuid) to authenticated;
 
 -- 工種の一覧をまとめて保存する（画面の「工種」の保存・Excel の取り込み）。p_trades は今の一覧の全部（並びの順）：
 --   [{ "id": 既存の工種の id か null（新しい工種）, "name": 名前 }, ...]

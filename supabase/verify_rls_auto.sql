@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］、20 は積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合［update_2026-11-15］、21 は現場のお金の列［update_2026-11-16］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］、20 は積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合［update_2026-11-15］、21 は現場のお金の列［update_2026-11-16］、22 は外注の買掛・行の根拠の件・請負の会社の一覧［update_2026-11-17］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -2596,6 +2596,195 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 21 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 22. 外注の買掛・行の根拠の件・請負の会社の一覧（update_2026-11-17） =====
+  -- 現場 S22（進行中）：A＝協力会社の担当（staff）、C＝社員（割り当てなし）。現場 O22 はほかの現場（A・C とも割り当てなし）。
+  -- 会社 P22 は協力会社の印あり。工種 tr22 は S22、tro22 は O22 のもの。
+  declare
+    s22  uuid := '00000000-0000-0000-0000-000000002201';
+    o22  uuid := '00000000-0000-0000-0000-000000002202';
+    p22  uuid := '00000000-0000-0000-0000-000000002211';
+    tr22 uuid; tro22 uuid; r22 uuid; ro22 uuid; i22 uuid; io22 uuid; lines22 jsonb;
+  begin
+    insert into public.gn_sites (id, name, status) values (s22, '検証現場S22', 'active'), (o22, '検証現場O22', 'active');
+    insert into public.gn_site_members (site_id, user_id, role) values (s22, v_a, 'staff');
+    insert into public.gn_suppliers (id, name, is_vendor, is_partner) values (p22, '検証協力会社P22', false, true);
+    insert into public.gn_site_trades (site_id, name) values (s22, 'タイル') returning id into tr22;
+    insert into public.gn_site_trades (site_id, name) values (o22, 'ほかの現場の工種') returning id into tro22;
+    insert into public.gn_budget_lines (site_id, trade_id, performer, supplier_id, item, qty, unit, unit_price)
+      values (s22, tr22, 'partner', p22, 'subcontract', 1, '式', 270000);
+    insert into public.gn_daily_reports (site_id, report_date) values (o22, '2027-02-01') returning id into ro22;
+    insert into public.gn_report_issues (site_id, report_id, body, kind) values (o22, ro22, 'ほかの現場の件', 'extra') returning id into io22;
+    -- 協力会社 A にも見える行（現金 ¥1,000・仕入の買掛 ¥18,000）
+    lines22 := jsonb_build_array(
+      jsonb_build_object('kind', 'cash', 'sort_order', 1, 'name', '釘', 'qty', 1, 'unit_price', 1000),
+      jsonb_build_object('kind', 'credit', 'sort_order', 2, 'name', 'タイル 200角', 'qty', 2, 'unit_price', 9000,
+                         'purchase_kind', 'material', 'site_trade_id', tr22));
+
+    -- 22-1 社員は外注の買掛（工種つき）を保存できる。仕入の買掛の工種は null。cost_total は外注を除く
+    begin
+      perform pg_temp.as_user(v_c);
+      select public.gn_save_report(jsonb_build_object('site_id', s22, 'report_date', '2027-02-01', 'weather', '晴れ'),
+        lines22 || jsonb_build_array(
+          jsonb_build_object('kind', 'credit', 'sort_order', 3, 'name', 'タイル工事', 'qty', 1, 'unit_price', 100000,
+                             'ref_id', p22, 'purchase_kind', 'subcontract', 'site_trade_id', tr22))) into r22;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_lines where report_id = r22 and kind = 'credit' and purchase_kind = 'subcontract' and site_trade_id = tr22;
+      select count(*) into n2 from public.gn_report_lines where report_id = r22 and kind = 'credit' and purchase_kind = 'material' and site_trade_id is null;
+      select cost_total into num from public.gn_daily_reports where id = r22;
+      if n = 1 and n2 = 1 and num = 19000 then
+        rep := rep || E'PASS 22-1 社員は外注の買掛を工種つきで保存できる（仕入の買掛の工種は null・cost_total は外注を除く）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-1 外注=%s 仕入=%s cost_total=%s\n', n, n2, num); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 22-1 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 22-2 協力会社 A は外注の買掛の行を読めない（ほかの行は読める）
+    perform pg_temp.as_user(v_a);
+    select count(*) into n from public.gn_report_lines where report_id = r22;
+    select count(*) into n2 from public.gn_report_lines where report_id = r22 and purchase_kind = 'subcontract';
+    perform pg_temp.as_editor();
+    if n = 2 and n2 = 0 then rep := rep || E'PASS 22-2 協力会社Aは外注の買掛の行を読めない（ほかの行は読める）\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 22-2 Aに見える行=%s 外注=%s\n', n, n2); end if;
+
+    -- 22-3 協力会社 A は外注の買掛の行を足せない（RLS）
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_lines (report_id, kind, sort_order, name, qty, unit_price, purchase_kind)
+        values (r22, 'credit', 9, '勝手な外注', 1, 1, 'subcontract');
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 22-3 協力会社が外注の買掛の行を足せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%row-level security%' then rep := rep || E'PASS 22-3 協力会社は外注の買掛の行を足せない（RLS）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-3 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 22-4 協力会社 A が外注の買掛の行を消しても 0 行、仕入の行を外注に変えることもできない
+    begin
+      perform pg_temp.as_user(v_a);
+      delete from public.gn_report_lines where report_id = r22 and purchase_kind = 'subcontract';
+      get diagnostics n = row_count;
+      perform pg_temp.as_editor();
+      select count(*) into n2 from public.gn_report_lines where report_id = r22 and purchase_kind = 'subcontract';
+      if n = 0 and n2 = 1 then rep := rep || E'PASS 22-4 協力会社Aが外注の買掛の行を消しても 0 行\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-4 消えた=%s 残り=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 22-4 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_lines set purchase_kind = 'subcontract' where report_id = r22 and kind = 'credit';
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 22-4b 協力会社が仕入の買掛を外注に変えられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%row-level security%' then rep := rep || E'PASS 22-4b 協力会社は仕入の買掛を外注に変えられない（RLS）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-4b 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 22-5 協力会社 A が同じ日報を保存し直しても、外注の行は残り、cost_total は変わらない
+    begin
+      perform pg_temp.as_user(v_a);
+      perform public.gn_save_report(jsonb_build_object('site_id', s22, 'report_date', '2027-02-01', 'weather', '曇り'), lines22);
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_lines where report_id = r22 and purchase_kind = 'subcontract';
+      select count(*) into n2 from public.gn_report_lines where report_id = r22;
+      select cost_total into num from public.gn_daily_reports where id = r22;
+      if n = 1 and n2 = 3 and num = 19000 then
+        rep := rep || E'PASS 22-5 協力会社が保存し直しても外注の行は残り、cost_total は同じ\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-5 外注=%s 行=%s cost_total=%s\n', n, n2, num); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 22-5 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 22-6 外注の買掛にほかの現場の工種は入らない（trade_not_in_site）
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_report(jsonb_build_object('site_id', s22, 'report_date', '2027-02-02', 'weather', '晴れ'),
+        jsonb_build_array(jsonb_build_object('kind', 'credit', 'sort_order', 1, 'name', '外注', 'qty', 1, 'unit_price', 1,
+                                             'purchase_kind', 'subcontract', 'site_trade_id', tro22)));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 22-6 外注の買掛にほかの現場の工種を保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%trade_not_in_site%' then rep := rep || E'PASS 22-6 外注の買掛にほかの現場の工種は入らない（trade_not_in_site）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-6 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 22-7 根拠の件：この現場の件は現金・リースの行に残り、作業員の行は null。ほかの現場の件は断る（issue_not_in_site）
+    begin
+      insert into public.gn_report_issues (site_id, report_id, body, kind) values (s22, r22, '門柱のタイル追加', 'extra') returning id into i22;
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_report(jsonb_build_object('site_id', s22, 'report_date', '2027-02-03', 'weather', '晴れ'),
+        jsonb_build_array(
+          jsonb_build_object('kind', 'cash', 'sort_order', 1, 'name', '目地材', 'qty', 1, 'unit_price', 500, 'issue_id', i22),
+          jsonb_build_object('kind', 'lease', 'sort_order', 2, 'name', '足場', 'qty', 1, 'unit_price', 15000, 'issue_id', i22),
+          jsonb_build_object('kind', 'labor', 'sort_order', 3, 'name', '山田', 'unit_price', 20000, 'issue_id', i22, 'jouyou_hours', 4)));
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_lines l join public.gn_daily_reports r on r.id = l.report_id
+       where r.site_id = s22 and r.report_date = '2027-02-03' and l.kind in ('cash','lease') and l.issue_id = i22;
+      select count(*) into n2 from public.gn_report_lines l join public.gn_daily_reports r on r.id = l.report_id
+       where r.site_id = s22 and r.report_date = '2027-02-03' and l.kind = 'labor' and l.issue_id is null and l.jouyou_hours = 4;
+      if n = 2 and n2 = 1 then rep := rep || E'PASS 22-7 根拠の件は現金・リースの行に残り、作業員の行は null（うち常用の時間は残る）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-7 根拠つき=%s 作業員=%s\n', n, n2); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 22-7 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_report(jsonb_build_object('site_id', s22, 'report_date', '2027-02-04', 'weather', '晴れ'),
+        jsonb_build_array(jsonb_build_object('kind', 'cash', 'sort_order', 1, 'name', '釘', 'qty', 1, 'unit_price', 1, 'issue_id', io22)));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 22-7b ほかの現場の件を根拠にできた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%issue_not_in_site%' then rep := rep || E'PASS 22-7b ほかの現場の件は根拠にできない（issue_not_in_site）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-7b 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 22-8 区分・うち常用の時間の制約（gn_report_lines_purchase_kind_ck・gn_report_lines_jouyou_hours_ck）
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_report(jsonb_build_object('site_id', s22, 'report_date', '2027-02-05', 'weather', '晴れ'),
+        jsonb_build_array(jsonb_build_object('kind', 'credit', 'sort_order', 1, 'name', 'x', 'qty', 1, 'unit_price', 1, 'purchase_kind', 'other')));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 22-8 区分に想定外の値を保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%gn_report_lines_purchase_kind_ck%' then rep := rep || E'PASS 22-8 買掛の区分は仕入・外注だけ\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-8 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_report(jsonb_build_object('site_id', s22, 'report_date', '2027-02-05', 'weather', '晴れ'),
+        jsonb_build_array(jsonb_build_object('kind', 'labor', 'sort_order', 1, 'name', '山田', 'unit_price', 20000, 'jouyou_hours', 25)));
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 22-8b うち常用の時間に 25 を保存できた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%gn_report_lines_jouyou_hours_ck%' then rep := rep || E'PASS 22-8b うち常用の時間は 0〜24\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-8b 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 22-9 請負の会社の一覧：メンバーの協力会社 A には会社の id だけ、メンバーでない人（B）には 0 行
+    perform pg_temp.as_user(v_a);
+    select count(*), max(supplier_id::text) into n, t from public.gn_site_ukeoi_suppliers(s22);
+    perform pg_temp.as_user(v_b);
+    select count(*) into n2 from public.gn_site_ukeoi_suppliers(s22);
+    perform pg_temp.as_editor();
+    if n = 1 and t = p22::text and n2 = 0 then rep := rep || E'PASS 22-9 請負の会社の一覧はメンバーにだけ会社の id を返す\n';
+    else fails := fails + 1; rep := rep || format(E'FAIL 22-9 A=%s (%s) B=%s\n', n, t, n2); end if;
+
+    -- 22-10 承認済みの日報の行は今まで通り変えられない（approved_report_locked）
+    begin
+      perform pg_temp.as_user(v_admin);
+      update public.gn_daily_reports set status = 'approved', approved_by = v_admin, approved_at = now() where id = r22;
+      perform pg_temp.as_user(v_c);
+      perform public.gn_save_report(jsonb_build_object('site_id', s22, 'report_date', '2027-02-01', 'weather', '雨'), lines22);
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 22-10 承認済みの日報を保存し直せた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%approved_report_locked%' then rep := rep || E'PASS 22-10 承認済みの日報は保存し直せない（approved_report_locked）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 22-10 想定外: %s\n', sqlerrm); end if;
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 22 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====
