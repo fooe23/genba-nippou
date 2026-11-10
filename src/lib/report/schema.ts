@@ -300,10 +300,11 @@ function isBefore(start: string | null, end: string | null): boolean {
 /**
  * 保存は止めない警告。ctx があれば日付の前後も確認する。
  * siteHasTrades が false（実行予算の工種の無い現場）なら、外注の買掛の工種の警告は出さない（省略は工種のある現場として扱う）。
+ * jouyouRates は会社 id → 実行予算の常用の単価（労務費の決まり src/lib/calc/labor-cost.ts）。請負の行の日当の警告に使う。
  */
 export function reportWarnings(
   input: SaveInput,
-  ctx?: { siteStartDate: string | null; today: string; siteHasTrades?: boolean },
+  ctx?: { siteStartDate: string | null; today: string; siteHasTrades?: boolean; jouyouRates?: Readonly<Record<string, number>> },
 ): string[] {
   const w: string[] = [];
   if (ctx) {
@@ -319,11 +320,18 @@ export function reportWarnings(
       laborCount++;
       const name = line.workerName ? laborDisplayName(line) : `${laborCount}行目`;
       if (isBefore(line.time.start, line.time.end)) w.push(`作業員「${name}」：終了が開始より前です`);
-      if (line.workerName && line.dailyRate === null) w.push(`作業員「${name}」：日当が未設定です（労務費が0円になります）`);
-      // うち常用の時間が実働を超える（請負の行だけ。2026-11-17。全部を常用として数える）
       if (line.laborContract === 'ukeoi') {
+        // 請負の行は原価 0 が決まり（2026-11-11 利用者）。うち常用の時間があるのに単価（日当・実行予算の常用の単価）が無いときだけ知らせる
+        const hasJouyou = line.jouyouHours != null && line.jouyouHours > 0;
+        const budgetRate = line.supplierId ? ctx?.jouyouRates?.[line.supplierId] : undefined;
+        if (line.workerName && hasJouyou && line.dailyRate === null && budgetRate === undefined) {
+          w.push(`作業員「${name}」：うち常用の時間がありますが、常用の単価（日当）が未設定です`);
+        }
+        // うち常用の時間が実働を超える（請負の行だけ。2026-11-17。全部を常用として数える）
         const jw = jouyouHoursWarning(name, line.jouyouHours, effectiveHours(line.time, input.common));
         if (jw) w.push(jw);
+      } else if (line.workerName && line.dailyRate === null) {
+        w.push(`作業員「${name}」：日当が未設定です（労務費が0円になります）`);
       }
     } else if (line.kind === 'fuel') {
       if (line.vehicleName && !line.kmPerL) w.push(`車両「${line.vehicleName}」：燃費が未設定です（燃料費が0円になります）`);

@@ -171,8 +171,22 @@ describe('入力の検証', () => {
   });
   it('警告：日当の未設定・うち常用の時間の超過は表示名で出す', () => {
     const w = reportWarnings(input([unnamed(2, { dailyRate: null, laborContract: 'ukeoi', jouyouHours: 9 })]));
-    expect(w).toContain('作業員「東北建興（名前なし）2名」：日当が未設定です（労務費が0円になります）');
-    expect(w.some((x) => x.startsWith('作業員「東北建興（名前なし）2名」：うち常用の時間'))).toBe(true);
+    expect(w).toContain('作業員「東北建興（名前なし）2名」：うち常用の時間がありますが、常用の単価（日当）が未設定です');
+    expect(w.some((x) => x.startsWith('作業員「東北建興（名前なし）2名」：うち常用の時間（'))).toBe(true);
+    expect(reportWarnings(input([unnamed(2, { dailyRate: null })]))).toContain('作業員「東北建興（名前なし）2名」：日当が未設定です（労務費が0円になります）');
+  });
+  it('請負の行は原価 0 が決まり：うち常用の時間が空なら日当の未設定を知らせない（名前あり・名前なし）', () => {
+    const named = unnamed(null, { workerName: '佐藤', dailyRate: null, laborContract: 'ukeoi', jouyouHours: null });
+    const w = reportWarnings(input([unnamed(1, { dailyRate: null, laborContract: 'ukeoi', jouyouHours: null }), named]));
+    expect(w.filter((x) => x.includes('日当'))).toEqual([]);
+  });
+  it('請負の行でうち常用の時間があれば、日当も実行予算の常用の単価も無いときだけ知らせる', () => {
+    const l = unnamed(1, { dailyRate: null, laborContract: 'ukeoi', jouyouHours: 4 });
+    const msg = '作業員「東北建興（名前なし）1名」：うち常用の時間がありますが、常用の単価（日当）が未設定です';
+    expect(reportWarnings(input([l]))).toContain(msg);
+    const ctx = { siteStartDate: null, today: '2026-12-31', jouyouRates: { [TOHOKU]: 25000 } };
+    expect(reportWarnings(input([l]), ctx)).not.toContain(msg);
+    expect(reportWarnings(input([{ ...l, dailyRate: 22000 }]))).not.toContain(msg);
   });
 });
 

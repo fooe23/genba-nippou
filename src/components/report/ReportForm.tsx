@@ -435,10 +435,10 @@ function ReportFormBody({
   const flaggedWorkRows = useMemo(() => (flagUnlinked ? new Set(unlinked.map((u) => u.index)) : undefined), [flagUnlinked, unlinked]);
   const submittable = p.status === 'none' || p.status === 'draft' || p.status === 'rejected';
   const warnings = useMemo(() => {
-    const w = reportWarnings(input, { siteStartDate: p.siteStartDate, today: p.today, siteHasTrades: (p.masters.siteTrades ?? []).length > 0 });
+    const w = reportWarnings(input, { siteStartDate: p.siteStartDate, today: p.today, siteHasTrades: (p.masters.siteTrades ?? []).length > 0, jouyouRates: p.laborCost.jouyouRates });
     const u = submittable ? unlinkedChangeWarning(unlinked) : null;
     return u ? [...w, u] : w;
-  }, [input, p.siteStartDate, p.today, p.masters.siteTrades, submittable, unlinked]);
+  }, [input, p.siteStartDate, p.today, p.masters.siteTrades, p.laborCost.jouyouRates, submittable, unlinked]);
   const dirty = json !== baseline;
   const changes = useMemo(() => changeTotals(state.rows.work.map((r) => r.line)), [state.rows.work]);
   // 作業員の人工があるのに契約内の作業内容が無い日・作業員と作業内容の人工がずれている日の知らせ（編集できる画面だけ。
