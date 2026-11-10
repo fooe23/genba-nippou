@@ -18,7 +18,7 @@ import {
   type ReportDetail,
 } from '@/lib/db/reports';
 import { canRequestReportFix, canReviewSite } from '@/lib/report/issue-status';
-import { loadSiteTrades, loadTradeAliases } from '@/lib/db/budget';
+import { loadLaborCostContext, loadSiteTrades, loadTradeAliases, loadUkeoiSupplierIds } from '@/lib/db/budget';
 import { getSettings } from '@/lib/db/settings';
 import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-signature';
 import { NO_SIGNATURE, type ClientSignatureView } from '@/lib/report/client-signature';
@@ -185,6 +185,9 @@ export async function loadReportFormProps(
     loadSiteTrades(siteId),
     loadTradeAliases(siteId),
   ]);
+  // 労務費の決まり（2026-11-17）：設定と実行予算の常用の単価（単価は社員・管理者だけ）、新しい行の常用・請負の既定に使う
+  // 請負の会社の一覧（協力会社のアカウントも読める。金額は無い）。
+  const [laborCost, ukeoiSupplierIds] = await Promise.all([loadLaborCostContext(siteId), loadUkeoiSupplierIds(siteId)]);
   // 外注の買掛の支払先（現場の協力会社）と、DB に区分の列があるか。社員・管理者だけ読む（協力会社には区分の欄を出さない）。
   const [sitePartners, subcontractReady] = staff
     ? await Promise.all([listSitePartners(siteId), subcontractColumnsReady()])
@@ -290,6 +293,8 @@ export async function loadReportFormProps(
     initial,
     masters,
     rule: settings.rule,
+    laborCost,
+    ukeoiSupplierIds,
     reportId: head ? head.id : null,
     issues,
     openIssues,

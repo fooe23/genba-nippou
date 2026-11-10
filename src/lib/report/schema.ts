@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { CHANGE_KINDS, INSTRUCTION_METHODS } from '@/lib/report/change-labels';
+import { jouyouHoursWarning } from '@/lib/calc/labor-cost';
+import { effectiveHours } from '@/lib/calc/report';
 import type { CashLine, CreditLine, LineKind, ReportLine, TimeSpec } from '@/lib/types';
 
 // 日報の入力検証（保存を止めるエラー）と警告（保存は止めない注意）。
@@ -296,6 +298,11 @@ export function reportWarnings(
       const name = line.workerName || `${laborCount}行目`;
       if (isBefore(line.time.start, line.time.end)) w.push(`作業員「${name}」：終了が開始より前です`);
       if (line.workerName && line.dailyRate === null) w.push(`作業員「${name}」：日当が未設定です（労務費が0円になります）`);
+      // うち常用の時間が実働を超える（請負の行だけ。2026-11-17。全部を常用として数える）
+      if (line.laborContract === 'ukeoi') {
+        const jw = jouyouHoursWarning(name, line.jouyouHours, effectiveHours(line.time, input.common));
+        if (jw) w.push(jw);
+      }
     } else if (line.kind === 'fuel') {
       if (line.vehicleName && !line.kmPerL) w.push(`車両「${line.vehicleName}」：燃費が未設定です（燃料費が0円になります）`);
     } else if (line.kind === 'lease') {

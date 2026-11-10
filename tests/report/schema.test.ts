@@ -53,6 +53,25 @@ describe('reportWarnings', () => {
   });
 });
 
+describe('うち常用の時間が実働を超える知らせ（2026-11-17）', () => {
+  // 共通時間 8:00〜17:00・休憩 60 分 → 実働 8 H
+  const labor = (extra: Record<string, unknown>): any => ({
+    kind: 'labor', workerId: 'w', workerName: 'A', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 22000, note: '', overtimeRate: null, ...extra,
+  });
+  it('請負の行でうち常用の時間が実働より大きい → 知らせる（保存は止めない）', () => {
+    const w = reportWarnings({ ...base, lines: [labor({ laborContract: 'ukeoi', jouyouHours: 9 })] });
+    expect(w).toContain('作業員「A」：うち常用の時間（9 H）が実働（8 H）を超えています（全部を常用として数えます）');
+  });
+  it('実働以内・常用の行・空欄は知らせない', () => {
+    const ws = [
+      reportWarnings({ ...base, lines: [labor({ laborContract: 'ukeoi', jouyouHours: 8 })] }),
+      reportWarnings({ ...base, lines: [labor({ laborContract: 'jouyou', jouyouHours: 9 })] }),
+      reportWarnings({ ...base, lines: [labor({ laborContract: 'ukeoi', jouyouHours: null })] }),
+    ];
+    for (const w of ws) expect(w.some((s) => s.includes('うち常用の時間'))).toBe(false);
+  });
+});
+
 describe('労務の行の常用・請負（laborContract）', () => {
   const labor = (extra: Record<string, unknown>) => ({
     kind: 'labor', workerId: null, workerName: '田中', time: { start: null, end: null, breakMin: null, gapMin: null }, dailyRate: 18000, note: '', ...extra,

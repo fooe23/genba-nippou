@@ -102,6 +102,12 @@ export interface LaborValues { hours: number; manDays: number; overtimeHours: nu
 /** preferSaved：保存済みの行（line.saved あり）は DB の計算値を返す。読み取り専用の画面（承認済み・完了現場・承認画面）で使う。 */
 export interface LaborCalcOptions { preferSaved?: boolean; }
 
+/**
+ * reportTotals の労務費の決まり（2026-11-17。src/lib/calc/labor-cost.ts の laborCostSplit を行の所属を決めてから呼ぶ関数）。
+ * 省略時は行の金額（出面の金額）をそのまま数える。
+ */
+export type LaborSplitOf = (line: LaborLine, values: LaborValues) => { countedCost: number; ukeoiManDays: number };
+
 export function laborLineValues(line: LaborLine, common: TimeSpec, rule: LaborRule, opts?: LaborCalcOptions): LaborValues {
   if (opts?.preferSaved && line.saved) {
     const s = line.saved;
@@ -129,9 +135,14 @@ export function lineAmount(line: ReportLine, common: TimeSpec, rule: LaborRule, 
   }
 }
 
-export function reportTotals(lines: ReportLine[], common: TimeSpec, rule: LaborRule, opts?: LaborCalcOptions): ReportTotals {
+export function reportTotals(
+  lines: ReportLine[],
+  common: TimeSpec,
+  rule: LaborRule,
+  opts?: LaborCalcOptions & { laborSplit?: LaborSplitOf },
+): ReportTotals {
   const t: ReportTotals = {
-    laborHours: 0, manDays: 0, overtimeHours: 0, workerCount: 0,
+    laborHours: 0, manDays: 0, ukeoiManDays: 0, overtimeHours: 0, workerCount: 0,
     labor: 0, fuel: 0, lease: 0, cash: 0, credit: 0, subcontract: 0, cost: 0, output: 0,
   };
   for (const line of lines) {
@@ -142,7 +153,13 @@ export function reportTotals(lines: ReportLine[], common: TimeSpec, rule: LaborR
         t.manDays += v.manDays;
         t.overtimeHours += v.overtimeHours;
         t.workerCount += 1;
-        t.labor += v.cost;
+        if (opts?.laborSplit) {
+          const s = opts.laborSplit(line, v);
+          t.labor += s.countedCost;
+          t.ukeoiManDays += s.ukeoiManDays;
+        } else {
+          t.labor += v.cost;
+        }
         break;
       }
       case 'fuel':
@@ -167,6 +184,7 @@ export function reportTotals(lines: ReportLine[], common: TimeSpec, rule: LaborR
   }
   t.laborHours = round2(t.laborHours);
   t.manDays = round2(t.manDays);
+  t.ukeoiManDays = round2(t.ukeoiManDays);
   t.overtimeHours = round2(t.overtimeHours);
   t.cost = t.labor + t.fuel + t.lease + t.cash + t.credit;
   return t;

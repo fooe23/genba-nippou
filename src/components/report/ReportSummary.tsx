@@ -74,6 +74,13 @@ export function ReportSummary({
             label={`労務費（${totals.workerCount}人・${decimal(totals.manDays)}人工${totals.overtimeHours > 0 ? `・残業 ${decimal(totals.overtimeHours)} H` : ''}）`}
             value={money(totals.labor)}
           />
+          {/* 請負の会社の人工（うち常用の時間の外）は出面だけで、労務費（原価）に数えない（2026-11-17。社員・管理者の画面だけ 0 以外）。 */}
+          {totals.ukeoiManDays > 0 && (
+            <div className="flex items-baseline justify-between gap-3 pb-1 text-sm text-gray-600 dark:text-gray-400">
+              <dt>うち請負の人工（原価に数えない）</dt>
+              <dd className="tabular-nums">{decimal(totals.ukeoiManDays)}人工</dd>
+            </div>
+          )}
           <Line label="燃料費" value={money(totals.fuel)} />
           <Line label="リース費" value={money(totals.lease)} />
           <Line label="現金購入" value={money(totals.cash)} />

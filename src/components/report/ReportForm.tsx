@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useMemo, useState, useTransition, type ReactNode } from 'react';
 import { storedLaborAffiliations } from '@/lib/calc/affiliation';
+import type { LaborCostContext } from '@/lib/calc/labor-cost';
+import { formLaborSplit } from '@/lib/report/labor-form';
 import { jpDate } from '@/lib/calc/format';
 import { changeTotals } from '@/lib/calc/change';
-import { commonHours, laborLineValues, reportTotals } from '@/lib/calc/report';
+import { commonHours, laborLineValues, reportTotals, type LaborValues } from '@/lib/calc/report';
 import {
   addIssue,
   copyPreviousReport,
@@ -32,7 +34,7 @@ import {
   isIssueKind,
 } from '@/lib/report/change-labels';
 import type { DailyClientConfirmation } from '@/lib/reports/types';
-import type { InstructionMethod, IssueKind, IssueStatus, LaborRule, TimeSpec } from '@/lib/types';
+import type { InstructionMethod, IssueKind, IssueStatus, LaborLine, LaborRule, TimeSpec } from '@/lib/types';
 import { canEditIssueContent, issueDatesLine, issueStatusLabel } from '@/lib/report/issue-status';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
@@ -95,6 +97,10 @@ export interface ReportFormProps {
   masters: ReportMasters;
   /** 人工・残業の計算設定（gn_settings）。画面のプレビューに使う（保存値は DB のトリガーが同じ式で計算する）。 */
   rule: LaborRule;
+  /** 労務費の決まりの材料（設定と実行予算の常用の単価。単価は社員・管理者だけ。2026-11-17）。 */
+  laborCost: LaborCostContext;
+  /** 実行予算で請負の行に入っている会社（新しい協力会社の作業員の行の常用・請負の既定。決めたこと A）。 */
+  ukeoiSupplierIds: string[];
   /** 保存済みの日報のID。未保存なら null（件の追加は保存後）。 */
   reportId: string | null;
   /** この日報の重要事項の件（対応中・完了とも）。 */
@@ -389,14 +395,25 @@ function ReportFormBody({
   const json = useMemo(() => JSON.stringify(input), [input]);
   // 読み取り専用の画面は、保存済みの労務行を DB の計算値（保存時の設定）で表示する（集計と一致させる）。
   // 編集できる画面は今の設定で計算し直す（保存すると DB も同じ値になる）。
+  // この日報に保存済みの作業員の所属・常用請負（サーバーが保存し直しで使う写しと同じ。表示をそろえる）。
+  const storedAffiliations = useMemo(() => storedLaborAffiliations(p.initial.lines), [p.initial.lines]);
+  // 本日原価の労務費は、社員・管理者には原価に数える分（請負の会社の人工は、うち常用の時間の分だけ。2026-11-17）。
+  // 協力会社のアカウントは今までどおり（行の金額＝出面の金額）。
+  const laborSplit = useMemo(() => {
+    if (!p.isStaff) return undefined;
+    const workerById = new Map(p.masters.workers.map((w) => [w.id, w]));
+    return (line: LaborLine, v: LaborValues) =>
+      formLaborSplit(line, v, storedAffiliations, line.workerId ? workerById.get(line.workerId) : undefined, p.laborCost);
+  }, [p.isStaff, p.masters.workers, p.laborCost, storedAffiliations]);
   const totals = useMemo(
     () =>
       p.readOnly
         ? reportTotals([...state.rows.labor.map((r) => r.line), ...calcLines(input.lines.filter((l) => l.kind !== 'labor'))], input.common, p.rule, {
             preferSaved: true,
+            laborSplit,
           })
-        : reportTotals(calcLines(input.lines), input.common, p.rule),
-    [input, state.rows.labor, p.readOnly, p.rule],
+        : reportTotals(calcLines(input.lines), input.common, p.rule, { laborSplit }),
+    [input, state.rows.labor, p.readOnly, p.rule, laborSplit],
   );
   // 件を選んでいない追加・増・変更・減の作業内容の行（提出できない。下書き保存はできる）。
   const unlinked = useMemo(() => unlinkedChangeLines(state.rows.work.map((r) => r.line)), [state.rows.work]);
@@ -423,8 +440,6 @@ function ReportFormBody({
     return buildWorkWarnings(days, state.rows.work.map((r) => r.line));
   }, [p.readOnly, p.rule, state.common, state.rows.labor, state.rows.work]);
   // 作業内容の根拠の件の候補：この日報の件と、現場の対応中の件（重複は WorkTable で除く）。
-  // この日報に保存済みの作業員の所属・常用請負（サーバーが保存し直しで使う写しと同じ。表示をそろえる）。
-  const storedAffiliations = useMemo(() => storedLaborAffiliations(p.initial.lines), [p.initial.lines]);
   const issueCandidates = useMemo(() => [...p.issues, ...p.openIssues], [p.issues, p.openIssues]);
   // 燃料・リース・現金・買掛の根拠の件の選択肢（作業内容の行と同じ候補・文言。2026-11-17）。
   const issueChoices = useMemo(() => issueOptions(issueCandidates), [issueCandidates]);
@@ -887,6 +902,9 @@ function ReportFormBody({
           workers={p.masters.workers}
           supplierNames={p.masters.supplierNames}
           stored={storedAffiliations}
+          laborCost={p.laborCost}
+          ukeoiSupplierIds={p.ukeoiSupplierIds}
+          isStaff={p.isStaff}
         />
         <FuelTable rows={state.rows.fuel} onChange={setRows('fuel')} vehicles={p.masters.vehicles} issueChoices={issueChoices} />
         <LeaseTable

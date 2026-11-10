@@ -1,7 +1,9 @@
 'use client';
 
 import { affiliationLabel, LABOR_CONTRACT_LABELS, laborContractValue, laborRowAffiliation, type StoredLaborAffiliations } from '@/lib/calc/affiliation';
+import { defaultLaborContract, laborCostNote, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { rateAt } from '@/lib/calc/rates';
+import { formLaborSplit } from '@/lib/report/labor-form';
 import { laborLineValues } from '@/lib/calc/report';
 import type { LaborContract, LaborLine, LaborRule, TimeSpec } from '@/lib/types';
 import { decimal, isManualRow, money, newLine, patchRow, removeRow, row, selectRow, type Row, type WorkerOption } from '../form-state';
@@ -16,7 +18,10 @@ const MANUAL_WORKER = '__manual__';
  * 時間は空欄なら共通時間。人工・残業・労務費は rule（労務の設定）で計算する。
  * マスターに無い人は「（手入力）」を選び、氏名と日当を入れる（workerId は null。残業単価は標準の計算式）。
  * 作業員の欄の下に所属（自社／取引先名／所属なし）を小さく出し、協力会社の作業員の行だけ「常用／請負」を選ぶ
- * （既定は常用。列は増やさず作業員の欄に重ねて、md・xl の幅で右端の列が切れないようにする）。
+ * （列は増やさず作業員の欄に重ねて、md・xl の幅で右端の列が切れないようにする）。作業員を選んだときの既定は、
+ * 実行予算でその会社が請負の行に入っていれば請負、入っていなければ常用（決めたこと A。保存済みの行の区分は変えない）。
+ * 区分が請負の行だけ「うち常用の時間」（H。空欄＝全部が請負）を出し、社員・管理者には原価に数える分を小さく出す。
+ * 労務費の列と小計は、社員・管理者には原価に数える分（src/lib/calc/labor-cost.ts）、協力会社のアカウントには行の金額。
  */
 export function LaborTable({
   rows,
@@ -28,6 +33,9 @@ export function LaborTable({
   workers,
   supplierNames = {},
   stored = new Map(),
+  laborCost,
+  ukeoiSupplierIds = [],
+  isStaff = false,
 }: {
   rows: Row<LaborLine>[];
   onChange: (update: (rows: Row<LaborLine>[]) => Row<LaborLine>[]) => void;
@@ -41,6 +49,12 @@ export function LaborTable({
   supplierNames?: Record<string, string>;
   /** 日報を開いたときに読み込んだ保存済みの行の所属・常用請負の写し（作業員ごと）。保存し直しでサーバーが使うものと同じ。 */
   stored?: StoredLaborAffiliations;
+  /** 労務費の決まりの材料（社員・管理者の画面で原価に数える分を出す）。 */
+  laborCost?: LaborCostContext;
+  /** 実行予算で請負の行に入っている会社（作業員を選んだときの常用・請負の既定）。 */
+  ukeoiSupplierIds?: readonly string[];
+  /** 社員・管理者（原価に数える分の文字と労務費の列）。 */
+  isStaff?: boolean;
 }) {
   const set = (i: number, patch: Partial<LaborLine>) => onChange((rs) => patchRow(rs, i, patch));
   // 作業員の選び直しと手入力の氏名：「（手入力）」の印（Row.manual）も一緒に付け外しする。
@@ -54,6 +68,13 @@ export function LaborTable({
     { value: MANUAL_WORKER, label: '（手入力）' },
   ];
   const workerById = new Map(workers.map((w) => [w.id, w]));
+  // 原価に数える分（社員・管理者だけ。協力会社のアカウントは行の金額のまま）。
+  const splits = rows.map((r, i) =>
+    isStaff && laborCost
+      ? formLaborSplit(r.line, values[i], stored, r.line.workerId ? workerById.get(r.line.workerId) : undefined, laborCost)
+      : null,
+  );
+  const costOf = (i: number) => splits[i]?.countedCost ?? values[i].cost;
   const contractOptions = (Object.keys(LABOR_CONTRACT_LABELS) as LaborContract[]).map((c) => ({ value: c, label: LABOR_CONTRACT_LABELS[c] }));
   const commonBreak = common.breakMin === null ? '' : `共通${common.breakMin}`;
   const commonGap = common.gapMin === null ? '' : `共通${common.gapMin}`;
@@ -78,10 +99,18 @@ export function LaborTable({
                 missingLabel={l.workerName || '（不明な作業員）'}
                 onChange={(id) => {
                   const w = workers.find((x) => x.id === id);
-                  // 選び直したら常用・請負は既定の常用（null）に戻す。所属の写しも外す（所属は保存済みの写しかマスターで決まる）。
-                  const reset = { affiliation: null, supplierId: null, laborContract: null };
+                  // 選び直したら所属の写しを外し（所属は保存済みの写しかマスターで決まる）、うち常用の時間を空にする。
+                  // 常用・請負は既定（協力会社で実行予算の請負の行に入っている会社 → 請負、それ以外 → 常用。自社・手入力は null）。
+                  const reset = { affiliation: null, supplierId: null, laborContract: null, jouyouHours: null };
                   if (!w) select(i, { workerId: null, workerName: '', dailyRate: null, overtimeRate: null, ...reset }, id === MANUAL_WORKER);
-                  else select(i, { workerId: w.id, workerName: w.name, dailyRate: rateAt(w.rates, date), overtimeRate: w.overtimeRate, ...reset }, false);
+                  else {
+                    const a = laborRowAffiliation({ workerId: w.id }, stored, w);
+                    select(
+                      i,
+                      { workerId: w.id, workerName: w.name, dailyRate: rateAt(w.rates, date), overtimeRate: w.overtimeRate, ...reset, laborContract: defaultLaborContract(a, ukeoiSupplierIds) },
+                      false,
+                    );
+                  }
                 }}
               />
             </label>
@@ -104,7 +133,10 @@ export function LaborTable({
                     <span className="sr-only">常用・請負（{i + 1}行目）</span>
                     <select
                       value={laborContractValue(l, stored)}
-                      onChange={(e) => set(i, { laborContract: e.target.value === 'ukeoi' ? 'ukeoi' : 'jouyou' })}
+                      // 常用に切り替えたら、うち常用の時間は空にする（常用の行は全部が常用）。
+                      onChange={(e) =>
+                        set(i, e.target.value === 'ukeoi' ? { laborContract: 'ukeoi' } : { laborContract: 'jouyou', jouyouHours: null })
+                      }
                       className={fieldClass}
                     >
                       {contractOptions.map((o) => (
@@ -115,8 +147,22 @@ export function LaborTable({
                     </select>
                   </label>
                 )}
+                {aff.partner && laborContractValue(l, stored) === 'ukeoi' && (
+                  <label className="flex shrink-0 items-center gap-1">
+                    <span className="text-xs text-gray-600 dark:text-gray-400">うち常用</span>
+                    <span className="sr-only">の時間（H・{i + 1}行目。空欄は全部が請負）</span>
+                    <span className="block w-20 shrink-0">
+                      <NumInput value={l.jouyouHours ?? null} placeholder="H" onChange={(v) => set(i, { jouyouHours: v })} />
+                    </span>
+                    <span className="text-xs text-gray-600 dark:text-gray-400">H</span>
+                  </label>
+                )}
               </div>
             )}
+            {(() => {
+              const note = splits[i] ? laborCostNote(splits[i]) : null;
+              return note ? <p className="text-xs text-gray-600 dark:text-gray-400">{note}</p> : null;
+            })()}
           </div>
         );
       },
@@ -148,10 +194,10 @@ export function LaborTable({
           <Computed>{l.dailyRate === null ? '未設定' : money(l.dailyRate)}</Computed>
         ),
     },
-    { label: '労務費', input: false, cell: (_l, i) => <Computed>{money(values[i].cost)}</Computed> },
+    { label: '労務費', input: false, cell: (_l, i) => <Computed>{money(costOf(i))}</Computed> },
   ];
 
-  const subtotal = values.reduce((s, v) => s + v.cost, 0);
+  const subtotal = values.reduce((s, _v, i) => s + costOf(i), 0);
   return (
     <LineTable
       title="作業員"

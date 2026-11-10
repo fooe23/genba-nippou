@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { BudgetModelInput } from '@/lib/budget/budget-model';
 import type { ProgressHistoryEntry } from '@/lib/budget/budget-view';
 import { aliasMap, tradesByNameMap, unmappedTradeTexts, type UnmappedTradeText } from '@/lib/budget/resolve-trade';
+import { EMPTY_LABOR_COST_CONTEXT, laborCostContextFrom, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { loadProfileNames } from '@/lib/db/export';
 import { listSuppliers } from '@/lib/db/masters';
@@ -161,6 +162,71 @@ export async function loadBudgetData(siteId: string): Promise<BudgetData> {
     progress: latestProgress((progress.data ?? []) as Record<string, unknown>[]),
     progressTradeIds: [...new Set(((progress.data ?? []) as Record<string, unknown>[]).map((r) => str(r.trade_id)))],
   };
+}
+
+/**
+ * 労務費の決まり（src/lib/calc/labor-cost.ts）に使う現場ごとの材料（2026-11-17）：労務の計算設定と、会社ごとの実行予算の
+ * 常用の単価。単価は社員・管理者だけ（協力会社のアカウントには空。行の日当で数える）。
+ */
+export async function loadLaborCostContext(siteId: string): Promise<LaborCostContext> {
+  return (await loadLaborCostContexts([siteId])).get(siteId) ?? EMPTY_LABOR_COST_CONTEXT;
+}
+
+/** loadLaborCostContext を複数の現場についてまとめて読む（承認待ちの一覧）。 */
+export async function loadLaborCostContexts(siteIds: string[]): Promise<Map<string, LaborCostContext>> {
+  const ids = [...new Set(siteIds)];
+  const [profile, settings] = await Promise.all([getCurrentProfile(), getSettings()]);
+  const out = new Map<string, LaborCostContext>(ids.map((id) => [id, { jouyouRates: {}, rule: settings.rule }]));
+  if (ids.length === 0 || !profile || !isEmployeeOrAdmin(profile)) return out;
+  const supabase = await createServerSupabase();
+  const rows = (
+    await Promise.all(
+      chunk(ids, 100).map((part) =>
+        fetchAllPages<Record<string, unknown>>(async (from, to) => {
+          const { data, error } = await supabase
+            .from('gn_budget_lines')
+            .select('id, site_id, supplier_id, unit_price, sort_order')
+            .in('site_id', part)
+            .eq('item', 'jouyou')
+            .order('id', { ascending: true })
+            .range(from, to);
+          if (error) throw new Error(error.message);
+          return (data ?? []) as Record<string, unknown>[];
+        }),
+      ),
+    )
+  ).flat();
+  const bySite = new Map<string, BudgetLine[]>();
+  for (const r of rows) {
+    const list = bySite.get(str(r.site_id)) ?? [];
+    list.push({
+      id: str(r.id),
+      tradeId: null,
+      performer: 'partner',
+      supplierId: idOrNull(r.supplier_id),
+      item: 'jouyou',
+      note: '',
+      qty: 0,
+      unit: '',
+      unitPrice: num(r.unit_price),
+      amount: 0,
+      sortOrder: num(r.sort_order),
+    });
+    bySite.set(str(r.site_id), list);
+  }
+  for (const [siteId, lines] of bySite) out.set(siteId, laborCostContextFrom(lines, settings.rule));
+  return out;
+}
+
+/**
+ * その現場の実行予算で請負の行に入っている会社の id（gn_site_ukeoi_suppliers。金額は読まない。協力会社のアカウントも読める）。
+ * 日報で新しく足す協力会社の作業員の行の「常用／請負」の既定に使う（決めたこと A）。関数が無い（SQL の前）・読めないときは空。
+ */
+export async function loadUkeoiSupplierIds(siteId: string): Promise<string[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.rpc('gn_site_ukeoi_suppliers', { p_site: siteId });
+  if (error) return [];
+  return ((data ?? []) as { supplier_id: string | null }[]).flatMap((r) => (r.supplier_id ? [r.supplier_id] : []));
 }
 
 const USED_CHUNK = 100;
