@@ -585,7 +585,7 @@ export interface ChangeRates {
 export interface SettlementBreakdown {
   /** 労務（施工金額）：行の施工金額（数量 × 施工単価＝保存値 amount）。施工金額の無い行は人工 × 日当（laborCost の分）で仮に。 */
   laborAmount: number;
-  /** 労務の実績原価（参考）：行の投入人工 × その日の平均日当。 */
+  /** 労務の実績原価（参考）：行の投入人工 × その日の日当（原価に数える労務費 ÷ 原価に数える人工。和はその日の労務費まで）。 */
   laborCost: number;
   /** 材料：仕入の買掛 ＋ 現金。 */
   material: number;
@@ -639,7 +639,7 @@ export interface ChangeLedgerRow {
   /** 日報に客先確認（client_confirmed_at）がある。 */
   clientConfirmed: boolean;
   /**
-   * 実績原価（参考。円未満は丸めない。表示はレンダラー）＝ 投入人工 × その日の平均日当（原価に数える労務費 ÷ 出面の人工）。
+   * 実績原価（参考。円未満は丸めない。表示はレンダラー）＝ 投入人工 × その日の日当（原価に数える労務費 ÷ 原価に数える人工。件を選んだ行を先に、和はその日の原価に数える労務費まで。change-model.ts の workLaborCosts）。
    * 燃料・リース・現金・買掛は行に按分しない（根拠に件を選んだ行だけを件に数える）。減の行は 0。
    */
   actualCost: number;

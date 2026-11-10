@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { EMPTY_WORK_CHANGE } from '@/lib/report/change-labels';
-import { buildChangeLedger, clientSettlement, dayCostBasis, laborShare, settleIssue, settlementProposal, type ProposalBasis } from '@/lib/reports/change-model';
+import { buildChangeLedger, clientSettlement, dayCostBasis, laborShare, settleIssue, settlementProposal, workLaborCosts, type ProposalBasis } from '@/lib/reports/change-model';
 import type { Issue } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import type { ChangeLedgerInput, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
@@ -93,33 +93,42 @@ const oct20 = () => report('2026-10-20', [cash(4000), work('extra', 1, 1, 8000)]
 // ─── テスト ───
 
 describe('dayCostBasis・laborShare（労務の実績原価）', () => {
-  it('行の投入人工 × その日の平均日当（労務費 ÷ 労務の人工）。燃料・リース・現金・買掛は見ない', () => {
+  it('行の投入人工 × その日の日当（原価に数える労務費 ÷ 原価に数える人工）。燃料・リース・現金・買掛は見ない', () => {
     const day = dayCostBasis(nov2());
-    expect(day).toEqual({ laborCost: 25500, laborManDays: 1.5 });
+    expect(day).toEqual({ laborCost: 25500, countedManDays: 1.5 });
     expect(laborShare(day, 1)).toBeCloseTo(17000, 9);
     expect(laborShare(day, 0.5)).toBeCloseTo(8500, 9);
   });
   it('労務が無い日・行の人工 0 は 0', () => {
     expect(laborShare(dayCostBasis(oct20()), 1)).toBe(0);
-    expect(laborShare({ laborCost: 18000, laborManDays: 1 }, 0)).toBe(0);
+    expect(laborShare({ laborCost: 18000, countedManDays: 1 }, 0)).toBe(0);
   });
   it('dayCostBasis は保存値（stored）だけを足す（日当・数量は見ない）', () => {
-    expect(dayCostBasis(nov5())).toEqual({ laborCost: 18000, laborManDays: 1 });
+    expect(dayCostBasis(nov5())).toEqual({ laborCost: 18000, countedManDays: 1 });
   });
-  it('請負の会社の行は、うち常用の時間の分だけ（労務費の決まり。2026-11-17）：平均日当の分母は出面の全部', () => {
+  it('請負の会社の行は、うち常用の時間の分だけ（労務費の決まり。2026-11-17）：日当の分母も原価に数える人工だけ（2026-11-11 利用者）', () => {
     const partnerLabor = (jouyouHours: number | null): SavedReportLine =>
       ({ ...labor(1, 22000), dailyRate: 22000, affiliation: 'partner', supplierId: 'tohoku', laborContract: 'ukeoi', jouyouHours }) as SavedReportLine;
     // 大江（自社 1 人工 ¥20,000）＋ A（請負・うち常用 4 H → 0.5 人工 ¥11,000）＋ B（請負・空欄 → 0）
     const day = dayCostBasis(report('2026-11-10', [labor(1, 20000), partnerLabor(4), partnerLabor(null)]));
-    expect(day).toEqual({ laborCost: 31000, laborManDays: 3 });
-    expect(laborShare(day, 1)).toBeCloseTo(31000 / 3, 9);
-    // 作業内容の投入人工の和が出面（3 人工）と同じなら、実績原価の和は原価に数える労務費と一致する
-    expect(laborShare(day, 2) + laborShare(day, 1)).toBeCloseTo(31000, 9);
+    expect(day).toEqual({ laborCost: 31000, countedManDays: 1.5 });
+    expect(laborShare(day, 1)).toBeCloseTo(31000 / 1.5, 9);
     // 実行予算の常用の単価（¥25,000）を渡せば A は ¥12,500
     expect(dayCostBasis(report('2026-11-10', [partnerLabor(4)]), { jouyouRates: { tohoku: 25000 }, rule: DEFAULT_LABOR_RULE })).toEqual({
       laborCost: 12500,
-      laborManDays: 1,
+      countedManDays: 0.5,
     });
+  });
+  it('workLaborCosts：件を選んだ行を先に数え、和はその日の原価に数える労務費まで（超えたら比例で縮める）', () => {
+    const day = { laborCost: 20000, countedManDays: 1 };
+    // 件 1 人工 → ¥20,000。件なしの行は残り 0
+    expect(workLaborCosts(day, [{ manDays: 1, issue: true }, { manDays: 1, issue: false }])).toEqual([20000, 0]);
+    // 件 1 ＋ 1 人工（計 ¥40,000）→ ¥20,000 を比例で 10,000 ずつ
+    expect(workLaborCosts(day, [{ manDays: 1, issue: true }, { manDays: 1, issue: true }])).toEqual([10000, 10000]);
+    // 件 0.5 人工 → ¥10,000、件なし 1 人工（¥20,000）は残りの ¥10,000 まで
+    expect(workLaborCosts(day, [{ manDays: 0.5, issue: true }, { manDays: 1, issue: false }])).toEqual([10000, 10000]);
+    // 原価に数える人工が 0 の日は 0
+    expect(workLaborCosts({ laborCost: 0, countedManDays: 0 }, [{ manDays: 1, issue: true }])).toEqual([0]);
   });
 });
 
@@ -249,18 +258,19 @@ describe('期間', () => {
 
 describe('増（同じ流れの中で数量が増えたもの）', () => {
   // 11/02：労務 20,000・1 人工、材料 3,000（根拠なし）。作業内容：契約内 1 人工、追加 1 人工（1,000）、増 1 人工（4 × 2,500）。
+  // 件なしの追加・増の労務の実績原価は 1 人工 × 20,000 ずつだが、和はその日の労務費 20,000 まで（10,000 ずつ）。
   const r = () =>
     report('2026-11-02', [labor(1, 20000), cash(3000), work('contract', 1, 10, 1000), work('extra', 1, 1, 1000), work('increase', 1, 4, 2500)]);
 
   it('増は追加と同じく施工金額から提案額（根拠の無い材料は数えない）', () => {
     const m = buildChangeLedger(input([r()]), RATES, ALL);
     expect(m.rows.map((x) => x.changeKind)).toEqual(['extra', 'increase']);
-    expect(m.rows[1]).toMatchObject({ declared: 10000, manDays: 1, proposalBasis: 'cost', actualCost: 20000, laborAmount: 10000, proposal: 12100 });
-    expect(m.rows[0]).toMatchObject({ actualCost: 20000, laborAmount: 1000, proposal: 1210 });
+    expect(m.rows[1]).toMatchObject({ declared: 10000, manDays: 1, proposalBasis: 'cost', actualCost: 10000, laborAmount: 10000, proposal: 12100 });
+    expect(m.rows[0]).toMatchObject({ actualCost: 10000, laborAmount: 1000, proposal: 1210 });
   });
   it('区分ごとの集計に「増」があり、精算提案額 = 当初 ＋ 追加 ＋ 増 ＋ 変更 ＋ 減', () => {
     const m = buildChangeLedger(input([r(), nov5()]), RATES, ALL);
-    expect(m.summary.increase).toEqual({ count: 1, declared: 10000, actualCost: 20000, proposal: 12100, settled: 12100 });
+    expect(m.summary.increase).toEqual({ count: 1, declared: 10000, actualCost: 10000, proposal: 12100, settled: 12100 });
     expect(m.summary.extra).toMatchObject({ count: 1, proposal: 1210 });
     expect(m.settlement).toEqual({
       base: 1_000_000, baseBasis: 'contract', through: null,
@@ -330,14 +340,29 @@ describe('件の精算：根拠に選んだ行だけ・法定福利費・材料�
     expect(i).toMatchObject({ id: 'm1', lineCount: 1, manDays: 1, proposal: 61317, settled: 61317, settledBasis: 'proposal', actualCost: 45000 });
     expect(i.breakdown).toEqual({ laborAmount: 25000, laborCost: 20000, material: 25000, lease: 0, fuel: 0, subcontract: 0, missingAmountLines: 0 });
   });
-  it('施工金額の無い行の仮の労務・実績原価は、原価に数える労務費を出面の人工で割った平均日当（2026-11-17）', () => {
+  it('施工金額の無い行の仮の労務・実績原価は、原価に数える労務費の日当で、和はその日の労務費まで（2026-11-11 利用者）', () => {
     const b = { ...labor(1, 22000), dailyRate: 22000, affiliation: 'partner', supplierId: 'tohoku', laborContract: 'ukeoi', jouyouHours: null } as SavedReportLine;
     // 自社 1 人工 ¥20,000 ＋ 請負 1 人工（うち常用なし → ¥0）、件の作業内容 2 人工
     const r = report('2026-11-10', [labor(1, 20000), b, work('extra', 2, 1, null, { issueId: 'm1' })]);
     const [i] = ledger([r]).issues;
-    // 平均日当 = 20,000 ÷ 2（出面）→ 2 人工で ¥20,000（その日の原価に数える労務費を超えない。B の ¥22,000 は入らない）
+    // 日当 = 20,000 ÷ 1（請負の出面は入れない）→ 2 人工で ¥40,000 だが、その日の原価に数える労務費 ¥20,000 まで
     expect(i.breakdown).toMatchObject({ laborAmount: 20000, laborCost: 20000, missingAmountLines: 1 });
     expect(i.actualCost).toBe(20000);
+  });
+  it('村山様邸 11/10（伊藤 自社 1 人工 ¥20,000 ＋ 東北建興 名前なし 1 名 請負）：件の作業 1 人工は自社の日当で ¥20,000', () => {
+    const tohoku = {
+      ...labor(1, 22000), workerName: '', dailyRate: 22000, affiliation: 'partner', supplierId: 'tohoku', laborContract: 'ukeoi', jouyouHours: null, headcount: 1,
+    } as SavedReportLine;
+    const r = report('2026-11-10', [
+      labor(1, 20000),
+      tohoku,
+      work('increase', 1, 1, 25000, { unit: '件', description: 'タイル張り', issueId: 'm1' }),
+      work('contract', 1, null, null, { description: '清掃' }),
+      credit(25000, { issueId: 'm1' }),
+    ]);
+    const [i] = ledger([r], [issue('m1', '2026-11-10', 'タイル張り', { kind: 'increase' })]).issues;
+    expect(i.breakdown).toMatchObject({ laborAmount: 25000, laborCost: 20000, material: 25000 });
+    expect(i.actualCost).toBe(45000);
   });
   it('根拠に件を選んだ外注は率を掛けずにそのまま足す（61,317 ＋ 170,000）', () => {
     const [i] = ledger([nov10([], 'm1')]).issues;
@@ -485,7 +510,9 @@ describe('settleIssue（件ごとの精算額の規則）', () => {
 });
 
 describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary.settled）', () => {
-  // 労務 20,000・1 人工の日。作業内容はどれも施工金額 1,000 → 行の提案額 1,210（× 1.1 × 1.1）。実績原価は人工 × 20,000。
+  // 労務 20,000・1 人工の日。作業内容はどれも施工金額 1,000 → 行の提案額 1,210（× 1.1 × 1.1）。実績原価は人工 × 20,000 で、
+  // 件を選んだ行の和がその日の 20,000 を超えたら比例で縮め、件なし（読めない件を含む）の行は残りだけ。
+  // 11/02：iU 1・iL 1 → 10,000 ずつ。11/05：iU 0.5・iD 1.5（計 40,000）→ 5,000・15,000、件なしの行は残り 0。
   const day = (date: string, lines: SavedReportLine[]) => report(date, [labor(1, 20000), ...lines]);
   const reports = () => [
     day('2026-11-02', [
@@ -524,9 +551,9 @@ describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary
     expect(u).toMatchObject({
       reportDate: '2026-11-02', kind: 'extra', bodyHead: 'う'.repeat(40), instructedBy: '施主 山田様', amountEstimate: 40000,
       settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null,
-      lineCount: 2, manDays: 1.5, actualCost: 30000, proposal: 2420, settled: 2420, settledBasis: 'proposal', category: 'extra', countsToward: true,
+      lineCount: 2, manDays: 1.5, actualCost: 15000, proposal: 2420, settled: 2420, settledBasis: 'proposal', category: 'extra', countsToward: true,
     });
-    expect(l).toMatchObject({ lineCount: 2, manDays: 1, actualCost: 20000, proposal: 1210 - 3000, settled: 100000, settledBasis: 'fixed' });
+    expect(l).toMatchObject({ lineCount: 2, manDays: 1, actualCost: 10000, proposal: 1210 - 3000, settled: 100000, settledBasis: 'fixed' });
     // 行の無い一式の件も lineCount 0 で載る
     expect(mi).toMatchObject({ lineCount: 0, manDays: 0, actualCost: 0, proposal: 0, settled: -30000, category: 'minus', fixedOn: '2026-11-20' });
     expect(d).toMatchObject({ lineCount: 1, manDays: 1.5, settled: 45000, settledBasis: 'daily_rate', category: 'change', dailyRate: 30000 });
@@ -535,7 +562,7 @@ describe('件ごとの精算（buildChangeLedger の issues・unlinked・summary
     expect(m.issues[4]).toMatchObject({ id: 'iR', settled: 8000, category: null, countsToward: false });
   });
   it('unlinked：件に紐づかない行（未選択・読めない件）の合計', () => {
-    expect(m.unlinked).toMatchObject({ lineCount: 2, manDays: 2, actualCost: 40000, proposal: 2420, missingAmountLines: 0 });
+    expect(m.unlinked).toMatchObject({ lineCount: 2, manDays: 2, actualCost: 0, proposal: 2420, missingAmountLines: 0 });
     // 労務の行が手入力（所属なし）だけの日なので、所属別の人工は全部が所属なし
     expect(m.unlinked.affiliationManDays.map((p) => [p.label, p.manDays])).toEqual([['所属なし', 2]]);
   });

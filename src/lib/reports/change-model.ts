@@ -32,10 +32,12 @@ import type {
 //   提案額     = 円未満切り上げ（（労務 ×（1＋法定福利費率）＋ 材料 ×（1＋材料経費率）＋（リース＋燃料）×（1＋リース燃料経費率））
 //              ×（1＋諸経費率）＋ 外注）（settlementProposal）。材料 = 仕入の買掛 ＋ 現金。外注（外注の買掛）は率を掛けない
 //   行の提案額 = 追加・増・変更：その行の労務だけで settlementProposal、減：申告額（入力の施工単価 × 数量。負）そのまま
-//   実績原価（参考） = 行の投入人工 × その日の平均日当（laborShare）＋ 根拠にその件を選んだ材料・リース・燃料・外注。減の行は 0
-//              平均日当 = その日の原価に数える労務費 ÷ 出面の人工（労務費の決まり src/lib/calc/labor-cost.ts。2026-11-17：
-//              労務費は請負の会社の人工のうち常用の時間の分だけ。分母は出面の全部なので、作業内容の投入人工の和が出面と
-//              同じなら実績原価の和は原価に数える労務費と一致する）
+//   実績原価（参考） = 行の労務の実績原価（workLaborCosts）＋ 根拠にその件を選んだ材料・リース・燃料・外注。減の行は 0
+//              行の労務の実績原価（2026-11-11 利用者）= 投入人工 × その日の日当（原価に数える労務費 ÷ 原価に数える人工）。
+//              原価に数える人工 = 自社・常用の行の人工 ＋ 請負の行のうち常用の分（請負の出面は入れない。労務費の決まり
+//              src/lib/calc/labor-cost.ts）。契約外（件）の作業は原価に数える作業員がするもので、請負の契約の中ではしない。
+//              件を選んだ行を先に数え、その和がその日の原価に数える労務費を超えたら比例で縮める。件を選んでいない
+//              追加・増・変更の行は残り（労務費 − 件の行の分）の中で同じように数える。原価に数える人工が 0 の日は 0
 //   件ごとの精算額 = 一式・見積：確定額、常用：ceil(紐づく行の人工の合計 × 常用単価)（率は掛けない）、
 //              未定：件の提案額（内訳から settlementProposal ＋ 紐づく減の行の申告額）（settleIssue）
 //              区分は件の種別から（settlementCategory）。減の区分の一式・見積・常用は負。やり直しは参考で合計に入れない
@@ -60,29 +62,55 @@ export interface DayCostBasis {
   /** 原価に数える労務費（自社・常用の行は amount、請負の行はうち常用の時間の分）。 */
   laborCost: number;
   /**
-   * 出面の人工（労務の行の man_days 全部。請負の行も全部）。平均日当の分母（2026-11-17）：作業内容の投入人工は請負の人工も
-   * 含めて入るので、分母も出面にして、その日の作業内容の行の実績原価の和が原価に数える労務費を超えないようにする。
+   * 原価に数える人工（自社・常用の行は全部、請負の行はうち常用の分。請負の出面は入れない）。日当の分母（2026-11-11 利用者）：
+   * 契約外（件）の作業は原価に数える作業員がするので、日当は原価に数える労務費 ÷ 原価に数える人工。
    */
-  laborManDays: number;
+  countedManDays: number;
 }
 
 export function dayCostBasis(report: ReportWithLines, ctx: LaborCostContext = EMPTY_LABOR_COST_CONTEXT): DayCostBasis {
-  const day: DayCostBasis = { laborCost: 0, laborManDays: 0 };
+  const day: DayCostBasis = { laborCost: 0, countedManDays: 0 };
   for (const l of report.lines) {
     if (l.kind !== 'labor') continue;
     const s = laborCostSplit(l, ctx);
     day.laborCost += s.countedCost;
-    day.laborManDays += s.manDays;
+    day.countedManDays += s.jouyouManDays;
   }
+  day.countedManDays = Math.round(day.countedManDays * 1e6) / 1e6;
   return day;
 }
 
+/** その日の日当 = 原価に数える労務費 ÷ 原価に数える人工（人工が 0 の日は 0）。 */
+export function dayLaborRate(day: DayCostBasis): number {
+  return day.countedManDays > 0 ? day.laborCost / day.countedManDays : 0;
+}
+
 /**
- * 行の労務の実績原価 = 行の投入人工 × その日の平均日当（その日の原価に数える労務費 ÷ その日の出面の人工）。労務の人工が 0 の日は 0。
- * 労務の人工と作業内容の投入人工は別に入力するので、合計がその日の労務費と一致するとは限らない。円未満は丸めない。
+ * 行の投入人工 × その日の日当（上限なし）。労務の人工が 0 の日は 0。円未満は丸めない。
+ * 上限（その日の原価に数える労務費）を当てるのは workLaborCosts。
  */
 export function laborShare(day: DayCostBasis, manDays: number): number {
-  return day.laborManDays > 0 && manDays !== 0 ? (manDays * day.laborCost) / day.laborManDays : 0;
+  return manDays !== 0 ? manDays * dayLaborRate(day) : 0;
+}
+
+/**
+ * その日の作業内容の行（追加・増・変更）ごとの労務の実績原価（並びは lines のまま。円未満は丸めない）。
+ * - 件を選んだ行（issue true）：投入人工 × 日当。和がその日の原価に数える労務費を超えたら比例で縮める。
+ * - 件を選んでいない行：同じく投入人工 × 日当で、和は残り（労務費 − 件の行の分）まで（超えたら比例で縮める）。
+ * 和はその日の原価に数える労務費を超えない。
+ */
+export function workLaborCosts(day: DayCostBasis, lines: readonly { manDays: number; issue: boolean }[]): number[] {
+  const raw = lines.map((l) => (l.manDays > 0 ? laborShare(day, l.manDays) : 0));
+  const out = raw.slice();
+  let budget = Math.max(day.laborCost, 0);
+  for (const tagged of [true, false]) {
+    const idx = lines.map((l, i) => (l.issue === tagged ? i : -1)).filter((i) => i >= 0);
+    const sum = idx.reduce((s, i) => s + raw[i], 0);
+    const scale = sum > budget && sum > 0 ? budget / sum : 1;
+    for (const i of idx) out[i] = raw[i] * scale;
+    budget = Math.max(budget - sum * scale, 0);
+  }
+  return out;
 }
 
 /** 提案額の元（内訳のうち金額の 5 つ）。 */
@@ -355,6 +383,10 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
   for (const r of reports) {
     if (through !== null && r.reportDate > through) continue;
     const day = dayCostBasis(r, input.laborCost ?? EMPTY_LABOR_COST_CONTEXT);
+    // 追加・増・変更の行の労務の実績原価（件を選んだ行を先に、和はその日の原価に数える労務費まで）
+    const costWork = r.lines.filter((l): l is Extract<typeof l, { kind: 'work' }> => l.kind === 'work' && l.changeKind !== 'contract' && l.changeKind !== 'minus');
+    const workCosts = workLaborCosts(day, costWork.map((l) => ({ manDays: l.stored.manDays, issue: l.issueId !== null && refs.has(l.issueId) })));
+    const workCostOf = new Map(costWork.map((l, i) => [l, workCosts[i]]));
     const weights = dayAffiliationWeights(r.lines, supplierNames); // 所属別の人工の按分の重み（その日の労務の行）
     const visit = visitNumbers(reportDates, r.reportDate);
     for (const l of r.lines) {
@@ -378,7 +410,7 @@ export function buildChangeLedger(input: ChangeLedgerInput, rates: ChangeRates, 
       }
       const byCost = l.changeKind !== 'minus';
       // 減は原価を積み上げない（提案額は申告額）ので実績原価・労務 0
-      const actualCost = byCost ? laborShare(day, l.stored.manDays) : 0;
+      const actualCost = byCost ? (workCostOf.get(l) ?? 0) : 0;
       const missingAmount = byCost && !(l.stored.amount > 0);
       const laborAmount = byCost ? (missingAmount ? actualCost : l.stored.amount) : 0;
       throughRows.push({
