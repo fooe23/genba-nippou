@@ -110,6 +110,7 @@ async function loadDailyInputs(site: Site, allHeads: ReportHead[], targets: Repo
   const issuesById = new Map<string, Issue[]>(ids.map((id) => [id, []]));
   for (const i of issues) issuesById.get(i.reportId)?.push(i);
   const reportDates = allHeads.map((h) => h.reportDate);
+  const tradeNames = await loadSubcontractTradeNames(reports);
 
   return reports.map((report) => {
     const x = extras.get(report.id);
@@ -134,8 +135,23 @@ async function loadDailyInputs(site: Site, allHeads: ReportHead[], targets: Repo
       issues: issuesById.get(report.id) ?? [],
       names,
       cumulativeOutputBefore: allHeads.filter((h) => h.reportDate < report.reportDate).reduce((sum, h) => sum + h.outputTotal, 0),
+      tradeNames,
     };
   });
+}
+
+/** 外注の買掛の行（2026-11-17）の工種の名前（id → 名前）。外注の行が無ければ読まない。 */
+async function loadSubcontractTradeNames(reports: ReportWithLines[]): Promise<Record<string, string>> {
+  const ids = [
+    ...new Set(
+      reports.flatMap((r) => r.lines.flatMap((l) => (l.kind === 'credit' && l.purchaseKind === 'subcontract' && l.siteTradeId ? [l.siteTradeId] : []))),
+    ),
+  ];
+  if (ids.length === 0) return {};
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase.from('gn_site_trades').select('id, name').in('id', ids);
+  if (error) throw new Error(error.message);
+  return Object.fromEntries(((data ?? []) as { id: string; name: string }[]).map((t) => [t.id, t.name]));
 }
 
 /**

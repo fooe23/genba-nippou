@@ -37,6 +37,10 @@ export interface ReportMasters {
   siteTrades?: SiteTrade[];
   /** 現場の読み替え表（日報の工種の文字 → 工種）。1 日分の Excel の取り込みで工種を決めるのに使う。 */
   tradeAliases?: TradeAlias[];
+  /**
+   * 外注の買掛の支払先（現場の協力会社。2026-11-17）。undefined は区分の欄を出さない（協力会社のアカウント・SQL の前）。
+   */
+  subcontractSuppliers?: SupplierOption[];
 }
 
 /** 表の1行。key は React 用、amountMode は現金・買掛の「金額のみ入力」、manual は作業員・買掛の仕入先で「（手入力）」を選んだ印。 */

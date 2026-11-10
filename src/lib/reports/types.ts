@@ -334,6 +334,8 @@ export interface DailyReportInput {
   names: Record<string, string>;
   /** この日より前の日報の output_total の合計（進捗率 =（これ + 本日出来高）÷ 請負金額）。 */
   cumulativeOutputBefore: number;
+  /** 実行予算の工種 id → 名前（外注の買掛の品名の頭【外注・工種名】に使う。2026-11-17）。省略・無い工種は【外注】だけ。 */
+  tradeNames?: Record<string, string>;
 }
 
 // ─── 出力（DailyReportModel）。並びは雛形の日報シートと同じ ───

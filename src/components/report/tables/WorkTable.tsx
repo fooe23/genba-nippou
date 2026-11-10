@@ -1,33 +1,22 @@
 'use client';
 
+import { useMemo } from 'react';
 import { productivity, workAmount } from '@/lib/calc/report';
 import type { SiteTrade } from '@/lib/budget/types';
 import type { Issue } from '@/lib/db/reports';
-import { CHANGE_KINDS, CHANGE_KIND_LABELS, INSTRUCTION_METHODS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
+import { CHANGE_KINDS, CHANGE_KIND_LABELS, INSTRUCTION_METHODS, INSTRUCTION_METHOD_LABELS, isChangeKind, isInstructionMethod } from '@/lib/report/change-labels';
 import { issueInstruction, issueInstructionText } from '@/lib/report/issue-instructions';
 import type { WorkLine } from '@/lib/types';
 import { decimal, isManualRow, money, newLine, patchRow, removeRow, row, selectRow, type Row } from '../form-state';
 import { Computed, fieldClass, NumInput, Select, TextInput, type SelectOption } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
+import { IssuePicker } from './IssuePicker';
 import { LineIssueCreator } from './LineIssueCreator';
+import { issueOptions } from '@/lib/report/issue-options';
 
 const MANUAL_TRADE = '__manual__';
 
 const methodOptions: SelectOption[] = INSTRUCTION_METHODS.map((m) => ({ value: m, label: INSTRUCTION_METHOD_LABELS[m] }));
-
-/** 根拠の件の選択肢（重複は除く）。表示は「MM/DD 種別 本文の先頭 30 字」。 */
-function issueOptions(issues: Issue[]): SelectOption[] {
-  const seen = new Set<string>();
-  const out: SelectOption[] = [];
-  for (const i of issues) {
-    if (seen.has(i.id)) continue;
-    seen.add(i.id);
-    const body = i.body.replace(/\s+/g, ' ').trim();
-    const head = body.length > 30 ? `${body.slice(0, 30)}…` : body;
-    out.push({ value: i.id, label: `${i.reportDate.slice(5).replace('-', '/')} ${ISSUE_KIND_LABELS[i.kind]} ${head}` });
-  }
-  return out;
-}
 
 /**
  * 工種の欄（現場に実行予算の工種があるとき）：工種の選択＋「（手入力）」の文字の欄。
@@ -130,7 +119,7 @@ export function WorkTable({
   // 工種の選び直しと手入力の文字：「（手入力）」の印（Row.manual）も一緒に付け外しする。
   const select = (i: number, patch: Partial<WorkLine>, manual: boolean) => onChange((rs) => selectRow(rs, i, patch, manual));
   const unitOptions = units.map((u) => ({ value: u, label: u }));
-  const issueChoices = issueOptions(issues);
+  const issueChoices = useMemo(() => issueOptions(issues), [issues]);
   const issuesById = new Map(issues.map((x) => [x.id, x]));
   // 根拠の件を選んだら、指示者・指示方法・指示日を件から入れる（保存時もサーバーが同じ値で上書きする）。
   const pickIssue = (i: number, id: string) => {
@@ -214,13 +203,7 @@ export function WorkTable({
                 </>
               )}
               <SubField label="根拠の件">
-                <Select
-                  value={l.issueId ?? ''}
-                  options={issueChoices}
-                  placeholder="なし"
-                  missingLabel="（一覧に無い件）"
-                  onChange={(v) => pickIssue(i, v)}
-                />
+                <IssuePicker value={l.issueId} options={issueChoices} onChange={(v) => pickIssue(i, v ?? '')} />
                 {flagged?.has(i) && <span className="mt-0.5 block text-sm font-bold text-red-700 dark:text-red-400">件を選んでください</span>}
               </SubField>
               {linkedIssue && (

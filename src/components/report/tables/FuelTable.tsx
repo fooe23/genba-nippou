@@ -5,15 +5,20 @@ import type { FuelLine } from '@/lib/types';
 import { decimal, money, newLine, patchRow, removeRow, row, type Row, type VehicleOption } from '../form-state';
 import { Computed, NumInput, Select, TextInput } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
+import type { IssueOption } from '@/lib/report/issue-options';
+import { ExtraField, IssuePicker } from './IssuePicker';
 
 /** 車両の表。燃費は車両マスターから複写する。燃料費 = 走行距離 ÷ 燃費 × 燃料単価。 */
 export function FuelTable({
   rows,
   onChange,
+  issueChoices,
   vehicles,
 }: {
   rows: Row<FuelLine>[];
   onChange: (update: (rows: Row<FuelLine>[]) => Row<FuelLine>[]) => void;
+  /** 根拠の件の選択肢（issueOptions）。 */
+  issueChoices: IssueOption[];
   vehicles: VehicleOption[];
 }) {
   const set = (i: number, patch: Partial<FuelLine>) => onChange((rs) => patchRow(rs, i, patch));
@@ -56,6 +61,13 @@ export function FuelTable({
       subtotalLabel="燃料費 小計"
       subtotal={money(rows.reduce((s, r) => s + cost(r.line), 0))}
       emptyText="車両はまだありません。"
+      rowExtra={(l, i) => (
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+          <ExtraField label="根拠（件）">
+            <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
+          </ExtraField>
+        </div>
+      )}
     />
   );
 }

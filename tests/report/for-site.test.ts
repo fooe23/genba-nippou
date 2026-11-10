@@ -6,7 +6,7 @@ vi.mock('@/lib/db/reports', () => ({ listIssuesForReport: vi.fn(), listOpenIssue
 vi.mock('@/lib/db/sites', () => ({ getSiteMasters: vi.fn() }));
 vi.mock('@/lib/db/settings', () => ({ getSettings: vi.fn() }));
 
-const { creditSuppliersForSite, forSite, workersForSiteLabor } = await import('@/lib/report/form-props');
+const { creditSuppliersForSite, forSite, subcontractSuppliersForSite, workersForSiteLabor } = await import('@/lib/report/form-props');
 
 const items = [
   { id: 'a', active: true },
@@ -63,5 +63,24 @@ describe('creditSuppliersForSite（日報の買掛の行の会社）', () => {
   it('現場で選んだ会社のうち取引先だけを選択順に出す。選んだのが協力会社だけなら選んでいない扱い', () => {
     expect(creditSuppliersForSite(suppliers, ['v2', 'p1'], new Set()).map((s) => s.id)).toEqual(['v2']);
     expect(creditSuppliersForSite(suppliers, ['p1'], new Set()).map((s) => s.id)).toEqual(['v1', 'v2']);
+  });
+});
+
+describe('subcontractSuppliersForSite（外注の買掛の支払先。2026-11-17）', () => {
+  const suppliers = [
+    { id: 'v', active: true, isVendor: true, isPartner: false },
+    { id: 'p', active: true, isVendor: false, isPartner: true },
+    { id: 'b', active: true, isVendor: true, isPartner: true },
+    { id: 'px', active: false, isVendor: false, isPartner: true },
+  ];
+  it('社員・管理者だけ。協力会社のアカウント・SQL の前は undefined（区分の欄を出さない）', () => {
+    expect(subcontractSuppliersForSite({ isStaff: false, ready: true, suppliers, sitePartnerIds: ['p'], usedIds: new Set() })).toBeUndefined();
+    expect(subcontractSuppliersForSite({ isStaff: true, ready: false, suppliers, sitePartnerIds: ['p'], usedIds: new Set() })).toBeUndefined();
+  });
+  it('現場の協力会社のうち協力会社の印のある会社（取引先だけの会社は出さない）', () => {
+    expect(subcontractSuppliersForSite({ isStaff: true, ready: true, suppliers, sitePartnerIds: ['v', 'b', 'p'], usedIds: new Set() })?.map((s) => s.id)).toEqual(['b', 'p']);
+  });
+  it('現場の協力会社が無ければ有効な協力会社全部。この日報の外注で使っている会社は無効でも残す', () => {
+    expect(subcontractSuppliersForSite({ isStaff: true, ready: true, suppliers, sitePartnerIds: [], usedIds: new Set(['px']) })?.map((s) => s.id)).toEqual(['p', 'b', 'px']);
   });
 });

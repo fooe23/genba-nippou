@@ -6,17 +6,22 @@ import type { LeaseLine } from '@/lib/types';
 import { money, newLine, patchRow, removeRow, row, type LeaseItemOption, type Row } from '../form-state';
 import { Computed, NumInput, Select, TextInput } from '../inputs';
 import { LineTable, type Column } from '../LineTable';
+import type { IssueOption } from '@/lib/report/issue-options';
+import { ExtraField, IssuePicker } from './IssuePicker';
 
 /** リースの表。規格と単価（日報の日付時点）を品目マスターから複写する。規格は書き換えられる。 */
 export function LeaseTable({
   rows,
   onChange,
+  issueChoices,
   date,
   items,
   units,
 }: {
   rows: Row<LeaseLine>[];
   onChange: (update: (rows: Row<LeaseLine>[]) => Row<LeaseLine>[]) => void;
+  /** 根拠の件の選択肢（issueOptions）。 */
+  issueChoices: IssueOption[];
   date: string;
   items: LeaseItemOption[];
   units: string[];
@@ -62,6 +67,13 @@ export function LeaseTable({
       subtotalLabel="リース費 小計"
       subtotal={money(rows.reduce((s, r) => s + amount(r.line.qty, r.line.unitPrice), 0))}
       emptyText="リース品はまだありません。"
+      rowExtra={(l, i) => (
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+          <ExtraField label="根拠（件）">
+            <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
+          </ExtraField>
+        </div>
+      )}
     />
   );
 }

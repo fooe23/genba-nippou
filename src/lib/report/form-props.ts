@@ -14,6 +14,7 @@ import {
   listOpenFixRequestsForReport,
   listOpenIssues,
   listReportHeads,
+  subcontractColumnsReady,
   type ReportDetail,
 } from '@/lib/db/reports';
 import { canRequestReportFix, canReviewSite } from '@/lib/report/issue-status';
@@ -21,7 +22,7 @@ import { loadSiteTrades, loadTradeAliases } from '@/lib/db/budget';
 import { getSettings } from '@/lib/db/settings';
 import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-signature';
 import { NO_SIGNATURE, type ClientSignatureView } from '@/lib/report/client-signature';
-import { getSiteMasters, type Site } from '@/lib/db/sites';
+import { getSiteMasters, listSitePartners, type Site } from '@/lib/db/sites';
 import { vendorSuppliers } from '@/lib/calc/supplier-roles';
 import type { SaveInput } from '@/lib/report/schema';
 import type { ReportFormProps } from '@/components/report/ReportForm';
@@ -107,6 +108,24 @@ export function creditSuppliersForSite<T extends { id: string; active: boolean; 
 }
 
 /**
+ * 外注の買掛（2026-11-17）の支払先の選択肢：協力会社の印のある会社だけで forSite と同じ規則（選択＝現場の協力会社
+ * gn_site_partners。1 社も無い現場は有効な協力会社全部）。この日報の外注の行で使っている会社は無効・印を外した後でも残す。
+ * 社員・管理者でない（協力会社のアカウント）か、DB に区分の列が無い（SQL の前）ときは undefined（区分の欄を出さない）。
+ */
+export function subcontractSuppliersForSite<T extends { id: string; active: boolean; isPartner: boolean }>(opts: {
+  isStaff: boolean;
+  ready: boolean;
+  suppliers: T[];
+  sitePartnerIds: string[];
+  usedIds: Set<string>;
+}): T[] | undefined {
+  if (!opts.isStaff || !opts.ready) return undefined;
+  const partners = opts.suppliers.filter((s) => s.isPartner || opts.usedIds.has(s.id));
+  const partnerIds = new Set(opts.suppliers.filter((s) => s.isPartner).map((s) => s.id));
+  return forSite(partners, opts.sitePartnerIds.filter((id) => partnerIds.has(id)), opts.usedIds);
+}
+
+/**
  * 件の添付（上の枠の件とこの日報の件）を読み、日報の添付（先に読んだもの）と合わせて署名付き URL をまとめて作る
  * （バケットごとに 1 回）。協力会社には RLS でファイルの行が来ない。
  */
@@ -145,6 +164,7 @@ export async function loadReportFormProps(
   report: ReportDetail,
 ): Promise<Omit<ReportFormProps, 'readOnly' | 'review'>> {
   const siteId = site.id;
+  const staff = isEmployeeOrAdmin(profile);
   const [heads, selected, workers, suppliers, vehicles, leaseItems, units, weather, openIssues, issues, settings, role, fixRequests, reportAttachments, signature, siteTrades, tradeAliases] = await Promise.all([
     listReportHeads(siteId),
     getSiteMasters(siteId),
@@ -165,15 +185,28 @@ export async function loadReportFormProps(
     loadSiteTrades(siteId),
     loadTradeAliases(siteId),
   ]);
+  // 外注の買掛の支払先（現場の協力会社）と、DB に区分の列があるか。社員・管理者だけ読む（協力会社には区分の欄を出さない）。
+  const [sitePartners, subcontractReady] = staff
+    ? await Promise.all([listSitePartners(siteId), subcontractColumnsReady()])
+    : [[], false];
   const issueIds = [...openIssues.map((i) => i.id), ...issues.map((i) => i.id)];
   const [attachmentViews, confirmations] = await Promise.all([
     loadAttachmentViews(reportAttachments, issueIds),
     listIssueConfirmations(issueIds),
   ]);
-  const used = { workers: new Set<string>(), suppliers: new Set<string>(), vehicles: new Set<string>(), leaseItems: new Set<string>() };
+  const used = {
+    workers: new Set<string>(),
+    suppliers: new Set<string>(),
+    subcontractSuppliers: new Set<string>(),
+    vehicles: new Set<string>(),
+    leaseItems: new Set<string>(),
+  };
   for (const l of report.lines) {
     if (l.kind === 'labor' && l.workerId) used.workers.add(l.workerId);
-    if (l.kind === 'credit' && l.supplierId) used.suppliers.add(l.supplierId);
+    if (l.kind === 'credit' && l.supplierId) {
+      if (l.purchaseKind === 'subcontract') used.subcontractSuppliers.add(l.supplierId);
+      else used.suppliers.add(l.supplierId);
+    }
     if (l.kind === 'fuel' && l.vehicleId) used.vehicles.add(l.vehicleId);
     if (l.kind === 'lease' && l.itemId) used.leaseItems.add(l.itemId);
   }
@@ -203,6 +236,13 @@ export async function loadReportFormProps(
     supplierNames: Object.fromEntries(suppliers.map((s) => [s.id, s.name])),
     siteTrades,
     tradeAliases,
+    subcontractSuppliers: subcontractSuppliersForSite({
+      isStaff: staff,
+      ready: subcontractReady,
+      suppliers,
+      sitePartnerIds: sitePartners.map((p) => p.supplierId),
+      usedIds: used.subcontractSuppliers,
+    })?.map((s) => ({ id: s.id, name: s.name, active: s.active })),
   };
 
   const head = report.head;

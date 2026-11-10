@@ -170,3 +170,21 @@ describe('dailyTables', () => {
     ]);
   });
 });
+
+describe('買掛の列名と外注の行（2026-11-17）', () => {
+  it('買掛の列は「支払先」「支払金額(円)」。現金は「購入先」「金額(円)」のまま', () => {
+    const t = dailyTables(sampleDaily());
+    expect(t.credit.columns.map((c) => c.label)).toEqual(['品名', '規格', '数量', '単位', '単価(円)', '支払金額(円)', '支払先']);
+    expect(t.cash.columns.map((c) => c.label)).toEqual(['品名', '規格', '数量', '単位', '単価(円)', '金額(円)', '購入先']);
+  });
+  it('外注の行は品名の頭に【外注・工種名】', () => {
+    const base = report();
+    const sub = {
+      kind: 'credit' as const, itemName: 'タイル工事', spec: '', unit: '式', qty: 1, unitPrice: 100000, supplierId: 'sp9', vendor: '東北建興',
+      purchaseKind: 'subcontract' as const, siteTradeId: 't1', issueId: null,
+      stored: { amount: 100000, manDays: 0, overtimeHours: 0, hours: 0 },
+    };
+    const m = sampleDaily({ report: { ...base, lines: [...base.lines, sub] }, tradeNames: { t1: 'タイル' } });
+    expect(m.credit.rows.at(-1)).toMatchObject({ name: '【外注・タイル】タイル工事', vendor: '東北建興', amount: 100000 });
+  });
+});

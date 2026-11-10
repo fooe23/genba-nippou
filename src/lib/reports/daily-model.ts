@@ -1,4 +1,5 @@
 import type { ChangeTotals } from '@/lib/calc/change';
+import { creditItemLabel } from '@/lib/report/purchase-kind';
 import { productivity } from '@/lib/calc/report';
 import { visitNumbers } from '@/lib/calc/visit';
 import { issueNumbers } from '@/lib/reports/change-model';
@@ -108,7 +109,8 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
         break;
       case 'credit':
         credit.push({
-          name: line.itemName,
+          // 外注の行（2026-11-17）は品名の頭に【外注・工種名】。
+          name: creditItemLabel(line, line.siteTradeId ? (input.tradeNames?.[line.siteTradeId] ?? null) : null),
           spec: line.spec,
           unit: line.unit,
           qty: line.qty,

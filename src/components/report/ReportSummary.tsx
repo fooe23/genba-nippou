@@ -70,7 +70,7 @@ export function ReportSummary({
           <Line label="燃料費" value={money(totals.fuel)} />
           <Line label="リース費" value={money(totals.lease)} />
           <Line label="現金購入" value={money(totals.cash)} />
-          <Line label="買掛仕入" value={money(totals.credit)} />
+          <Line label="買掛" value={money(totals.credit)} />
           <Line label="本日原価 合計" value={money(totals.cost)} strong />
         </dl>
       </div>

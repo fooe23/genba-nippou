@@ -137,8 +137,9 @@ export function dailyTables(m: DailyReportModel): Record<
   'workers' | 'vehicles' | 'leases' | 'cash' | 'credit' | 'costs' | 'output' | 'work' | 'issues',
   SectionTable
 > {
-  const purchase = (kind: 'cash' | 'credit', vendorLabel: string): SectionTable => ({
-    columns: [text('品名', 3), text('規格', 2), num('数量', 1.2), text('単位', 1), num('単価(円)', 1.6), num('金額(円)', 1.8), text(vendorLabel, 2.6)],
+  // 買掛は外注（2026-11-17）も入るので、列名は「支払金額」「支払先」。
+  const purchase = (kind: 'cash' | 'credit', vendorLabel: string, amountLabel: string): SectionTable => ({
+    columns: [text('品名', 3), text('規格', 2), num('数量', 1.2), text('単位', 1), num('単価(円)', 1.6), num(amountLabel, 1.8), text(vendorLabel, 2.6)],
     rows: m[kind].rows.map((r) => [r.name, r.spec, qty(r.qty), r.unit, yen(r.unitPrice), yen(r.amount), withManual(r.vendor, r.vendorManual)]),
     total: ['合計', '', '', '', '', yen(m[kind].total.amount), ''],
   });
@@ -184,8 +185,8 @@ export function dailyTables(m: DailyReportModel): Record<
       rows: m.leases.rows.map((r) => [withManual(r.name, r.manual), r.spec, qty(r.qty), r.unit, yen(r.unitPrice), yen(r.amount), r.note]),
       total: ['合計', '', '', '', '', yen(m.leases.total.amount), ''],
     },
-    cash: purchase('cash', '購入先'),
-    credit: purchase('credit', '仕入先'),
+    cash: purchase('cash', '購入先', '金額(円)'),
+    credit: purchase('credit', '支払先', '支払金額(円)'),
     costs: kv(
       [
         ['労務費', yen(c.labor)],

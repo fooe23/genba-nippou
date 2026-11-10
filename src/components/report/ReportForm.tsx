@@ -19,6 +19,7 @@ import {
 import type { Issue, ReportFixRequest } from '@/lib/db/reports';
 import { APPROVED_LOCKED_MESSAGE } from '@/lib/report/rows';
 import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/schema';
+import { issueOptions } from '@/lib/report/issue-options';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeWarning } from '@/lib/report/unlinked-change-lines';
 import {
   INSTRUCTION_METHODS,
@@ -404,16 +405,18 @@ function ReportFormBody({
   const flaggedWorkRows = useMemo(() => (flagUnlinked ? new Set(unlinked.map((u) => u.index)) : undefined), [flagUnlinked, unlinked]);
   const submittable = p.status === 'none' || p.status === 'draft' || p.status === 'rejected';
   const warnings = useMemo(() => {
-    const w = reportWarnings(input, { siteStartDate: p.siteStartDate, today: p.today });
+    const w = reportWarnings(input, { siteStartDate: p.siteStartDate, today: p.today, siteHasTrades: (p.masters.siteTrades ?? []).length > 0 });
     const u = submittable ? unlinkedChangeWarning(unlinked) : null;
     return u ? [...w, u] : w;
-  }, [input, p.siteStartDate, p.today, submittable, unlinked]);
+  }, [input, p.siteStartDate, p.today, p.masters.siteTrades, submittable, unlinked]);
   const dirty = json !== baseline;
   const changes = useMemo(() => changeTotals(state.rows.work.map((r) => r.line)), [state.rows.work]);
   // 作業内容の根拠の件の候補：この日報の件と、現場の対応中の件（重複は WorkTable で除く）。
   // この日報に保存済みの作業員の所属・常用請負（サーバーが保存し直しで使う写しと同じ。表示をそろえる）。
   const storedAffiliations = useMemo(() => storedLaborAffiliations(p.initial.lines), [p.initial.lines]);
   const issueCandidates = useMemo(() => [...p.issues, ...p.openIssues], [p.issues, p.openIssues]);
+  // 燃料・リース・現金・買掛の根拠の件の選択肢（作業内容の行と同じ候補・文言。2026-11-17）。
+  const issueChoices = useMemo(() => issueOptions(issueCandidates), [issueCandidates]);
 
   const draft = useReportDraft({
     siteId: p.siteId,
@@ -874,10 +877,25 @@ function ReportFormBody({
           supplierNames={p.masters.supplierNames}
           stored={storedAffiliations}
         />
-        <FuelTable rows={state.rows.fuel} onChange={setRows('fuel')} vehicles={p.masters.vehicles} />
-        <LeaseTable rows={state.rows.lease} onChange={setRows('lease')} date={p.date} items={p.masters.leaseItems} units={p.masters.units} />
-        <CashTable rows={state.rows.cash} onChange={setRows('cash')} units={p.masters.units} />
-        <CreditTable rows={state.rows.credit} onChange={setRows('credit')} units={p.masters.units} suppliers={p.masters.suppliers} />
+        <FuelTable rows={state.rows.fuel} onChange={setRows('fuel')} vehicles={p.masters.vehicles} issueChoices={issueChoices} />
+        <LeaseTable
+          rows={state.rows.lease}
+          onChange={setRows('lease')}
+          date={p.date}
+          items={p.masters.leaseItems}
+          units={p.masters.units}
+          issueChoices={issueChoices}
+        />
+        <CashTable rows={state.rows.cash} onChange={setRows('cash')} units={p.masters.units} issueChoices={issueChoices} />
+        <CreditTable
+          rows={state.rows.credit}
+          onChange={setRows('credit')}
+          units={p.masters.units}
+          suppliers={p.masters.suppliers}
+          subcontractSuppliers={p.masters.subcontractSuppliers}
+          trades={p.masters.siteTrades ?? []}
+          issueChoices={issueChoices}
+        />
         <WorkTable
           rows={state.rows.work}
           onChange={setRows('work')}

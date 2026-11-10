@@ -602,3 +602,16 @@ export async function getSignatureIssueSet(reportId: string): Promise<string[] |
   if (error) throw new Error(`[getSignatureIssueSet] ${error.message}`);
   return data ? ((data as { issue_ids: string[] | null }).issue_ids ?? []) : null;
 }
+
+/**
+ * 外注の買掛の列（gn_report_lines.purchase_kind。update_2026-11-17_subcontract.sql）が DB にあるか。
+ * 無い（SQL の前。42703・PGRST204）なら false。日報で区分「外注」を出すか・保存してよいかに使う
+ * （列が無いと gn_save_report が区分を捨て、外注の行が仕入として保存されるため）。それ以外のエラーは投げる。
+ */
+export async function subcontractColumnsReady(): Promise<boolean> {
+  const supabase = await createServerSupabase();
+  const { error } = await supabase.from('gn_report_lines').select('purchase_kind').limit(1);
+  if (!error) return true;
+  if (error.code === '42703' || error.code === 'PGRST204') return false;
+  throw new Error(error.message);
+}

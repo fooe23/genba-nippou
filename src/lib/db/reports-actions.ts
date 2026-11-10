@@ -20,9 +20,9 @@ import {
 } from '@/lib/db/issue-schemas';
 import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
-import { requireProfile } from '@/lib/db/profile';
+import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { listLeaseItems, listVehicles, listWorkers } from '@/lib/db/masters';
-import { getPreviousReport, listIssuesByIds } from '@/lib/db/reports';
+import { getPreviousReport, listIssuesByIds, subcontractColumnsReady } from '@/lib/db/reports';
 import { getSettings } from '@/lib/db/settings';
 import {
   copyableLines,
@@ -65,7 +65,8 @@ import {
 import { downloadObject, SIGNATURE_BUCKET, SIGNED_PDF_BUCKET } from '@/lib/db/client-signature';
 import { renderClientDailyPdf } from '@/lib/reports/client-daily-render';
 import { loadSupplierRoles } from '@/lib/db/supplier-roles';
-import { creditSupplierError } from '@/lib/calc/supplier-roles';
+import { creditSupplierError, materialCreditSupplierIds, subcontractSupplierError } from '@/lib/calc/supplier-roles';
+import { subcontractInputError } from '@/lib/report/purchase-kind';
 import type { IssueStatus, ReportLine } from '@/lib/types';
 
 // 日報の保存（Server Actions）。本番では throw した文言がクライアントに届かないため、
@@ -91,7 +92,7 @@ const STALE_VERSION_ERROR = '日報の版の指定が正しくありません。
  * 渡すと DB がいまの updated_at と比べ、違えば stale_report（他の端末で更新された）で止める。
  */
 export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | null): Promise<SaveReportResult> {
-  await requireProfile();
+  const profile = await requireProfile();
   const checked = validateReport(input);
   if (!checked.ok) return { ok: false, error: checked.errors[0] };
   // 検証後の lines は正規化済み（金額のみ → qty=1・unitPrice=金額、amountOnly なし）。
@@ -102,8 +103,21 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
   }
 
   try {
-    // 買掛の行の会社：新しく協力会社だけの会社を選んでいれば止める。この日報に保存済みの会社は印を外した後も保存し直せる。
-    const creditIds = v.lines.flatMap((l) => (l.kind === 'credit' && l.supplierId ? [l.supplierId] : []));
+    // 外注の買掛の行（2026-11-17）：社員・管理者だけ（RLS でも断る）。DB に区分の列が無い（SQL の前）ときは止める
+    // （区分が捨てられて仕入として保存されないように）。支払先は協力会社の印のある会社だけ。
+    const subLines = v.lines.flatMap((l) => (l.kind === 'credit' && l.purchaseKind === 'subcontract' ? [l] : []));
+    if (subLines.length > 0) {
+      const staff = isEmployeeOrAdmin(profile);
+      const inputError = subcontractInputError(v.lines, { isStaff: staff, ready: staff ? await subcontractColumnsReady() : false });
+      if (inputError) return { ok: false, error: inputError };
+      const roles = await loadSupplierRoles(await createServerSupabase(), subLines.flatMap((l) => (l.supplierId ? [l.supplierId] : [])));
+      const subError = subcontractSupplierError(subLines, roles);
+      if (subError) return { ok: false, error: subError };
+    }
+
+    // 買掛の仕入の行の会社：新しく協力会社だけの会社を選んでいれば止める。この日報に保存済みの会社は印を外した後も保存し直せる。
+    // 外注の行の会社（協力会社）は上で確かめたので対象外。
+    const creditIds = materialCreditSupplierIds(v.lines);
     if (creditIds.length > 0) {
       const supabase = await createServerSupabase();
       const [roles, stored] = await Promise.all([
