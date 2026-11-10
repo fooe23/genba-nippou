@@ -3,6 +3,7 @@ import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { getCurrentProfile, isEmployeeOrAdmin } from '@/lib/db/profile';
 import { isIssueKind } from '@/lib/report/change-labels';
 import { subcontractOutputsByReport, type SubcontractOutput } from '@/lib/report/subcontract-output';
+import { subcontractContracts, subcontractPaidBefore, type SubcontractBudgetView } from '@/lib/report/subcontract-progress';
 import { createServerSupabase } from '@/lib/supabase/server';
 import type { IssueKind } from '@/lib/types';
 
@@ -82,4 +83,51 @@ export async function loadSubcontractOutputs(
 /** 日報 id → 外注の出来高の合計（集計・現場の画面の累計出来高に足す分）。 */
 export function subcontractOutputTotals(byReport: ReadonlyMap<string, SubcontractOutput>): Record<string, number> {
   return Object.fromEntries([...byReport].map(([id, o]) => [id, o.total]));
+}
+
+/**
+ * 日報の外注の行の「請負の進み」（src/lib/report/subcontract-progress.ts）の材料：実行予算の請負の行の 工種 × 会社 の請負額と、
+ * この日より前の日報（reportIds）の外注の行（根拠の件なし）の 工種 × 会社 の支払い。社員・管理者だけ（協力会社のアカウントと、
+ * プロフィールが読めないときは undefined。請負額・支払いを渡さない）。区分の列が無い DB（SQL の前）は支払いを空にする。
+ */
+export async function loadSubcontractBudgetView(siteId: string, reportIdsBefore: string[]): Promise<SubcontractBudgetView | undefined> {
+  const profile = await getCurrentProfile();
+  if (!profile || !isEmployeeOrAdmin(profile)) return undefined;
+  const supabase = await createServerSupabase();
+  const budget = await supabase.from('gn_budget_lines').select('item, trade_id, supplier_id, amount').eq('site_id', siteId).eq('item', 'subcontract');
+  if (budget.error) throw new Error(budget.error.message);
+  const contracts = subcontractContracts(
+    ((budget.data ?? []) as { item: string; trade_id: string | null; supplier_id: string | null; amount: number | string | null }[]).map((r) => ({
+      item: r.item,
+      tradeId: r.trade_id,
+      supplierId: r.supplier_id,
+      amount: Number(r.amount ?? 0),
+    })),
+  );
+  let rows: { site_trade_id: string | null; supplier_id: string | null; issue_id: string | null; amount: number | string | null }[] = [];
+  try {
+    const pages = await Promise.all(
+      chunk(reportIdsBefore, ID_CHUNK).map((ids) =>
+        fetchAllPages<(typeof rows)[number]>(async (from, to) => {
+          const { data, error } = await supabase
+            .from('gn_report_lines')
+            .select('site_trade_id, supplier_id, issue_id, amount')
+            .in('report_id', ids)
+            .eq('kind', 'credit')
+            .eq('purchase_kind', 'subcontract')
+            .order('id', { ascending: true }) // ページ境界で重複・欠落しないよう並びを固定する
+            .range(from, to);
+          if (error) throw Object.assign(new Error(error.message), { code: error.code });
+          return (data ?? []) as unknown as (typeof rows)[number][];
+        }, PAGE_SIZE),
+      ),
+    );
+    rows = pages.flat();
+  } catch (e) {
+    if ((e as { code?: string }).code !== '42703') throw e;
+  }
+  const paidBefore = subcontractPaidBefore(
+    rows.map((r) => ({ siteTradeId: r.site_trade_id, supplierId: r.supplier_id, issueId: r.issue_id, amount: Number(r.amount ?? 0) })),
+  );
+  return { contracts, paidBefore };
 }

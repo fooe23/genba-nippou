@@ -60,6 +60,7 @@ import { LeaseTable } from './tables/LeaseTable';
 import { CashTable, CreditTable } from './tables/PurchaseTable';
 import { WorkTable, workRowId } from './tables/WorkTable';
 import { useReportDraft } from './useReportDraft';
+import type { SubcontractBudgetView } from '@/lib/report/subcontract-progress';
 import { AttachmentPanel } from '@/components/attachments/AttachmentPanel';
 import { IssueAttachmentBadges, IssueAttachments } from '@/components/attachments/IssueAttachments';
 import type { AttachmentView, AttachmentViewer } from '@/components/attachments/types';
@@ -98,6 +99,11 @@ export interface ReportFormProps {
    * 外注の出来高を区分に分けられるように渡す。社員・管理者だけ（協力会社には空）。
    */
   subcontractIssueKinds?: Record<string, IssueKind>;
+  /**
+   * 外注の行の請負の進み（工種 × 会社の請負額と、この日より前の日報の支払い。src/lib/report/subcontract-progress.ts）。
+   * 社員・管理者だけ（協力会社のアカウント・SQL の前は undefined）。
+   */
+  subcontractBudget?: SubcontractBudgetView;
   hasPrevious: boolean;
   initial: SaveInput;
   masters: ReportMasters;
@@ -934,6 +940,7 @@ function ReportFormBody({
           subcontractSuppliers={p.masters.subcontractSuppliers}
           trades={p.masters.siteTrades ?? []}
           issueChoices={issueChoices}
+          subcontractBudget={p.subcontractBudget}
         />
         <ContractWorkWarning messages={workWarnings} className="mb-3" />
         <WorkTable

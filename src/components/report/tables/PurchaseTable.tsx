@@ -1,10 +1,18 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { amount } from '@/lib/calc/report';
 import type { SiteTrade } from '@/lib/budget/types';
 import type { IssueOption } from '@/lib/report/issue-options';
 import { PURCHASE_KIND_LABELS } from '@/lib/report/purchase-kind';
+import {
+  amountFromPercent,
+  subcontractOverWarning,
+  subcontractProgress,
+  subcontractProgressText,
+  type SubcontractBudgetView,
+  type SubcontractProgress,
+} from '@/lib/report/subcontract-progress';
 import type { CashLineInput, CreditLineInput } from '@/lib/report/schema';
 import { isManualRow, money, newLine, patchRow, removeRow, row, selectRow, type Row, type SupplierOption } from '../form-state';
 import { Computed, fieldClass, NumInput, Select, TextInput } from '../inputs';
@@ -169,6 +177,57 @@ export function CashTable({
 }
 
 /**
+ * 「今回の出来高 ○%」：入れると支払金額＝round(請負額 × %) を入れる（金額のみ入力にする。金額はそのあとも直せる）。
+ * 入れた % は、支払金額がそのときのままの間だけ表示する（金額を直したら空に戻る）。
+ */
+function SubcontractPercentInput({ contract, amount, onSet, index }: { contract: number; amount: number; onSet: (amount: number) => void; index: number }) {
+  const [state, setState] = useState<{ pct: number | null; at: number | null }>({ pct: null, at: null });
+  const value = state.at !== null && state.at === amount ? state.pct : null;
+  return (
+    <label className="flex items-center gap-2">
+      <span className="text-xs text-gray-700 dark:text-gray-300">今回の出来高</span>
+      <span className="w-24">
+        <span className="sr-only">今回の出来高 %（{index + 1}行目）</span>
+        <NumInput
+          value={value}
+          placeholder="%"
+          onChange={(n) => {
+            const a = amountFromPercent(contract, n);
+            setState({ pct: n, at: a });
+            if (a !== null) onSet(a);
+          }}
+        />
+      </span>
+      <span className="text-xs text-gray-700 dark:text-gray-300">%</span>
+    </label>
+  );
+}
+
+/** 外注の行の下の「請負の進み」（社員・管理者だけ）。 */
+function SubcontractProgressNote({
+  progress,
+  names,
+  amount,
+  onSetAmount,
+  index,
+}: {
+  progress: SubcontractProgress;
+  names: { trade: string; supplier: string; issue?: string };
+  amount: number;
+  onSetAmount: (amount: number) => void;
+  index: number;
+}) {
+  const over = subcontractOverWarning(progress, names);
+  return (
+    <div className="mt-2 space-y-1 rounded-lg bg-slate-50 p-2 text-xs text-gray-800 dark:bg-slate-900 dark:text-gray-200">
+      <p className="break-words">{subcontractProgressText(progress, names)}</p>
+      {progress.kind === 'contract' && <SubcontractPercentInput contract={progress.contract} amount={amount} onSet={onSetAmount} index={index} />}
+      {over && <p className="font-medium text-amber-800 dark:text-amber-300">⚠ {over}（保存はできます）</p>}
+    </div>
+  );
+}
+
+/**
  * 買掛の表。区分（仕入／外注）・工種（外注のときだけ）・根拠（件）は行の下の欄（2026-11-17）。
  * - subcontractSuppliers が undefined（協力会社のアカウント・SQL の前）なら区分の欄を出さない（常に仕入）。
  * - 外注の行の支払先は subcontractSuppliers（現場の協力会社）から選ぶ（手入力は不可）。仕入の行は今までどおり取引先＋手入力。
@@ -182,6 +241,7 @@ export function CreditTable({
   subcontractSuppliers,
   trades,
   issueChoices,
+  subcontractBudget,
 }: {
   rows: Row<CreditLineInput>[];
   onChange: (update: (rows: Row<CreditLineInput>[]) => Row<CreditLineInput>[]) => void;
@@ -190,11 +250,27 @@ export function CreditTable({
   subcontractSuppliers?: SupplierOption[];
   trades: SiteTrade[];
   issueChoices: IssueOption[];
+  /** 外注の行の請負の進み（請負額・これまでの支払い）。社員・管理者だけ。 */
+  subcontractBudget?: SubcontractBudgetView;
 }) {
   const label = (s: SupplierOption) => (s.active ? s.name : `${s.name}（無効）`);
   const options = [...suppliers.map((s) => ({ value: s.id, label: label(s) })), { value: MANUAL_SUPPLIER, label: '（手入力）' }];
   const subOptions = (subcontractSuppliers ?? []).map((s) => ({ value: s.id, label: label(s) }));
   const tradeOptions = trades.map((t) => ({ value: t.id, label: t.name }));
+  const progress = subcontractBudget
+    ? subcontractProgress(
+        rows.map((r) => ({ ...r.line, amount: rowAmount(r) })),
+        subcontractBudget,
+      )
+    : [];
+  const progressNames = (l: CreditLineInput) => ({
+    trade: trades.find((t) => t.id === l.siteTradeId)?.name ?? '（工種）',
+    supplier: (subcontractSuppliers ?? []).find((s) => s.id === l.supplierId)?.name || l.vendor || '（支払先）',
+    issue: l.issueId ? issueChoices.find((o) => o.value === l.issueId)?.label : undefined,
+  });
+  // 今回の出来高 % から支払金額を入れる（金額のみ入力にする）
+  const setAmount = (i: number, a: number) =>
+    onChange((rs) => rs.map((r, j) => (j !== i ? r : { ...r, amountMode: true, line: { ...r.line, qty: null, unitPrice: null, amountOnly: a } })));
   // 支払先の選び直しと手入力の支払先名：「（手入力）」の印（Row.manual）も一緒に付け外しする。
   const select = (i: number, patch: Partial<CreditLineInput>, manual: boolean) => onChange((rs) => selectRow(rs, i, patch, manual));
   const set = (i: number, patch: Partial<CreditLineInput>) => onChange((rs) => patchRow(rs, i, patch));
@@ -275,38 +351,44 @@ export function CreditTable({
           </div>
         );
       }}
-      rowExtra={(l, i) => {
+      rowExtra={(l, i, r) => {
         const sub = l.purchaseKind === 'subcontract';
+        const p = progress[i] ?? null;
         return (
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-            {(subcontractSuppliers !== undefined || sub) && (
-              <ExtraField label="区分">
-                <select
-                  value={l.purchaseKind}
-                  disabled={subcontractSuppliers === undefined}
-                  onChange={(e) => changeKind(i, l, e.target.value === 'subcontract')}
-                  className={fieldClass}
-                >
-                  <option value="material">{PURCHASE_KIND_LABELS.material}（材料など）</option>
-                  <option value="subcontract">{PURCHASE_KIND_LABELS.subcontract}（請負の支払い）</option>
-                </select>
+          <>
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+              {(subcontractSuppliers !== undefined || sub) && (
+                <ExtraField label="区分">
+                  <select
+                    value={l.purchaseKind}
+                    disabled={subcontractSuppliers === undefined}
+                    onChange={(e) => changeKind(i, l, e.target.value === 'subcontract')}
+                    className={fieldClass}
+                  >
+                    <option value="material">{PURCHASE_KIND_LABELS.material}（材料など）</option>
+                    <option value="subcontract">{PURCHASE_KIND_LABELS.subcontract}（請負の支払い）</option>
+                  </select>
+                </ExtraField>
+              )}
+              {sub && tradeOptions.length > 0 && (
+                <ExtraField label="工種（実行予算）">
+                  <Select
+                    value={l.siteTradeId ?? ''}
+                    options={tradeOptions}
+                    placeholder="選んでください"
+                    missingLabel="（実行予算に無い工種）"
+                    onChange={(v) => set(i, { siteTradeId: v === '' ? null : v })}
+                  />
+                </ExtraField>
+              )}
+              <ExtraField label="根拠（件）">
+                <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
               </ExtraField>
+            </div>
+            {p && (
+              <SubcontractProgressNote progress={p} names={progressNames(l)} amount={rowAmount(r)} onSetAmount={(a) => setAmount(i, a)} index={i} />
             )}
-            {sub && tradeOptions.length > 0 && (
-              <ExtraField label="工種（実行予算）">
-                <Select
-                  value={l.siteTradeId ?? ''}
-                  options={tradeOptions}
-                  placeholder="選んでください"
-                  missingLabel="（実行予算に無い工種）"
-                  onChange={(v) => set(i, { siteTradeId: v === '' ? null : v })}
-                />
-              </ExtraField>
-            )}
-            <ExtraField label="根拠（件）">
-              <IssuePicker value={l.issueId} options={issueChoices} onChange={(id) => set(i, { issueId: id })} />
-            </ExtraField>
-          </div>
+          </>
         );
       }}
     />
