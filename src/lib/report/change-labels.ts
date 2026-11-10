@@ -84,6 +84,20 @@ export function settlementCategory(kind: IssueKind): ChangeLedgerKind | null {
   return SETTLEMENT_CATEGORY[kind];
 }
 
+/**
+ * 根拠の件の印（帳票の燃料・リース・現金・買掛の行の品名の頭。2026-11-20）：件の精算の区分の名前（追加・増・変更・減。
+ * 作業内容の【追加】【増】【変更】【減】と同じ）。区分の無いやり直しは「やり直し」。
+ */
+export function issueTagLabel(kind: IssueKind): string {
+  const category = settlementCategory(kind);
+  return category === null ? ISSUE_KIND_LABELS[kind] : CHANGE_KIND_LABELS[category];
+}
+
+/** 品名の頭に根拠の件の印を付ける（tag が null ならそのまま）：【増】モザイクタイル。 */
+export function withIssueTag(tag: string | null, name: string): string {
+  return tag === null ? name : `【${tag}】${name}`;
+}
+
 type WorkChangeFields = Pick<WorkLine, 'changeKind' | 'instructedBy' | 'instructionMethod' | 'instructedOn' | 'issueId'>;
 
 /** 作業内容の行の区分・指示の既定（契約内・指示なし）。新しい行・古い下書き・列の無い行に使う。 */

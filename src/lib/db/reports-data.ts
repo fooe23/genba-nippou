@@ -5,7 +5,7 @@ import { loadLaborCostContext } from '@/lib/db/labor-cost';
 import { listLeaseItems, listSuppliers, listVehicles, listWorkers } from '@/lib/db/masters';
 import { listIssuesForReports, listReportHeads, type Issue, type ReportHead } from '@/lib/db/reports';
 import { getSite, listCarryovers, listSitePartners, type Site } from '@/lib/db/sites';
-import { loadSubcontractOutputs } from '@/lib/db/subcontract-output';
+import { loadIssueKinds, loadSubcontractOutputs } from '@/lib/db/subcontract-output';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
 import { getCurrentProfile, isEmployeeOrAdmin } from '@/lib/db/profile';
 import { budgetSubcontractAmounts } from '@/lib/report/subcontract-output';
@@ -158,7 +158,14 @@ async function loadDailyInputs(site: Site, allHeads: ReportHead[], targets: Repo
   const issuesById = new Map<string, Issue[]>(ids.map((id) => [id, []]));
   for (const i of issues) issuesById.get(i.reportId)?.push(i);
   const reportDates = allHeads.map((h) => h.reportDate);
-  const tradeNames = await loadSubcontractTradeNames(reports);
+  // 燃料・リース・現金・買掛の行が根拠に選んだほかの日報の件の種別（帳票の品名の頭の【増】など。2026-11-20）
+  const knownIssueIds = new Set([...issues.map((i) => i.id), ...Object.keys(sub.issueKinds)]);
+  const [tradeNames, lineIssueKinds] = await Promise.all([
+    loadSubcontractTradeNames(reports),
+    loadIssueKinds(
+      reports.flatMap((r) => r.lines.flatMap((l) => (l.kind !== 'labor' && l.kind !== 'work' && l.issueId && !knownIssueIds.has(l.issueId) ? [l.issueId] : []))),
+    ),
+  ]);
 
   return reports.map((report) => {
     const x = extras.get(report.id);
@@ -186,6 +193,7 @@ async function loadDailyInputs(site: Site, allHeads: ReportHead[], targets: Repo
         .filter((h) => h.reportDate < report.reportDate)
         .reduce((sum, h) => sum + h.outputTotal + (sub.byReport.get(h.id)?.total ?? 0), 0),
       subcontractIssueKinds: sub.issueKinds,
+      lineIssueKinds,
       tradeNames,
       laborCost,
     };

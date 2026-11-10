@@ -1,4 +1,5 @@
 import type { ChangeTotals } from '@/lib/calc/change';
+import { issueTagLabel, withIssueTag } from '@/lib/report/change-labels';
 import { creditItemLabel } from '@/lib/report/purchase-kind';
 import { EMPTY_SUBCONTRACT_OUTPUT, issueKindMap, subcontractOutput, subcontractOutputLines } from '@/lib/report/subcontract-output';
 import { isUnnamedLabor, laborDisplayName, laborHeadcount } from '@/lib/report/unnamed-workers';
@@ -85,6 +86,17 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
   const cash: DailyPurchaseRow[] = [];
   const credit: DailyPurchaseRow[] = [];
   const work: DailyWorkRow[] = [];
+  // 件の種別：この日報の件 → ほかの日報の件（外注の行の分 subcontractIssueKinds・ほかの行の分 lineIssueKinds）。
+  const kinds = new Map([
+    ...Object.entries(input.lineIssueKinds ?? {}),
+    ...Object.entries(input.subcontractIssueKinds ?? {}),
+    ...issueKindMap(input.issues),
+  ]);
+  /** 根拠の件を選んだ燃料・リース・現金・買掛の行の印（件の区分。作業内容の【増】と同じ）。件なし・読めない件は null。 */
+  const tagOf = (issueId: string | null): string | null => {
+    const kind = issueId === null ? undefined : kinds.get(issueId);
+    return kind === undefined ? null : issueTagLabel(kind);
+  };
 
   for (const line of report.lines) {
     const amount = line.stored.amount;
@@ -95,7 +107,7 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
       case 'fuel':
         vehicles.push({
           vehicleId: line.vehicleId,
-          name: line.vehicleName,
+          name: withIssueTag(tagOf(line.issueId), line.vehicleName),
           manual: line.vehicleId === null,
           kmPerL: line.kmPerL,
           distanceKm: line.distanceKm,
@@ -107,7 +119,7 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
       case 'lease':
         leases.push({
           itemId: line.itemId,
-          name: line.itemName,
+          name: withIssueTag(tagOf(line.issueId), line.itemName),
           manual: line.itemId === null,
           spec: line.spec,
           unit: line.unit,
@@ -118,12 +130,12 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
         });
         break;
       case 'cash':
-        cash.push({ name: line.itemName, spec: line.spec, unit: line.unit, qty: line.qty, unitPrice: line.unitPrice, amount, vendor: line.vendor, vendorManual: false });
+        cash.push({ name: withIssueTag(tagOf(line.issueId), line.itemName), spec: line.spec, unit: line.unit, qty: line.qty, unitPrice: line.unitPrice, amount, vendor: line.vendor, vendorManual: false });
         break;
       case 'credit':
         credit.push({
-          // 外注の行（2026-11-17）は品名の頭に【外注・工種名】。
-          name: creditItemLabel(line, line.siteTradeId ? (input.tradeNames?.[line.siteTradeId] ?? null) : null),
+          // 外注の行（2026-11-17）は品名の頭に【外注・工種名】、根拠の件を選んだ行（2026-11-20）は件の区分も。
+          name: creditItemLabel(line, line.siteTradeId ? (input.tradeNames?.[line.siteTradeId] ?? null) : null, tagOf(line.issueId)),
           spec: line.spec,
           unit: line.unit,
           qty: line.qty,
@@ -160,7 +172,6 @@ export function buildDailyReport(input: DailyReportInput): DailyReportModel {
   const subcontractTotal = sum(report.lines.flatMap((l) => (l.kind === 'credit' && l.purchaseKind === 'subcontract' ? [l.stored.amount] : [])));
   const visit = visitNumbers(input.reportDates, report.reportDate);
   // 外注の支払いのうち出来高に数える分。件の種別はこの日報の件 → 外注の行が選んだほかの日報の件（subcontractIssueKinds）の順。
-  const kinds = new Map([...Object.entries(input.subcontractIssueKinds ?? {}), ...issueKindMap(input.issues)]);
   const sub = subcontractOutput(subcontractOutputLines(report.lines, (l) => l.stored.amount), kinds);
   const today = report.outputTotal + sub.total;
   const cumulative = input.cumulativeOutputBefore + today;

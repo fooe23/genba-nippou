@@ -1,3 +1,4 @@
+import { withIssueTag } from '@/lib/report/change-labels';
 import type { PurchaseKind } from '@/lib/types';
 
 // 買掛の区分（仕入・外注。2026-11-17）の表示と入力の可否（純関数。画面・サーバー・帳票から使う）。
@@ -22,8 +23,15 @@ export function subcontractInputError(
   return null;
 }
 
-/** 帳票の買掛の品名：外注の行は頭に【外注・工種名】（工種が無ければ【外注】）。仕入の行はそのまま。 */
-export function creditItemLabel(line: { itemName: string; purchaseKind: PurchaseKind }, tradeName: string | null): string {
-  if (line.purchaseKind !== 'subcontract') return line.itemName;
-  return `${tradeName ? `【外注・${tradeName}】` : '【外注】'}${line.itemName}`;
+/**
+ * 帳票の買掛の品名：外注の行は頭に【外注・工種名】（工種が無ければ【外注】）。仕入の行はそのまま。
+ * 根拠の件を選んだ行（2026-11-20）は件の区分（issueTag。issueTagLabel）も付ける：外注は【外注・タイル・増】、仕入は【増】。
+ */
+export function creditItemLabel(
+  line: { itemName: string; purchaseKind: PurchaseKind },
+  tradeName: string | null,
+  issueTag: string | null = null,
+): string {
+  if (line.purchaseKind !== 'subcontract') return withIssueTag(issueTag, line.itemName);
+  return withIssueTag(['外注', tradeName, issueTag].filter((v): v is string => !!v).join('・'), line.itemName);
 }

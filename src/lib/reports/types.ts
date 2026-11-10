@@ -369,6 +369,11 @@ export interface DailyReportInput {
    * 外注の出来高を契約内・追加・増・変更に分けるのに使う。読めない件の外注は数えない。省略は空。
    */
   subcontractIssueKinds?: Record<string, IssueKind>;
+  /**
+   * この日報の燃料・リース・現金・買掛の行が根拠に選んだ件のうち、issues・subcontractIssueKinds に無い件（ほかの日報の件）の
+   * id → 種別（2026-11-20）。帳票の品名の頭の件の区分（【増】など）に使う。読めない件は入らない（印なし）。省略は空。
+   */
+  lineIssueKinds?: Record<string, IssueKind>;
   /** 実行予算の工種 id → 名前（外注の買掛の品名の頭【外注・工種名】に使う。2026-11-17）。省略・無い工種は【外注】だけ。 */
   tradeNames?: Record<string, string>;
   /** 労務費の決まりの材料（2026-11-17）。作業員の行の労務費・本日原価の労務費は原価に数える分。 */

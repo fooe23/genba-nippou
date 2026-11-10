@@ -6,6 +6,8 @@ import type { Site } from '@/lib/db/sites';
 import type { ChangeLedgerInput, ReportWithLines, SavedReportLine } from '@/lib/reports/types';
 import type { ChangeKind, WorkLine } from '@/lib/types';
 import { DEFAULT_LABOR_RULE } from '@/lib/calc/report';
+import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
+import { joinChangesRows, type ChangesIssueRow } from '@/lib/reports/changes-page';
 
 // ─── 小さな手作りの入力 ───
 
@@ -766,5 +768,48 @@ describe('外注の支払いと契約内の出来高（2026-11-11）', () => {
     const m = buildChangeLedger(input([r], { issues: [issue('iInc', '2026-11-10', '目地 増', { kind: 'increase' })] }), RATES, ALL);
     expect(m.contractOutput).toBe(190_000);
     expect(m.issues.find((i) => i.id === 'iInc')?.breakdown.subcontract).toBe(30_000);
+  });
+});
+
+// ─── DB の行（fromLineRow）から件の精算まで（2026-11-20 村山様邸の報告） ───
+
+describe('DB の行から：根拠の件を選んだ買掛（仕入・手入力の支払先）・外注・現金・リース・燃料が件の精算に入る', () => {
+  const ISS = '11111111-1111-4111-8111-111111111111';
+  const row = (r: LineRowRead): SavedReportLine => ({
+    ...fromLineRow(r)!,
+    stored: { amount: Number(r.amount ?? 0), manDays: Number(r.man_days ?? 0), overtimeHours: 0, hours: 0 },
+  });
+  // PostgREST は numeric を文字列で返す
+  const nov10 = (extra: LineRowRead[] = []) =>
+    report('2026-11-10', [
+      row({ kind: 'labor', ref_id: 'w1', name: '伊藤', unit_price: '20000', amount: '20000', man_days: '1', hours: '8', overtime_hours: '0' }),
+      row({ kind: 'credit', ref_id: 'sp-tohoku', name: 'タイル工事', qty: '1', unit_price: '170000', amount: '170000', purchase_kind: 'subcontract', site_trade_id: 't1', issue_id: null }),
+      row({ kind: 'credit', ref_id: null, name: 'モザイクタイル', spec: '300角', qty: '1', unit_price: '25000', amount: '25000', vendor: '稲亀商店', purchase_kind: 'material', issue_id: ISS }),
+      row({ kind: 'work', trade: 'タイル', description: 'タイル張り（モザイク）', qty: '1', unit: '式', man_days: '1', unit_price: '25000', amount: '25000', change_kind: 'increase', issue_id: ISS, source: 'extra' }),
+      ...extra.map(row),
+    ]);
+  const inc = issue(ISS, '2026-11-10', '並びの壁も一緒に整えたいとの事', { kind: 'increase' });
+  const settle = (extra: LineRowRead[] = []) => {
+    const m = buildChangeLedger(input([nov10(extra)], { issues: [inc] }), DEF, ALL);
+    return { m, row: joinChangesRows([inc], m)[0] as ChangesIssueRow };
+  };
+
+  it('労務（施工金額）25,000 ＋ 材料 25,000 → 61,317（増）。根拠の無い外注 170,000 は契約内の出来高', () => {
+    const { m, row: r } = settle();
+    expect(r).toMatchObject({ proposal: 61317, settled: 61317, category: 'increase' });
+    expect(r.breakdown).toMatchObject({ laborAmount: 25000, material: 25000, subcontract: 0 });
+    expect(m.settlement.increase).toBe(61317);
+    expect(m.contractOutput).toBe(170000);
+  });
+  it('現金は材料、リース・燃料は経費率、根拠を選んだ外注は率なしで同じ件に入る', () => {
+    const { row: r } = settle([
+      { kind: 'cash', name: '目地材', qty: '1', unit_price: '1000', amount: '1000', issue_id: ISS },
+      { kind: 'lease', ref_id: null, name: '発電機', qty: '1', unit_price: '2000', amount: '2000', issue_id: ISS },
+      { kind: 'fuel', ref_id: null, name: '軽トラ', km_per_l: '10', distance_km: '10', price_per_l: '300', amount: '300', issue_id: ISS },
+      { kind: 'credit', ref_id: 'sp-tohoku', name: '追加の張り手間', qty: '1', unit_price: '30000', amount: '30000', purchase_kind: 'subcontract', site_trade_id: 't1', issue_id: ISS },
+    ]);
+    expect(r.breakdown).toMatchObject({ laborAmount: 25000, material: 26000, lease: 2000, fuel: 300, subcontract: 30000 });
+    // ceil((25,000×1.151 ＋ 26,000×1.12 ＋ 2,300×1.12) × 1.08 ＋ 30,000)
+    expect(r.proposal).toBe(Math.ceil((25000 * 1.151 + 26000 * 1.12 + 2300 * 1.12) * 1.08 + 30000));
   });
 });

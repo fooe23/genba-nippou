@@ -11,7 +11,7 @@ import {
   visitText,
   workDescription,
 } from '@/lib/reports/daily-sections';
-import { report, sampleDaily, site, withChanges } from './daily-fixture';
+import { issues, report, sampleDaily, site, withChanges } from './daily-fixture';
 
 const text = (t: SectionTable) => t.rows.map((r) => r.map(formatCell));
 
@@ -203,6 +203,41 @@ describe('買掛の列名と外注の行（2026-11-17）', () => {
     };
     const m = sampleDaily({ report: { ...base, lines: [...base.lines, sub] }, tradeNames: { t1: 'タイル' } });
     expect(m.credit.rows.at(-1)).toMatchObject({ name: '【外注・タイル】タイル工事', vendor: '東北建興', amount: 100000 });
+  });
+});
+
+describe('根拠の件を選んだ燃料・リース・現金・買掛の行（2026-11-20）', () => {
+  const st = (amount: number) => ({ amount, manDays: 0, overtimeHours: 0, hours: 0 });
+  const tagged = [
+    { kind: 'fuel' as const, vehicleId: null, vehicleName: '軽トラ', kmPerL: 10, distanceKm: 10, pricePerL: 170, note: '', issueId: 'iInc', stored: st(170) },
+    { kind: 'lease' as const, itemId: null, itemName: '発電機', spec: '', unit: '台', qty: 1, unitPrice: 3000, note: '', issueId: 'iOther', stored: st(3000) },
+    { kind: 'cash' as const, itemName: '目地材', spec: '', unit: '袋', qty: 1, unitPrice: 800, vendor: '', issueId: 'iInc', stored: st(800) },
+    { kind: 'credit' as const, itemName: 'モザイクタイル', spec: '300角', unit: '式', qty: 1, unitPrice: 25000, supplierId: null, vendor: '稲亀商店', purchaseKind: 'material' as const, siteTradeId: null, issueId: 'iInc', stored: st(25000) },
+    { kind: 'credit' as const, itemName: 'タイル工事', spec: '', unit: '式', qty: 1, unitPrice: 170000, supplierId: 'sp9', vendor: '東北建興', purchaseKind: 'subcontract' as const, siteTradeId: 't1', issueId: 'iInc', stored: st(170000) },
+    { kind: 'credit' as const, itemName: '外注（工種なし）', spec: '', unit: '式', qty: 1, unitPrice: 1000, supplierId: 'sp9', vendor: '東北建興', purchaseKind: 'subcontract' as const, siteTradeId: null, issueId: 'iRework', stored: st(1000) },
+  ];
+  const inc = { ...issues[0], id: 'iInc', kind: 'increase' as const };
+  const m = () => {
+    const base = report();
+    return sampleDaily({
+      report: { ...base, lines: [...base.lines, ...tagged] },
+      issues: [inc],
+      tradeNames: { t1: 'タイル' },
+      // ほかの日報の件（この日報の issues に無い件）
+      lineIssueKinds: { iOther: 'change', iRework: 'rework' },
+    });
+  };
+  it('品名の頭に件の区分（作業内容の【増】と同じ）。外注は【外注・工種名・区分】', () => {
+    const d = m();
+    expect(d.vehicles.rows.at(-1)?.name).toBe('【増】軽トラ');
+    expect(d.leases.rows.at(-1)?.name).toBe('【変更】発電機');
+    expect(d.cash.rows.at(-1)?.name).toBe('【増】目地材');
+    expect(d.credit.rows.slice(-3).map((r) => r.name)).toEqual(['【増】モザイクタイル', '【外注・タイル・増】タイル工事', '【外注・やり直し】外注（工種なし）']);
+  });
+  it('件を選んでいない行はそのまま', () => {
+    const d = sampleDaily();
+    expect(d.credit.rows.map((r) => r.name)).toEqual(['合板', '金物']);
+    expect(d.vehicles.rows.map((r) => r.name)).toEqual(['2t ダンプ', '借用車']);
   });
 });
 

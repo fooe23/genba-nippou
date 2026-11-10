@@ -20,8 +20,8 @@ interface SubcontractRow {
   issue_id: string | null;
 }
 
-/** 件の id → 種別（外注の行が根拠に選んだ件だけ。読めない件は入らない）。 */
-async function loadIssueKinds(ids: string[]): Promise<Record<string, IssueKind>> {
+/** 件の id → 種別（ids の件だけ。読めない件は入らない）。外注の行・日報の帳票の根拠の件の印（reports-data.ts）で使う。 */
+export async function loadIssueKinds(ids: string[]): Promise<Record<string, IssueKind>> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return {};
   const supabase = await createServerSupabase();
