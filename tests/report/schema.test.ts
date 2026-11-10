@@ -11,6 +11,28 @@ describe('validateReport', () => {
     expect(r.ok).toBe(false);
   });
   it('日付形式が違えばエラー', () => expect(validateReport({ ...base, date: '2026/11/05' }).ok).toBe(false));
+  it('手入力のリース・車両（参照なし）は名前と値のまま通る', () => {
+    const r = validateReport({ ...base, lines: [
+      { kind: 'lease', itemId: null, itemName: '投光器', spec: 'LED', unit: '日', qty: 2, unitPrice: 800, note: '', issueId: null },
+      { kind: 'fuel', vehicleId: null, vehicleName: '協力会社の軽トラ', kmPerL: 12, distanceKm: 30, pricePerL: 170, note: '', issueId: null },
+    ] });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.value.lines[0]).toMatchObject({ itemId: null, itemName: '投光器', unitPrice: 800 });
+      expect(r.value.lines[1]).toMatchObject({ vehicleId: null, vehicleName: '協力会社の軽トラ', kmPerL: 12 });
+    }
+  });
+  it('リース・車両の名前が空なら、選ぶか名前を入れるよう知らせる', () => {
+    const r = validateReport({ ...base, lines: [
+      { kind: 'lease', itemId: null, itemName: ' ', spec: '', unit: '', qty: 1, unitPrice: 800, note: '', issueId: null },
+      { kind: 'fuel', vehicleId: null, vehicleName: '', kmPerL: 12, distanceKm: 30, pricePerL: 170, note: '', issueId: null },
+    ] });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.errors).toContain('リースの1行目：リース品を選ぶか、品目名を入れてください');
+      expect(r.errors).toContain('車両の1行目：車両を選ぶか、車両名を入れてください');
+    }
+  });
 });
 describe('reportWarnings', () => {
   it('終了が開始より前・燃費未設定・日当未設定・作業員0行を警告する', () => {

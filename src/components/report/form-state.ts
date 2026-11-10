@@ -43,7 +43,7 @@ export interface ReportMasters {
   subcontractSuppliers?: SupplierOption[];
 }
 
-/** 表の1行。key は React 用、amountMode は現金・買掛の「金額のみ入力」、manual は作業員・買掛の仕入先で「（手入力）」を選んだ印。 */
+/** 表の1行。key は React 用、amountMode は現金・買掛の「金額のみ入力」、manual は作業員・車両・リース品・買掛の仕入先で「（手入力）」を選んだ印。 */
 export interface Row<L> { key: string; line: L; amountMode?: boolean; manual?: boolean; }
 export interface Rows {
   labor: Row<LaborLine>[];
@@ -168,14 +168,14 @@ export function patchRow<L>(rows: Row<L>[], index: number, patch: Partial<L>): R
 }
 
 /**
- * 作業員・仕入先の「（手入力）」の行か。参照（ID）が無く、「（手入力）」を選んだ印があるか名前が入っている行。
+ * 作業員・車両・リース品・仕入先の「（手入力）」の行か。参照（ID）が無く、「（手入力）」を選んだ印があるか名前が入っている行。
  * 新しい空の行（未選択）は印も名前も無いので手入力ではない。保存済み・前回コピー・下書きの行は名前で判断する。
  */
 export function isManualRow<L>(r: Row<L>, refId: string | null, name: string): boolean {
   return refId === null && (r.manual === true || name !== '');
 }
 
-/** 作業員・仕入先の選び直し・手入力の名前の入力：line に patch を当て、「（手入力）」の印を付け外しする。 */
+/** 作業員・車両・リース品・仕入先の選び直し・手入力の名前の入力：line に patch を当て、「（手入力）」の印を付け外しする。 */
 export function selectRow<L>(rows: Row<L>[], index: number, patch: Partial<L>, manual: boolean): Row<L>[] {
   return rows.map((r, i) => (i === index ? { ...r, manual, line: { ...r.line, ...patch } } : r));
 }

@@ -119,9 +119,11 @@ describe('ガイド', () => {
     expect(html).toContain('車両名／ナンバー');
   });
 
-  it('入力の章がマスターに無い人・取引先の手入力に触れている', async () => {
+  it('入力の章がマスターに無い人・取引先・車両・リース品の手入力に触れている', async () => {
     const html = await loadChapter('input');
-    expect(html).toContain('マスターに無い人・取引先を入れるとき');
+    expect(html).toContain('マスターに無い人・取引先・車両・リース品を入れるとき');
+    expect(html).toContain('品目名の欄が出て、単価の欄');
+    expect(html).toContain('燃費（km/L）の欄');
     expect(html).toContain('（手入力）');
     expect(html).toContain('J 列');
   });

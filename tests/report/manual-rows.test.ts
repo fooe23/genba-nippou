@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isManualRow, newLine, row, selectRow, toRows } from '@/components/report/form-state';
-import type { LaborLine } from '@/lib/types';
+import { fillMissingRates, isManualRow, newLine, refreshFromMasters, row, selectRow, toRows, type ReportMasters } from '@/components/report/form-state';
+import type { FuelLine, LaborLine, LeaseLine } from '@/lib/types';
 
 const W = '11111111-1111-4111-8111-111111111111';
 
@@ -36,5 +36,30 @@ describe('手入力の行（作業員・仕入先の「（手入力）」）', (
   it('買掛：仕入先名のある参照なしの行は手入力', () => {
     const r = row({ ...newLine.credit(), vendor: '近所の資材店' });
     expect(isManualRow(r, r.line.supplierId, r.line.vendor)).toBe(true);
+  });
+
+  it('リース・車両：参照が無く名前のある行は手入力、新しい空の行と参照のある行は手入力ではない', () => {
+    const lease: LeaseLine = { ...newLine.lease(), itemName: '投光器', unitPrice: 800 };
+    const fuel: FuelLine = { ...newLine.fuel(), vehicleName: '協力会社の軽トラ', kmPerL: 12 };
+    const rows = toRows([lease, { ...newLine.lease(), itemId: W, itemName: '発電機' }, fuel, newLine.fuel()]);
+    expect(rows.lease.map((r) => isManualRow(r, r.line.itemId, r.line.itemName))).toEqual([true, false]);
+    expect(rows.fuel.map((r) => isManualRow(r, r.line.vehicleId, r.line.vehicleName))).toEqual([true, false]);
+
+    // 「（手入力）」を選んだ直後（名前が空）も手入力。
+    const picked = selectRow([row(newLine.lease())], 0, { itemId: null, itemName: '', spec: '', unitPrice: null }, true);
+    expect(isManualRow(picked[0], picked[0].line.itemId, picked[0].line.itemName)).toBe(true);
+  });
+
+  it('前回コピー・日報を開いたときの補完は、手入力のリース・車両の単価・燃費を変えない', () => {
+    const masters: ReportMasters = {
+      workers: [], suppliers: [], units: [], weather: [],
+      vehicles: [{ id: W, name: '投光器', active: true, kmPerL: 9 }],
+      leaseItems: [{ id: W, name: '投光器', spec: null, active: true, rates: [{ amount: 3000, effectiveFrom: '2026-01-01' }] }],
+    };
+    const lease: LeaseLine = { ...newLine.lease(), itemName: '投光器', qty: 2, unitPrice: 800 };
+    const fuel: FuelLine = { ...newLine.fuel(), vehicleName: '投光器', kmPerL: null, distanceKm: 30, pricePerL: 170 };
+    expect(refreshFromMasters([lease, fuel], masters, '2026-11-10')).toEqual([lease, fuel]);
+    const filled = fillMissingRates([{ ...lease, unitPrice: null }, fuel], masters, '2026-11-10');
+    expect(filled.filled).toBe(0);
   });
 });

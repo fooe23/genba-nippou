@@ -133,7 +133,7 @@ const lineIssueSchema = refIdSchema.default(null);
 const fuelSchema = z.object({
   kind: z.literal('fuel'),
   vehicleId: refIdSchema,
-  vehicleName: requiredText('車両名', 100, '車両を選択してください'),
+  vehicleName: requiredText('車両名', 100, '車両を選ぶか、車両名を入れてください'),
   kmPerL: numSchema('燃費'),
   distanceKm: z.preprocess(
     emptyToNull,
@@ -150,7 +150,7 @@ const fuelSchema = z.object({
 const leaseSchema = z.object({
   kind: z.literal('lease'),
   itemId: refIdSchema,
-  itemName: requiredText('品目', 100, 'リース品を選択してください'),
+  itemName: requiredText('品目', 100, 'リース品を選ぶか、品目名を入れてください'),
   spec: specSchema,
   unit: unitSchema,
   qty: numSchema('数量'),
