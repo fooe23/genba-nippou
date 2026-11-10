@@ -39,6 +39,7 @@ import {
   toReportRow,
 } from '@/lib/report/rows';
 import { usesFixedAmount } from '@/lib/report/change-labels';
+import { fillAutoManDays } from '@/lib/report/auto-man-days';
 import { issueEditErrorMessage } from '@/lib/report/issue-status';
 import { ESTIMATE_SUBMITTED_STAFF_ONLY_MESSAGE, estimateSubmittedOnSchema } from '@/lib/report/estimate-submitted';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeMessage } from '@/lib/report/unlinked-change-lines';
@@ -171,7 +172,8 @@ export async function saveReport(input: SaveInput, expectedUpdatedAt?: string | 
     const { data, error } = await supabase.rpc('gn_save_report', {
       p_report: { ...toReportRow(v), expected_updated_at: expected },
       // 人工・残業・労務費は DB のトリガーが gn_settings で計算し直す（ここで送る値は同じ式の参考値）。
-      p_lines: toLineRows(lines, v.common, settings.rule),
+      // 契約内の作業内容の空の投入人工は、出面の残りの人工をここで割り振って保存する（画面から届いた値は使わない。src/lib/report/auto-man-days.ts）。
+      p_lines: toLineRows(fillAutoManDays(lines, v.common, settings.rule), v.common, settings.rule),
     });
     if (error) {
       console.error('[gn_save_report]', error.message);

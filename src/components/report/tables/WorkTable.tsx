@@ -13,10 +13,13 @@ import { LineTable, type Column } from '../LineTable';
 import { IssuePicker, SettlementPill } from './IssuePicker';
 import { LineIssueCreator } from './LineIssueCreator';
 import { issueOptions } from '@/lib/report/issue-options';
-import { missingSettlementAmount } from '@/lib/report/contract-work';
+import { manDaysText, missingSettlementAmount } from '@/lib/report/contract-work';
 import { MISSING_AMOUNT_NOTE, MISSING_AMOUNT_WARNING } from '@/lib/reports/settlement-breakdown';
 
 const MANUAL_TRADE = '__manual__';
+
+/** 作業内容の表の下の案内（投入人工の自動の割り振り）。 */
+export const AUTO_MAN_DAYS_HINT = '契約内の行で投入人工を空にすると、その日の出面の残りの人工を自動で割り振ります（件の行は人工を入れてください）。';
 
 const methodOptions: SelectOption[] = INSTRUCTION_METHODS.map((m) => ({ value: m, label: INSTRUCTION_METHOD_LABELS[m] }));
 
@@ -100,6 +103,7 @@ export function WorkTable({
   onIssueCreated,
   readOnly = false,
   trades = [],
+  autoManDays,
 }: {
   rows: Row<WorkLine>[];
   onChange: (update: (rows: Row<WorkLine>[]) => Row<WorkLine>[]) => void;
@@ -116,7 +120,13 @@ export function WorkTable({
   readOnly?: boolean;
   /** 現場の実行予算の工種。1 つ以上あれば工種の欄を選択（＋手入力）にする。空なら文字の欄だけ。 */
   trades?: SiteTrade[];
+  /**
+   * 投入人工が空の契約内の行に入る自動の値（行の添字ごと。対象でない行は null。src/lib/report/auto-man-days.ts）。
+   * 欄は空のまま「自動 0.5」と薄く見せ、歩掛もこの値で出す。保存のときサーバーが同じ計算で入れる。読み取り専用の画面では渡さない。
+   */
+  autoManDays?: readonly (number | null)[];
 }) {
+  const autoOf = (l: WorkLine, i: number): number | null => (l.manDays === null ? (autoManDays?.[i] ?? null) : null);
   const set = (i: number, patch: Partial<WorkLine>) => onChange((rs) => patchRow(rs, i, patch));
   // 工種の選び直しと手入力の文字：「（手入力）」の印（Row.manual）も一緒に付け外しする。
   const select = (i: number, patch: Partial<WorkLine>, manual: boolean) => onChange((rs) => selectRow(rs, i, patch, manual));
@@ -159,9 +169,15 @@ export function WorkTable({
     { label: '施工内容', wide: true, cell: (l, i) => <TextInput value={l.description} maxLength={200} onChange={(v) => set(i, { description: v })} /> },
     { label: '施工数量', cell: (l, i) => <NumInput value={l.qty} onChange={(v) => set(i, { qty: v })} /> },
     { label: '単位', cell: (l, i) => <Select value={l.unit} options={unitOptions} placeholder="—" onChange={(v) => set(i, { unit: v })} /> },
-    { label: '投入人工', cell: (l, i) => <NumInput value={l.manDays} onChange={(v) => set(i, { manDays: v })} /> },
+    {
+      label: '投入人工',
+      cell: (l, i) => {
+        const auto = autoOf(l, i);
+        return <NumInput value={l.manDays} placeholder={auto === null ? undefined : `自動 ${manDaysText(auto)}`} onChange={(v) => set(i, { manDays: v })} />;
+      },
+    },
     { label: '施工単価', cell: (l, i) => <NumInput value={l.unitPrice} onChange={(v) => set(i, { unitPrice: v })} /> },
-    { label: '歩掛', input: false, cell: (l) => <Computed>{decimal(productivity(l.qty, l.manDays))}</Computed> },
+    { label: '歩掛', input: false, cell: (l, i) => <Computed>{decimal(productivity(l.qty, l.manDays ?? autoOf(l, i)))}</Computed> },
     { label: '合計金額', input: false, cell: (l) => <Computed>{money(workAmount(l))}</Computed> },
   ];
 
@@ -245,6 +261,7 @@ export function WorkTable({
       subtotalLabel="出来高 小計"
       subtotal={money(rows.reduce((s, r) => s + workAmount(r.line), 0))}
       emptyText="作業内容はまだありません。"
+      hint={autoManDays ? AUTO_MAN_DAYS_HINT : undefined}
     />
   );
 }

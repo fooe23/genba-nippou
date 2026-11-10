@@ -8,7 +8,7 @@ import type { LaborCostContext } from '@/lib/calc/labor-cost';
 import { formLaborSplit } from '@/lib/report/labor-form';
 import { jpDate } from '@/lib/calc/format';
 import { changeTotals } from '@/lib/calc/change';
-import { commonHours, laborLineValues, lineAmount, reportTotals, type LaborValues } from '@/lib/calc/report';
+import { commonHours, lineAmount, reportTotals, type LaborValues } from '@/lib/calc/report';
 import {
   addIssue,
   copyPreviousReport,
@@ -24,6 +24,7 @@ import { reportWarnings, validateReport, type SaveInput } from '@/lib/report/sch
 import { issueOptions } from '@/lib/report/issue-options';
 import { issueKindMap } from '@/lib/report/subcontract-output';
 import { workWarnings as buildWorkWarnings, taggedCostTotal } from '@/lib/report/contract-work';
+import { autoManDays, laborManDaysForAllocation, withAutoManDays } from '@/lib/report/auto-man-days';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeWarning } from '@/lib/report/unlinked-change-lines';
 import {
   INSTRUCTION_METHODS,
@@ -443,13 +444,20 @@ function ReportFormBody({
   const changes = useMemo(() => changeTotals(state.rows.work.map((r) => r.line)), [state.rows.work]);
   // 作業員の人工があるのに契約内の作業内容が無い日・作業員と作業内容の人工がずれている日の知らせ（編集できる画面だけ。
   // 保存は止めない。当てはまるものを全部）。作業員を選んだ（名前のある）行だけ数える。
+  // 契約内の作業内容の空の投入人工に入る自動の値（保存のときサーバーが同じ計算で入れる。編集できる画面だけ。src/lib/report/auto-man-days.ts）。
+  const laborDays = useMemo(
+    () => laborManDaysForAllocation(state.rows.labor.map((r) => r.line), state.common, p.rule),
+    [p.rule, state.common, state.rows.labor],
+  );
+  const autoWorkManDays = useMemo(
+    () => (p.readOnly ? undefined : autoManDays(laborDays, state.rows.work.map((r) => r.line))),
+    [p.readOnly, laborDays, state.rows.work],
+  );
+  // ずれの知らせは自動の値も入れて見る（契約内の空の行が 1 つだけなら出ない）。
   const workWarnings = useMemo((): string[] => {
     if (p.readOnly) return [];
-    const days = state.rows.labor
-      .filter((r) => r.line.workerId !== null || r.line.workerName.trim() !== '')
-      .map((r) => laborLineValues(r.line, state.common, p.rule).manDays);
-    return buildWorkWarnings(days, state.rows.work.map((r) => r.line));
-  }, [p.readOnly, p.rule, state.common, state.rows.labor, state.rows.work]);
+    return buildWorkWarnings(laborDays, withAutoManDays(laborDays, state.rows.work.map((r) => r.line)));
+  }, [p.readOnly, laborDays, state.rows.work]);
   // 作業内容の根拠の件の候補：この日報の件と、現場の対応中の件（重複は WorkTable で除く）。
   const issueCandidates = useMemo(() => [...p.issues, ...p.openIssues], [p.issues, p.openIssues]);
   // 燃料・リース・現金・買掛の根拠の件の選択肢（作業内容の行と同じ候補・文言。2026-11-17）。
@@ -952,6 +960,7 @@ function ReportFormBody({
         <WorkTable
           rows={state.rows.work}
           onChange={setRows('work')}
+          autoManDays={autoWorkManDays}
           units={p.masters.units}
           issues={issueCandidates}
           flagged={flaggedWorkRows}
