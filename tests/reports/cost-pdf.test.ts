@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Font } from '@react-pdf/renderer';
 import { renderCostPdf } from '@/lib/pdf/cost-report';
+import { costSections } from '@/lib/reports/cost-sections';
 import { emptyModel, sampleModel } from './cost-fixture';
 
 describe('renderCostPdf', () => {
@@ -20,4 +21,12 @@ describe('renderCostPdf', () => {
     expect(pdf.subarray(0, 4).toString('latin1')).toBe('%PDF');
     expect(pdf.toString('latin1')).toContain('NotoSansJP');
   }, 60_000);
+
+  it('④-2 所属別（8 列）は compact：9pt では「請負人工(出面)」などの列見出しが 1 行に収まらないので 7.5pt で描く', () => {
+    const t = costSections(sampleModel()).find((x) => x.title.startsWith('④-2'))!.tables[0];
+    expect(t.columns).toHaveLength(8);
+    expect(t.compact).toBe(true);
+    // ⑦ 工種別（8 列・見出しは短い）は今までどおり 9pt
+    expect(costSections(sampleModel()).find((x) => x.title.startsWith('⑦'))!.tables[0].compact).toBeUndefined();
+  });
 });

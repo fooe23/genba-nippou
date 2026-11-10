@@ -41,6 +41,8 @@ export interface SectionTable {
    * まとまりごとに、表の幅いっぱいの見出し行（太字・帯）→ 行 → 小計の行（太字。subtotal.at の列の右端に揃える）。
    */
   groups?: TableGroup[];
+  /** PDF で列数にかかわらず文字を小さくする（列見出しの長い表。④-2 所属別）。PDF だけが使う。 */
+  compact?: boolean;
 }
 
 export interface TableGroup {
@@ -247,8 +249,10 @@ export function costSections(model: CostReportModel): CostSection[] {
       note: [upTo, ...AFFILIATION_NOTES].filter((v) => v !== null).join('・'),
       tables: [
         {
-          // 幅は A4 縦（本文幅 180mm・9pt。9 列以上の表は文字を小さくする）で 9 桁の金額（太字の合計行）と列見出しが
-          // 1 行に収まる比。労務費は原価に数える分（常用の分）だけ、請負人工は出面だけ（2026-11-17）。
+          // 幅は A4 縦（本文幅 180mm・7.5pt。8 列だが compact で文字を小さくする。9pt では「請負人工(出面)」などの
+          // 列見出しが 1 行に収まらない）で 9 桁の金額（太字の合計行）と列見出しが 1 行に収まる比。労務費は原価に数える分
+          // （常用の分）だけ、請負人工は出面だけ（2026-11-17）。
+          compact: true,
           columns: [
             text('所属', 2.6),
             num('常用人工', 1.3),
