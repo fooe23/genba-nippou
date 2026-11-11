@@ -43,6 +43,11 @@ export interface SectionTable {
   groups?: TableGroup[];
   /** PDF で列数にかかわらず文字を小さくする（列見出しの長い表。④-2 所属別）。PDF だけが使う。 */
   compact?: boolean;
+  /**
+   * 合計の行（total）のうち、行の値の足し算になっている列の添字（2026-11-11）。現場管理台帳の Excel がこの列だけ SUM の式にする
+   * （合計のセルが数値のときだけ）。構成比・進捗率・累計原価・歩掛などは付けない。PDF・CSV・工事原価集計表の Excel は使わない。
+   */
+  sumColumns?: number[];
 }
 
 export interface TableGroup {
@@ -159,6 +164,7 @@ export function costSections(model: CostReportModel): CostSection[] {
           columns: [text('費目', 3), num('金額(円)', 2), num('構成比(%)', 1.5)],
           rows: costRows.map(([k, v, s]) => [k, yen(v), pct(s)]),
           total: ['原価合計', yen(costs.total), pct(costs.total !== 0 ? 1 : 0)],
+          sumColumns: [1],
         },
       ],
     },
@@ -214,6 +220,7 @@ export function costSections(model: CostReportModel): CostSection[] {
             pct(r.progress),
           ]),
           total: ['合計', int(t.reportCount), yen(t.labor), yen(t.fuel), yen(t.lease), yen(t.cash), yen(t.credit), yen(t.cost), yen(t.output), yen(t.cumulativeCost), pct(t.progress)],
+          sumColumns: [1, 2, 3, 4, 5, 6, 7, 8],
         },
       ],
     },
@@ -241,6 +248,7 @@ export function costSections(model: CostReportModel): CostSection[] {
             yen(r.cost),
           ]),
           total: ['合計', '', '', int(workers.total.workDays), dec1(workers.total.manDays), dec1(workers.total.overtimeHours), yen(workers.total.cost)],
+          sumColumns: [3, 4, 5, 6],
         },
       ],
     },
@@ -284,6 +292,7 @@ export function costSections(model: CostReportModel): CostSection[] {
             affiliations.total.partnerAmount === null ? '' : yen(affiliations.total.partnerAmount),
             affiliations.total.difference === null ? '' : yen(affiliations.total.difference),
           ],
+          sumColumns: [1, 2, 3, 4, 5, 6, 7],
         },
       ],
     },
@@ -294,6 +303,7 @@ export function costSections(model: CostReportModel): CostSection[] {
           columns: [text('取引先名', 4), num('現金購入(円)', 2), num('買掛(円)', 2), num('合計(円)', 2)],
           rows: vendors.rows.map((r) => [r.name === '' ? '（取引先なし）' : withManual(r.name, r.manual), yen(r.cash), yen(r.credit), yen(r.total)]),
           total: ['合計', yen(vendors.total.cash), yen(vendors.total.credit), yen(vendors.total.total)],
+          sumColumns: [1, 2, 3],
         },
       ],
     },
@@ -304,11 +314,13 @@ export function costSections(model: CostReportModel): CostSection[] {
           columns: [text('車両', 4), num('走行距離(km)', 2), num('燃料費(円)', 2)],
           rows: equipment.vehicles.map((r) => [withManual(r.name, r.manual), dec1(r.distanceKm), yen(r.fuelCost)]),
           total: ['合計', dec1(equipment.total.distanceKm), yen(equipment.total.fuelCost)],
+          sumColumns: [1, 2],
         },
         {
           columns: [text('リース品', 4), num('数量合計', 1.6), text('単位', 1), num('リース費(円)', 2)],
           rows: equipment.leases.map((r) => [withManual(r.name, r.manual), ...leaseQty(r), yen(r.leaseCost)]),
           total: ['合計', '', '', yen(equipment.total.leaseCost)],
+          sumColumns: [3],
         },
       ],
     },
@@ -340,6 +352,7 @@ export function costSections(model: CostReportModel): CostSection[] {
             pct(r.share),
           ]),
           total: ['合計', '', '', '', dec1(trades.total.manDays), '', yen(trades.total.output), pct(trades.total.output !== 0 ? 1 : 0)],
+          sumColumns: [4, 6],
         },
       ],
     },
