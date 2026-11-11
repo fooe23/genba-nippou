@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import ExcelJS from 'exceljs';
 import { buildLedgerAttendance } from '@/lib/reports/ledger-attendance';
-import { buildLedgerXlsx, LEDGER_SHEET_NAMES } from '@/lib/reports/ledger-xlsx';
+import { buildLedgerXlsx, DAY_WIDTH, LEDGER_SHEET_NAMES, UNNAMED_DAY_WIDTH } from '@/lib/reports/ledger-xlsx';
 import { ledgerFileName } from '@/lib/reports/query';
 import { emptyModel } from './cost-fixture';
 import { ledgerInput, ledgerModel, ledgerReport, ownLabor } from './ledger-fixture';
@@ -162,6 +162,14 @@ describe('buildLedgerXlsx', () => {
     expect(fg(s.getCell(col('11/8')))).toBe('FFFEE2E2');
     expect(fg(s.getCell(d10))).toBeUndefined();
     rowOf(ws, '繰越初期値は含みません（現場原価集計の ④ には含みます）');
+  });
+
+  it('日の列の幅：名前なしの行（「1.0（3名）」）があれば広げる（### にならない）、無ければ 6.5', async () => {
+    const wide = (await build()).getWorksheet('出面一覧')!;
+    expect(wide.getColumn(4).width).toBe(UNNAMED_DAY_WIDTH);
+    expect(wide.getColumn(3 + 31).width).toBe(UNNAMED_DAY_WIDTH);
+    const narrow = (await build(ledgerInput([ledgerReport('2026-11-10', [ownLabor()])]))).getWorksheet('出面一覧')!;
+    expect(narrow.getColumn(4).width).toBe(DAY_WIDTH);
   });
 
   it('2 か月なら表が 2 つ（月ごとに題の行）', async () => {

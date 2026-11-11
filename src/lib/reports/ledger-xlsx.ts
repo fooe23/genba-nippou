@@ -204,6 +204,9 @@ const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'] as const;
 /** 作業員・所属・区分の 3 列の後に日付、その後に人工計・出勤日数。 */
 const FIXED_COLS = 3;
 const MAX_DAYS = 31;
+/** 日の列の幅（名前なしの行があるときは「0.75（12名）」が入る幅）。 */
+export const DAY_WIDTH = 6.5;
+export const UNNAMED_DAY_WIDTH = 11;
 
 function weekday(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay();
@@ -313,7 +316,9 @@ function attendanceSheet(wb: ExcelJS.Workbook, model: CostReportModel, months: L
     pageSetup: { paperSize: A3, orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: PAGE_MARGINS },
     views: [{ state: 'frozen', xSplit: FIXED_COLS, ySplit: 1 }],
   });
-  ws.columns = [{ width: 24 }, { width: 16 }, { width: 6 }, ...Array.from({ length: MAX_DAYS }, () => ({ width: 6.5 })), { width: 8 }, { width: 8 }];
+  // 名前なしの行の日のセルは「1.0（3名）」と出るので、幅 6.5 では入らず ### になる。そのときは日の列を広げる。
+  const dayWidth = months.some((m) => m.rows.some((r) => r.unnamed)) ? UNNAMED_DAY_WIDTH : DAY_WIDTH;
+  ws.columns = [{ width: 24 }, { width: 16 }, { width: 6 }, ...Array.from({ length: MAX_DAYS }, () => ({ width: dayWidth })), { width: 8 }, { width: 8 }];
 
   if (months.length === 0) {
     titleRow(ws, `${LEDGER_SHEET_NAMES[1]}　${model.header.siteName}`, FIXED_COLS + MAX_DAYS + 2);
