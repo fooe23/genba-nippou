@@ -4,7 +4,8 @@ import { useState, useTransition } from 'react';
 import { addIssue } from '@/lib/db/reports-actions';
 import { INSTRUCTION_METHODS, INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, isInstructionMethod } from '@/lib/report/change-labels';
 import { LINE_ISSUE_KINDS, lineIssuePrefill, type LineIssueKind } from '@/lib/report/line-issue';
-import type { InstructionMethod, WorkLine } from '@/lib/types';
+import { ESTIMATE_REQUIREMENT_LABELS, ESTIMATE_REQUIREMENTS, isEstimateRequirement, newIssueFormDefaults } from '@/lib/report/estimate-requirement';
+import type { EstimateRequirement, InstructionMethod, WorkLine } from '@/lib/types';
 import { fieldClass, Select, TextInput } from '../inputs';
 
 const FAILED = '件を作れませんでした。通信状況を確認してもう一度お試しください。';
@@ -13,12 +14,15 @@ const methodOptions = INSTRUCTION_METHODS.map((m) => ({ value: m, label: INSTRUC
 /**
  * 作業内容の行の「＋ この行の件を作る」。行の区分・工種／施工内容・指示から初期値を入れた小さな入力欄を開き、
  * 件を作ったらこの行の根拠の件にする（画面の入力だけ。行の保存は「下書き保存」）。日報が未保存なら作れない。
+ * 見積書（2026-11-20）：社員・管理者は選べる（既定は現場の設定と種別）。協力会社は DB が決める（表示だけ）。
+ * 要（先に出す）の件は見積中で作られる。行の件は工事が済んでいることが多いので「後出し」を案内する。
  */
 export function LineIssueCreator({
   line,
   rowNumber,
   reportId,
   onCreated,
+  estimate,
 }: {
   line: WorkLine;
   rowNumber: number;
@@ -26,14 +30,24 @@ export function LineIssueCreator({
   reportId: string | null;
   /** 件を作った（id をこの行の根拠の件にし、件の候補を読み直す）。 */
   onCreated: (issueId: string) => void;
+  /** 見積書の欄（DB に列があるか・社員か・現場の必須の設定）。省略は出さない。 */
+  estimate?: { ready: boolean; isStaff: boolean; siteRequired: boolean };
 }) {
   const [open, setOpen] = useState(false);
   const [kind, setKind] = useState<LineIssueKind>('extra');
   const [body, setBody] = useState('');
   const [instructedBy, setInstructedBy] = useState('');
   const [method, setMethod] = useState<InstructionMethod | null>(null);
+  const [chosenEstimate, setChosenEstimate] = useState<EstimateRequirement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const estimateForm = newIssueFormDefaults({
+    ready: estimate?.ready ?? false,
+    isStaff: estimate?.isStaff ?? false,
+    siteRequired: estimate?.siteRequired ?? false,
+    kind,
+    chosen: chosenEstimate,
+  });
 
   function start() {
     const p = lineIssuePrefill(line);
@@ -41,6 +55,7 @@ export function LineIssueCreator({
     setBody(p.body);
     setInstructedBy(p.instructedBy);
     setMethod(p.instructionMethod);
+    setChosenEstimate(null);
     setError(null);
     setOpen(true);
   }
@@ -56,7 +71,12 @@ export function LineIssueCreator({
     startTransition(async () => {
       let res: Awaited<ReturnType<typeof addIssue>>;
       try {
-        res = await addIssue(reportId, text, { kind, instructedBy, instructionMethod: method });
+        res = await addIssue(reportId, text, {
+          kind,
+          instructedBy,
+          instructionMethod: method,
+          ...(estimateForm.mode === 'select' ? { estimateRequirement: estimateForm.requirement } : {}),
+        });
       } catch {
         res = { ok: false, error: FAILED };
       }
@@ -120,6 +140,32 @@ export function LineIssueCreator({
         <span className="mb-0.5 block text-xs text-gray-600 dark:text-gray-400">件の内容（500文字まで）</span>
         <textarea value={body} maxLength={500} rows={2} onChange={(e) => setBody(e.target.value)} className={`${fieldClass} py-2`} />
       </label>
+      {estimateForm.mode === 'select' && (
+        <label className="block min-w-0">
+          <span className="mb-0.5 block text-xs text-gray-600 dark:text-gray-400">見積書</span>
+          <select
+            value={estimateForm.requirement}
+            onChange={(e) => setChosenEstimate(isEstimateRequirement(e.target.value) ? e.target.value : null)}
+            className={fieldClass}
+          >
+            {ESTIMATE_REQUIREMENTS.map((r) => (
+              <option key={r} value={r}>
+                {ESTIMATE_REQUIREMENT_LABELS[r]}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {estimateForm.mode === 'display' && (
+        <p className="text-sm text-gray-700 dark:text-gray-300">見積書：{ESTIMATE_REQUIREMENT_LABELS[estimateForm.requirement]}（現場の設定）</p>
+      )}
+      {estimateForm.mode !== 'hidden' && estimateForm.requirement === 'before' && (
+        <p className="text-sm text-gray-700 dark:text-gray-300">
+          {estimateForm.mode === 'select'
+            ? '先に工事をした件なら、見積書を「後出し」にしてください（「要（先に出す）」の件は見積中で作ります）。'
+            : '見積中で作ります。社員が見積提出を記録するまで、対応中・完了にはできません。'}
+        </p>
+      )}
       {kind === 'site_judgment' && (
         <p className="text-sm text-gray-700 dark:text-gray-300">現場の状況でやった理由を書き、あとで件に写真を付けてください。精算はあとで協議します。</p>
       )}

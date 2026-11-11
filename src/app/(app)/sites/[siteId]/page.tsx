@@ -4,7 +4,7 @@ import { isUuid } from '@/lib/uuid';
 import { todayJst } from '@/lib/calc/format';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { loadLaborCostContext } from '@/lib/db/labor-cost';
-import { listOpenIssues, listReportHeads, loadCostAdjustments } from '@/lib/db/reports';
+import { listEstimatePendingDoneIssues, listOpenIssues, listReportHeads, loadCostAdjustments } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
 import { loadSubcontractOutputs, subcontractOutputTotals } from '@/lib/db/subcontract-output';
 import { siteForViewer, siteSubline, siteTitle } from '@/lib/sites/display';
@@ -28,7 +28,11 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
   const showAmount = isEmployeeOrAdmin(profile);
   const site = siteForViewer(found, showAmount);
   const done = site.status === 'done';
-  const [heads, issues] = await Promise.all([listReportHeads(siteId), listOpenIssues(siteId)]);
+  const [heads, issues, pendingDoneIssues] = await Promise.all([
+    listReportHeads(siteId),
+    listOpenIssues(siteId),
+    listEstimatePendingDoneIssues(siteId),
+  ]);
   // 累計原価の調整（2026-11-17）：外注の買掛（見出しの cost_total に入っていない。協力会社には RLS で 0）と、請負の作業員の行の
   // 労務費の決まり（原価に数える分 − 行の金額）。集計・工事原価集計表の原価と同じになる。
   const laborCost = await loadLaborCostContext(siteId);
@@ -68,6 +72,8 @@ export default async function SiteDetailPage({ params }: PageProps<'/sites/[site
           showMoney={showAmount}
           costAdjustment={costAdjustment}
           subcontractOutputs={subcontractOutputTotals(subcontract.byReport)}
+          isStaff={showAmount}
+          pendingDoneIssues={pendingDoneIssues}
         />
         <ReportCalendar siteId={siteId} heads={heads} today={today} />
       </div>

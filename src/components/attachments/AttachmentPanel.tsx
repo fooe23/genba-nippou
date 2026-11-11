@@ -83,6 +83,7 @@ export function AttachmentPanel({
   lockedNotice,
   viewer,
   collapsible = false,
+  onFilesAdded,
 }: {
   target: AttachmentTarget;
   attachments: AttachmentView[];
@@ -91,6 +92,8 @@ export function AttachmentPanel({
   lockedNotice?: string;
   viewer: AttachmentViewer;
   collapsible?: boolean;
+  /** ファイル（見積書など。写真・リンクは含まない）を付け終えたとき、付けた数で呼ぶ（件の「見積提出も記録しますか？」）。 */
+  onFilesAdded?: (count: number) => void;
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
@@ -242,14 +245,19 @@ export function AttachmentPanel({
     setUploads((u) => [...u.filter((x) => x.status !== 'error'), ...queued.map((q) => ({ key: q.key, name: q.file.name, status: 'waiting' as const }))]);
     let next = 0;
     let added = 0;
+    let addedFiles = 0;
     async function worker() {
       while (next < queued.length) {
         const q = queued[next++];
-        if (await uploadOne(q.file, q.key, q.kind)) added += 1;
+        if (await uploadOne(q.file, q.key, q.kind)) {
+          added += 1;
+          if (q.kind === 'file') addedFiles += 1;
+        }
       }
     }
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, queued.length) }, worker));
     if (added > 0) startTransition(() => router.refresh());
+    if (addedFiles > 0) onFilesAdded?.(addedFiles);
   }
 
   function onPicked(e: ChangeEvent<HTMLInputElement>, mode: 'photo' | 'file') {

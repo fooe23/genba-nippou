@@ -9,6 +9,8 @@ import type { IssueConfirmation } from '@/lib/report/issue-confirmations';
 import Link from 'next/link';
 import { IssueAttachmentBadges, IssueAttachments } from '@/components/attachments/IssueAttachments';
 import type { AttachmentView, AttachmentViewer } from '@/components/attachments/types';
+import { EstimatePendingBadge } from './EstimatePendingBadge';
+import { IssueEstimateRequirement } from './IssueEstimateRequirement';
 import { IssueEstimateSubmitted } from './IssueEstimateSubmitted';
 import { IssueStatusChip } from './IssueStatusChip';
 
@@ -60,6 +62,8 @@ export function IssueClientConfirmBadge({
 /**
  * 現場の完了していない（見積中・対応中の）重要事項（この日報の件は除く）。日報入力画面の最上部に出す。なければ何も出さない。
  * 並びは見積中 → 対応中、同じ状態の中は日報の日付順・件番号順。札を押すと見積中・対応中・完了のどれにでも変えられる。
+ * 件の見積書（2026-11-20）：件ごとに赤い印と「見積書：〇〇」を出し、完了した件のうち見積書が要で見積提出の記録が無いもの
+ * （pendingDoneIssues）も「見積書が未提出の完了した件」として出す（社員・管理者には「見積提出を記録」）。
  */
 export function IssueBanner({
   issues,
@@ -69,6 +73,9 @@ export function IssueBanner({
   viewer,
   confirmations,
   confirmHref,
+  today,
+  estimateReady = false,
+  pendingDoneIssues = [],
 }: {
   issues: Issue[];
   currentReportId: string | null;
@@ -81,36 +88,87 @@ export function IssueBanner({
   confirmations?: Record<string, IssueConfirmation>;
   /** 「この件の確認をもらう」の行き先（null・未指定なら出さない）。 */
   confirmHref?: ((issueId: string) => string) | null;
+  /** 今日（日本時間。赤い印の「依頼から N 日」）。 */
+  today: string;
+  /** DB に件の見積書の列があるか（無ければ見積書の欄を出さない）。 */
+  estimateReady?: boolean;
+  /** 完了した件のうち、見積書が要で見積提出の記録が無いもの（この日報の件は除いて出す）。 */
+  pendingDoneIssues?: Issue[];
 }) {
   const shown = sortIssuesByStatus(issues.filter((i) => isUnfinishedIssue(i) && i.reportId !== currentReportId));
-  if (shown.length === 0) return null;
+  const doneShown = pendingDoneIssues.filter((i) => i.reportId !== currentReportId);
+  if (shown.length === 0 && doneShown.length === 0) return null;
+  const isStaff = viewer?.isStaff ?? false;
 
   return (
     <section
       aria-label="対応中・見積中の重要事項"
       className="mb-4 rounded-lg border border-yellow-400 bg-yellow-50 p-3 text-yellow-950 dark:border-yellow-600 dark:bg-yellow-950 dark:text-yellow-50"
     >
-      <h2 className="font-bold">対応中・見積中の重要事項（{shown.length} 件）</h2>
-      <ul className="mt-2 divide-y divide-yellow-300 dark:divide-yellow-800">
-        {shown.map((i) => {
-          const atts = attachmentsByIssue?.[i.id] ?? NO_ATTACHMENTS;
-          return (
-            <li key={i.id} className="flex flex-wrap items-start justify-between gap-2 py-2 first:pt-0 last:pb-0">
-              <div className="min-w-0 flex-1 basis-48 self-center text-sm">
-                <p className="whitespace-pre-wrap break-words">
-                  <span className="font-bold">{jpDate(i.reportDate)}</span>　<IssueKindTag issue={i} />
-                  {i.body}
-                </p>
-                {viewer && <IssueAttachmentBadges attachments={atts} status={i.status} isStaff={viewer.isStaff} estimateSubmittedOn={i.estimateSubmittedOn} />}
-                {confirmations && <IssueClientConfirmBadge issue={i} confirmation={confirmations[i.id]} href={confirmHref ? confirmHref(i.id) : null} />}
-              </div>
-              <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={readOnly} />
-              {viewer && !readOnly && <IssueEstimateSubmitted issue={i} viewer={viewer} />}
-              {viewer && <IssueAttachments issueId={i.id} status={i.status} attachments={atts} viewer={viewer} />}
-            </li>
-          );
-        })}
-      </ul>
+      {shown.length > 0 && <h2 className="font-bold">対応中・見積中の重要事項（{shown.length} 件）</h2>}
+      {shown.length > 0 && (
+        <ul className="mt-2 divide-y divide-yellow-300 dark:divide-yellow-800">
+          {shown.map((i) => {
+            const atts = attachmentsByIssue?.[i.id] ?? NO_ATTACHMENTS;
+            return (
+              <li key={i.id} className="flex flex-wrap items-start justify-between gap-2 py-2 first:pt-0 last:pb-0">
+                <div className="min-w-0 flex-1 basis-48 self-center text-sm">
+                  <p className="whitespace-pre-wrap break-words">
+                    <span className="font-bold">{jpDate(i.reportDate)}</span>　<IssueKindTag issue={i} />
+                    {i.body}
+                  </p>
+                  <EstimatePendingBadge issue={i} today={today} />
+                  {viewer && (
+                    <IssueAttachmentBadges
+                      attachments={atts}
+                      status={i.status}
+                      isStaff={viewer.isStaff}
+                      estimateSubmittedOn={i.estimateSubmittedOn}
+                      pendingBadge={i.estimatePending}
+                    />
+                  )}
+                  {confirmations && <IssueClientConfirmBadge issue={i} confirmation={confirmations[i.id]} href={confirmHref ? confirmHref(i.id) : null} />}
+                  <IssueEstimateRequirement issue={i} ready={estimateReady} isStaff={isStaff} readOnly={readOnly} />
+                </div>
+                <IssueStatusChip
+                  issueId={i.id}
+                  body={i.body}
+                  status={i.status}
+                  readOnly={readOnly}
+                  estimate={{ requirement: i.estimateRequirement, pending: i.estimatePending, isStaff }}
+                />
+                {viewer && !readOnly && <IssueEstimateSubmitted issue={i} viewer={viewer} />}
+                {viewer && (
+                  <IssueAttachments issueId={i.id} status={i.status} attachments={atts} viewer={viewer} estimateSubmittedOn={i.estimateSubmittedOn} />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {doneShown.length > 0 && (
+        <>
+          <h2 className={`font-bold ${shown.length > 0 ? 'mt-3 border-t border-yellow-300 pt-3 dark:border-yellow-800' : ''}`}>
+            見積書が未提出の完了した件（{doneShown.length} 件）
+          </h2>
+          <ul className="mt-2 divide-y divide-yellow-300 dark:divide-yellow-800">
+            {doneShown.map((i) => (
+              <li key={i.id} className="flex flex-wrap items-start justify-between gap-2 py-2 first:pt-0 last:pb-0">
+                <div className="min-w-0 flex-1 basis-48 self-center text-sm">
+                  <p className="whitespace-pre-wrap break-words">
+                    <span className="font-bold">{jpDate(i.reportDate)}</span>　<IssueKindTag issue={i} />
+                    {i.body}
+                  </p>
+                  <EstimatePendingBadge issue={i} today={today} />
+                  <IssueEstimateRequirement issue={i} ready={estimateReady} isStaff={isStaff} readOnly={readOnly} />
+                </div>
+                <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={readOnly} />
+                {viewer && !readOnly && <IssueEstimateSubmitted issue={i} viewer={viewer} />}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

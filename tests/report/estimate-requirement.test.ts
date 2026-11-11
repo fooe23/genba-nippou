@@ -11,12 +11,15 @@ import {
   daysSinceRequest,
   defaultEstimateRequirement,
   estimatePendingBadge,
+  estimatePendingCountLabel,
   estimateRequirementErrorMessage,
   estimateRequirementSchema,
   isEstimatePending,
   isEstimateRequirement,
   newIssueStatusFor,
+  newIssueFormDefaults,
   planNewIssueEstimate,
+  statusBlockFor,
   shouldOfferSignature,
 } from '@/lib/report/estimate-requirement';
 
@@ -205,5 +208,57 @@ describe('planNewIssueEstimate（件を作るときの見積書と状態）', ()
       send: null,
       status: 'open',
     });
+  });
+});
+
+describe('statusBlockFor（画面：協力会社は提出の日が来ないので未提出かどうかで判定）', () => {
+  it('before・未提出は対応中・完了を止める。提出済み・after は止めない', () => {
+    expect(statusBlockFor({ estimateRequirement: 'before', estimatePending: true, status: 'estimating' }, 'open')).toBe('estimate_required_first');
+    expect(statusBlockFor({ estimateRequirement: 'before', estimatePending: true, status: 'estimating' }, 'estimating')).toBeNull();
+    expect(statusBlockFor({ estimateRequirement: 'before', estimatePending: false, status: 'estimating' }, 'done')).toBeNull();
+    expect(statusBlockFor({ estimateRequirement: 'after', estimatePending: true, status: 'estimating' }, 'done')).toBeNull();
+  });
+});
+
+describe('newIssueFormDefaults（件の追加の欄）', () => {
+  it('列なし：見積書を出さない・状態は見積中／対応中', () => {
+    expect(newIssueFormDefaults({ ready: false, isStaff: true, siteRequired: true, kind: 'extra', chosen: null })).toEqual({
+      mode: 'hidden',
+      requirement: 'none',
+      statusChoices: ['estimating', 'open'],
+    });
+  });
+  it('必須の現場・社員：既定は before で状態は見積中だけ。やり直しは none', () => {
+    expect(newIssueFormDefaults({ ready: true, isStaff: true, siteRequired: true, kind: 'extra', chosen: null })).toEqual({
+      mode: 'select',
+      requirement: 'before',
+      statusChoices: ['estimating'],
+    });
+    expect(newIssueFormDefaults({ ready: true, isStaff: true, siteRequired: true, kind: 'rework', chosen: null }).requirement).toBe('none');
+  });
+  it('社員が選んだ値はそのまま（後出しなら対応中も選べる）', () => {
+    expect(newIssueFormDefaults({ ready: true, isStaff: true, siteRequired: true, kind: 'extra', chosen: 'after' })).toEqual({
+      mode: 'select',
+      requirement: 'after',
+      statusChoices: ['estimating', 'open'],
+    });
+  });
+  it('必須でない現場・社員：none', () => {
+    expect(newIssueFormDefaults({ ready: true, isStaff: true, siteRequired: false, kind: 'extra', chosen: null }).requirement).toBe('none');
+  });
+  it('協力会社：選べず、現場の設定と種別の表示だけ（選んだ値は無視）', () => {
+    expect(newIssueFormDefaults({ ready: true, isStaff: false, siteRequired: true, kind: 'extra', chosen: 'after' })).toEqual({
+      mode: 'display',
+      requirement: 'before',
+      statusChoices: ['estimating'],
+    });
+  });
+});
+
+describe('estimatePendingCountLabel（ホーム・管理者の現場の一覧）', () => {
+  it('0 件・未定は出さない', () => {
+    expect(estimatePendingCountLabel(0)).toBeNull();
+    expect(estimatePendingCountLabel(undefined)).toBeNull();
+    expect(estimatePendingCountLabel(3)).toBe('見積が未提出の件 3 件');
   });
 });

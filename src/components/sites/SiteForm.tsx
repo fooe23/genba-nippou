@@ -17,14 +17,22 @@ function isContractType(v: string): v is NonNullable<Site['contractType']> {
   return (CONTRACT_TYPES as readonly string[]).includes(v);
 }
 
-/** 現場情報フォーム（雛形の現場情報マスターと同じ並び・ラベル）。新規作成（ダイアログ）と編集で共用。 */
+/**
+ * 現場情報フォーム（雛形の現場情報マスターと同じ並び・ラベル）。新規作成（ダイアログ）と編集で共用。
+ * 「見積提出が必須のお客様」（2026-11-20）は DB に列があるときだけ出す（編集は site.estimateRequired が null でない、
+ * 新規は estimateReady）。管理者の画面だけ（このフォームは管理者だけが使う）。
+ */
 export function SiteForm({
   site,
   onSaved,
+  estimateReady = false,
 }: {
   site: Site | null;
   onSaved?: (id: string) => void;
+  /** 新規作成のとき、DB に「見積提出が必須」の列があるか。 */
+  estimateReady?: boolean;
 }) {
+  const showEstimateRequired = site ? site.estimateRequired !== null : estimateReady;
   const { pending, error, setError, run } = useRunner();
   const [saved, setSaved] = useState(false);
   // 未確定のときだけ概算金額の欄を出す（確定に戻しても入力値は残し、そのまま保存する）。
@@ -57,6 +65,7 @@ export function SiteForm({
       commonEnd: textOrNull(fd, 'commonEnd'),
       commonBreakMin: numOrNull(str(fd, 'commonBreakMin')),
       commonGapMin: numOrNull(str(fd, 'commonGapMin')),
+      ...(showEstimateRequired ? { estimateRequired: fd.get('estimateRequired') === 'on' } : {}),
     };
     const message = firstError(siteInputSchema, input);
     if (message) {
@@ -144,6 +153,22 @@ export function SiteForm({
           className={inputClass}
         />
       </Field>
+      {showEstimateRequired && (
+        <div className="rounded-lg border border-gray-300 p-3 dark:border-gray-700">
+          <label className="flex min-h-11 items-center gap-3 text-base font-medium">
+            <input
+              name="estimateRequired"
+              type="checkbox"
+              defaultChecked={site?.estimateRequired === true}
+              className="h-6 w-6 shrink-0"
+            />
+            見積提出が必須のお客様
+          </label>
+          <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+            オンにすると、この現場で新しく作る件の「見積書」が最初から「要（先に出す）」になります（やり直しの件は「不要」）。件ごとに変えられます。
+          </p>
+        </div>
+      )}
       <Field label="着工予定日">
         <input name="startDate" type="date" defaultValue={site?.startDate ?? ''} className={inputClass} />
       </Field>

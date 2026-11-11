@@ -1,7 +1,8 @@
 import Link from 'next/link';
 import { todayJst } from '@/lib/calc/format';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
-import { listTodayStatus } from '@/lib/db/reports';
+import { countEstimatePendingBySite, listTodayStatus } from '@/lib/db/reports';
+import { EstimatePendingCount } from '@/components/site/EstimatePendingCount';
 import { listMyMemberSiteIds, listMySites, type Site } from '@/lib/db/sites';
 import { siteForViewer, siteSubline, siteTitle } from '@/lib/sites/display';
 import { STATUS_COLOR, STATUS_LABEL, STATUS_ORDER, type DayStatus } from '@/components/site/status';
@@ -12,18 +13,21 @@ export const metadata = { title: 'ホーム' };
 interface SiteCard {
   site: Site;
   status: DayStatus;
+  /** 見積が未提出の件の数（社員・管理者だけ。2026-11-20）。 */
+  estimatePending?: number;
 }
 
 function SiteCards({ cards, today, showAmount }: { cards: SiteCard[]; today: string; showAmount: boolean }) {
   return (
     <ul className="space-y-3">
-      {cards.map(({ site, status }) => (
+      {cards.map(({ site, status, estimatePending }) => (
         <li key={site.id} className="rounded-lg border border-gray-300 dark:border-gray-700">
           <Link href={`/sites/${site.id}`} className={`block min-h-14 rounded-t-lg p-3 ${rowLinkClass}`}>
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <p className={`truncate text-lg font-bold ${linkTitleClass}`}>{siteTitle(site)}</p>
                 <p className="truncate text-sm text-gray-600 dark:text-gray-400">{siteSubline(site, { showAmount })}</p>
+                <EstimatePendingCount count={estimatePending} />
                 <p className="mt-1 text-sm text-blue-700 dark:text-blue-400">現場の詳細・カレンダーを開く</p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
@@ -56,13 +60,17 @@ export default async function HomePage() {
   // 請負金額などのお金の項目は社員・管理者だけ。協力会社には画面に渡す前に落とす。
   const showAmount = isEmployeeOrAdmin(profile);
   const sites = allSites.filter((s) => s.status === 'active').map((s) => siteForViewer(s, showAmount));
-  const statuses = await listTodayStatus(
-    sites.map((s) => s.id),
-    today,
-  );
+  // 見積が未提出の件の数（2026-11-20）は社員・管理者だけ読む（協力会社には出さない）。
+  const [statuses, pendingCounts] = await Promise.all([
+    listTodayStatus(
+      sites.map((s) => s.id),
+      today,
+    ),
+    showAmount ? countEstimatePendingBySite(sites.map((s) => s.id)) : Promise.resolve<Record<string, number>>({}),
+  ]);
   // 未入力 → 下書き → 差戻し → 提出済 → 承認済。同じ状態の中は listMySites の順（名前順）のまま。
   const cards: SiteCard[] = sites
-    .map((site) => ({ site, status: statuses[site.id] ?? 'none' }))
+    .map((site) => ({ site, status: statuses[site.id] ?? 'none', estimatePending: pendingCounts[site.id] }))
     .sort((a, b) => STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status));
   const memberSet = new Set(memberIds);
   const mine = cards.filter((c) => memberSet.has(c.site.id));

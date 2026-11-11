@@ -8,6 +8,7 @@ import { updateIssueSettlement } from '@/lib/db/reports-actions';
 import { issueSettlementSchema } from '@/lib/db/issue-schemas';
 import { INSTRUCTION_METHOD_LABELS, ISSUE_KIND_LABELS, SETTLEMENT_METHODS, SETTLEMENT_METHOD_LABELS, isSettlementMethod, usesFixedAmount } from '@/lib/report/change-labels';
 import type { ChangesIssueRow, PossibleDuplicate } from '@/lib/reports/changes-page';
+import { EstimatePendingBadge } from '@/components/report/EstimatePendingBadge';
 import type { SettlementMethod } from '@/lib/types';
 import { money } from '@/components/report/form-state';
 import { NumInput, fieldClass } from '@/components/report/inputs';
@@ -59,8 +60,11 @@ export function IssueSettlementRow({
   duplicates = [],
   rates,
   readOnly,
+  today,
 }: {
   row: ChangesIssueRow;
+  /** 今日（日本時間。赤い印の「依頼から N 日」。2026-11-20）。 */
+  today: string;
   /** 件の精算の率（内訳に出す）。 */
   rates: ChangeRates;
   siteId: string;
@@ -136,6 +140,7 @@ export function IssueSettlementRow({
       </Cell>
       <Cell label="本文" wide>
         <p className="whitespace-pre-wrap break-words">{row.body}</p>
+        <EstimatePendingBadge issue={row} today={today} />
       </Cell>
       <Cell label="指示者／方法">{instruction || '—'}</Cell>
       <Cell label="見込み額" num>

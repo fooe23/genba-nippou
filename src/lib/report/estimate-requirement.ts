@@ -90,6 +90,42 @@ export function planNewIssueEstimate(p: {
   return { send: p.isStaff ? requirement : null, status: newIssueStatusFor(requirement, p.status) };
 }
 
+/**
+ * 画面の状態の止め。協力会社には提出の日が来ないので、未提出かどうか（estimatePending）で判定する
+ * （要［先に出す］では「未提出」＝「提出の日が無い」なので blockedStatusChange と同じ結果）。
+ */
+export function statusBlockFor(
+  i: { estimateRequirement: EstimateRequirement; estimatePending: boolean; status: IssueStatus },
+  next: IssueStatus,
+): 'estimate_required_first' | null {
+  return blockedStatusChange(
+    { estimateRequirement: i.estimateRequirement, estimateSubmittedOn: i.estimatePending ? null : 'submitted', status: i.status },
+    next,
+  );
+}
+
+/**
+ * 件の追加の欄の見積書と状態の選択肢。mode：hidden＝出さない（DB に列が無い）、select＝選べる（社員・管理者）、
+ * display＝表示だけ（協力会社。現場の設定と種別で決まる）。chosen は社員が選んだ値（null＝現場の既定と種別に従う）。
+ * 要（先に出す）なら状態は見積中だけ。
+ */
+export function newIssueFormDefaults(p: {
+  ready: boolean;
+  isStaff: boolean;
+  siteRequired: boolean;
+  kind: IssueKind;
+  chosen: EstimateRequirement | null;
+}): { mode: 'hidden' | 'select' | 'display'; requirement: EstimateRequirement; statusChoices: ('estimating' | 'open')[] } {
+  if (!p.ready) return { mode: 'hidden', requirement: 'none', statusChoices: ['estimating', 'open'] };
+  const fallback = defaultEstimateRequirement(p.siteRequired, p.kind);
+  const requirement = p.isStaff ? (p.chosen ?? fallback) : fallback;
+  return {
+    mode: p.isStaff ? 'select' : 'display',
+    requirement,
+    statusChoices: requirement === 'before' ? ['estimating'] : ['estimating', 'open'],
+  };
+}
+
 const dayNumber = (date: string) => {
   const [y, m, d] = date.split('-').map(Number);
   return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000);
@@ -120,6 +156,11 @@ export function estimatePendingBadge(
     days,
     daysLabel: days === 0 ? '依頼の当日' : `依頼から ${days} 日`,
   };
+}
+
+/** ホーム・管理者の現場の一覧の赤い字（社員・管理者だけ。0 件は出さない。利用者 2026-11-12）。 */
+export function estimatePendingCountLabel(count: number | undefined): string | null {
+  return count && count > 0 ? `見積が未提出の件 ${count} 件` : null;
 }
 
 /**

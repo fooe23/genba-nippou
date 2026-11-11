@@ -89,8 +89,11 @@ export function ChangesTable({
   duplicates = {},
   rates,
   readOnly,
+  today,
 }: {
   siteId: string;
+  /** 今日（日本時間。件の赤い印の「依頼から N 日」）。 */
+  today: string;
   rows: ChangesRow[];
   total: ChangesTotal;
   defaultDailyRate: number | null;
@@ -129,6 +132,7 @@ export function ChangesTable({
                 duplicates={duplicates[row.id] ?? []}
                 rates={rates}
                 readOnly={readOnly}
+                today={today}
               />
             ),
           )}

@@ -36,7 +36,8 @@ import {
   isIssueKind,
 } from '@/lib/report/change-labels';
 import type { DailyClientConfirmation } from '@/lib/reports/types';
-import type { InstructionMethod, IssueKind, IssueStatus, LaborLine, LaborRule, TimeSpec } from '@/lib/types';
+import type { EstimateRequirement, InstructionMethod, IssueKind, IssueStatus, LaborLine, LaborRule, TimeSpec } from '@/lib/types';
+import { ESTIMATE_REQUIREMENT_LABELS, ESTIMATE_REQUIREMENTS, isEstimateRequirement, newIssueFormDefaults } from '@/lib/report/estimate-requirement';
 import { canEditIssueContent, issueDatesLine, issueStatusLabel } from '@/lib/report/issue-status';
 import { STATUS_COLOR, STATUS_LABEL, type DayStatus } from '@/components/site/status';
 import { calcLines, decimal, fillMissingRates, formSubcontractOutput, fromInput, refreshFromMasters, toInput, toRows, type FormState, type ReportMasters, type Rows } from './form-state';
@@ -51,6 +52,8 @@ import { IssueBanner, IssueClientConfirmBadge, IssueKindTag } from './IssueBanne
 import { clientConfirmHref } from '@/lib/report/client-confirm';
 import type { IssueConfirmation } from '@/lib/report/issue-confirmations';
 import { IssueEditControls } from './IssueEditControls';
+import { EstimatePendingBadge } from './EstimatePendingBadge';
+import { IssueEstimateRequirement } from './IssueEstimateRequirement';
 import { IssueEstimateSubmitted } from './IssueEstimateSubmitted';
 import { IssueStatusChip } from './IssueStatusChip';
 import { ReopenApprovalButton, REOPENED_MESSAGE } from './ReopenApprovalButton';
@@ -207,10 +210,19 @@ function IssueList({
   confirmations,
   confirmHref,
   editable = false,
+  today,
+  estimateReady,
+  siteEstimateRequired,
 }: {
   reportId: string | null;
   issues: Issue[];
   onChanged: () => void;
+  /** 今日（日本時間。赤い印の「依頼から N 日」）。 */
+  today: string;
+  /** DB に件の見積書の列があるか（無ければ見積書の欄・赤い印を出さない）。 */
+  estimateReady: boolean;
+  /** 現場の「見積提出が必須のお客様」（新しい件の見積書の既定）。 */
+  siteEstimateRequired: boolean;
   /** 件の中身を直す・件を消すボタンを出す（日報が下書き・差戻しのあいだ。canEditIssueContent）。 */
   editable?: boolean;
   /** 完了現場など、件を変更できないとき。一覧だけ表示する。 */
@@ -227,8 +239,19 @@ function IssueList({
   const [amountEstimate, setAmountEstimate] = useState<number | null>(null);
   // 追加するときの状態（見積中か対応中。既定は対応中）
   const [newStatus, setNewStatus] = useState<Exclude<IssueStatus, 'done'>>('open');
+  // 追加するときの見積書（社員・管理者が選んだ値。null は現場の既定と種別に従う。2026-11-20）
+  const [chosenEstimate, setChosenEstimate] = useState<EstimateRequirement | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const estimateForm = newIssueFormDefaults({
+    ready: estimateReady,
+    isStaff: viewer.isStaff,
+    siteRequired: siteEstimateRequired,
+    kind,
+    chosen: chosenEstimate,
+  });
+  // 要（先に出す）なら状態は見積中だけ
+  const effectiveStatus = estimateForm.statusChoices.includes(newStatus) ? newStatus : 'estimating';
 
   function add() {
     setError(null);
@@ -237,7 +260,14 @@ function IssueList({
     startTransition(async () => {
       let res: Awaited<ReturnType<typeof addIssue>>;
       try {
-        res = await addIssue(reportId, text, { kind, instructedBy, instructionMethod: method, amountEstimate, status: newStatus });
+        res = await addIssue(reportId, text, {
+          kind,
+          instructedBy,
+          instructionMethod: method,
+          amountEstimate,
+          status: effectiveStatus,
+          ...(estimateForm.mode === 'select' ? { estimateRequirement: estimateForm.requirement } : {}),
+        });
       } catch {
         res = { ok: false, error: ISSUE_FAILED };
       }
@@ -251,6 +281,7 @@ function IssueList({
       setMethod(null);
       setAmountEstimate(null);
       setNewStatus('open');
+      setChosenEstimate(null);
       onChanged();
     });
   }
@@ -270,17 +301,33 @@ function IssueList({
                   {i.body}
                 </p>
                 <p className="text-sm text-gray-600 dark:text-gray-400">{issueDatesLine(i)}</p>
+                <EstimatePendingBadge issue={i} today={today} />
                 <IssueAttachmentBadges
                   attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS}
                   status={i.status}
                   isStaff={viewer.isStaff}
                   estimateSubmittedOn={i.estimateSubmittedOn}
+                  pendingBadge={i.estimatePending}
                 />
                 <IssueClientConfirmBadge issue={i} confirmation={confirmations[i.id]} href={confirmHref ? confirmHref(i.id) : null} />
+                <IssueEstimateRequirement issue={i} ready={estimateReady} isStaff={viewer.isStaff} readOnly={locked} onChanged={onChanged} />
               </div>
-              <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={locked} onChanged={onChanged} />
+              <IssueStatusChip
+                issueId={i.id}
+                body={i.body}
+                status={i.status}
+                readOnly={locked}
+                onChanged={onChanged}
+                estimate={{ requirement: i.estimateRequirement, pending: i.estimatePending, isStaff: viewer.isStaff }}
+              />
               {!locked && <IssueEstimateSubmitted issue={i} viewer={viewer} onChanged={onChanged} />}
-              <IssueAttachments issueId={i.id} status={i.status} attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS} viewer={viewer} />
+              <IssueAttachments
+                issueId={i.id}
+                status={i.status}
+                attachments={attachmentsByIssue[i.id] ?? NO_ATTACHMENTS}
+                viewer={viewer}
+                estimateSubmittedOn={i.estimateSubmittedOn}
+              />
               {editable && !locked && <IssueEditControls issue={i} label={i.body.length > 20 ? `${i.body.slice(0, 20)}…` : i.body} onChanged={onChanged} />}
             </li>
           ))}
@@ -302,16 +349,19 @@ function IssueList({
             <fieldset disabled={!reportId || pending} className="grid min-w-0 grid-cols-2 gap-2 md:grid-cols-5">
               <Labeled label="状態">
                 <select
-                  value={newStatus}
+                  value={effectiveStatus}
                   onChange={(e) => setNewStatus(e.target.value === 'estimating' ? 'estimating' : 'open')}
                   className={fieldClass}
                 >
-                  {/* 既定の対応中を先に出す */}
-                  {[...NEW_ISSUE_STATUSES].reverse().map((s) => (
-                    <option key={s} value={s}>
-                      {issueStatusLabel(s)}
-                    </option>
-                  ))}
+                  {/* 既定の対応中を先に出す。見積書が要（先に出す）なら見積中だけ */}
+                  {[...NEW_ISSUE_STATUSES]
+                    .reverse()
+                    .filter((s) => estimateForm.statusChoices.includes(s))
+                    .map((s) => (
+                      <option key={s} value={s}>
+                        {issueStatusLabel(s)}
+                      </option>
+                    ))}
                 </select>
               </Labeled>
               <Labeled label="種別">
@@ -337,7 +387,32 @@ function IssueList({
               <Labeled label="金額見込み（円）">
                 <NumInput value={amountEstimate} integer onChange={setAmountEstimate} />
               </Labeled>
+              {estimateForm.mode === 'select' && (
+                <Labeled label="見積書" className="col-span-2 md:col-span-5">
+                  <select
+                    value={estimateForm.requirement}
+                    onChange={(e) => setChosenEstimate(isEstimateRequirement(e.target.value) ? e.target.value : null)}
+                    className={fieldClass}
+                  >
+                    {ESTIMATE_REQUIREMENTS.map((r) => (
+                      <option key={r} value={r}>
+                        {ESTIMATE_REQUIREMENT_LABELS[r]}
+                      </option>
+                    ))}
+                  </select>
+                </Labeled>
+              )}
             </fieldset>
+            {estimateForm.mode === 'display' && (
+              <p className="text-sm text-gray-700 dark:text-gray-300">
+                見積書：{ESTIMATE_REQUIREMENT_LABELS[estimateForm.requirement]}（現場の設定）
+              </p>
+            )}
+            {estimateForm.mode !== 'hidden' && estimateForm.requirement === 'before' && (
+              <p className="text-sm text-gray-700 dark:text-gray-300">
+                見積書が「要（先に出す）」の件は見積中で作ります。見積提出を記録すると対応中・完了にできます。
+              </p>
+            )}
           </div>
           <button
             type="button"
@@ -737,6 +812,9 @@ function ReportFormBody({
           viewer={attachmentViewer}
           confirmations={p.issueConfirmations}
           confirmHref={confirmHref}
+          today={p.today}
+          estimateReady={p.estimateReady}
+          pendingDoneIssues={p.estimatePendingDoneIssues}
         />
       )}
       <Link
@@ -976,6 +1054,7 @@ function ReportFormBody({
           onIssueCreated={() => router.refresh()}
           readOnly={p.readOnly}
           trades={p.masters.siteTrades}
+          issueEstimate={{ ready: p.estimateReady, isStaff: p.isStaff, siteRequired: p.siteEstimateRequired }}
         />
 
         <ReportSummary
@@ -1032,6 +1111,9 @@ function ReportFormBody({
         viewer={attachmentViewer}
         confirmations={p.issueConfirmations}
         confirmHref={confirmHref}
+        today={p.today}
+        estimateReady={p.estimateReady}
+        siteEstimateRequired={p.siteEstimateRequired}
         editable={
           !p.review &&
           canEditIssueContent({

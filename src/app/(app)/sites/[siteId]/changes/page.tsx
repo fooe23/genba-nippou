@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
 import { SITE_CLOSED_NOTICE } from '@/lib/constants';
+import { todayJst } from '@/lib/calc/format';
 import { loadChangesPage } from '@/lib/db/changes-data';
 import { requireProfile } from '@/lib/db/profile';
 import { getSite } from '@/lib/db/sites';
@@ -43,6 +44,7 @@ export default async function ChangesPage({ params }: PageProps<'/sites/[siteId]
         duplicates={duplicates}
         rates={rates}
         readOnly={readOnly}
+        today={todayJst()}
       />
     </main>
   );

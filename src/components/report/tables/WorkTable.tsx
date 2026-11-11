@@ -104,6 +104,7 @@ export function WorkTable({
   readOnly = false,
   trades = [],
   autoManDays,
+  issueEstimate,
 }: {
   rows: Row<WorkLine>[];
   onChange: (update: (rows: Row<WorkLine>[]) => Row<WorkLine>[]) => void;
@@ -125,6 +126,8 @@ export function WorkTable({
    * 欄は空のまま「自動 0.5」と薄く見せ、歩掛もこの値で出す。保存のときサーバーが同じ計算で入れる。読み取り専用の画面では渡さない。
    */
   autoManDays?: readonly (number | null)[];
+  /** 「この行の件を作る」の見積書（2026-11-20）。DB に列があるか・社員か・現場の必須の設定。 */
+  issueEstimate?: { ready: boolean; isStaff: boolean; siteRequired: boolean };
 }) {
   const autoOf = (l: WorkLine, i: number): number | null => (l.manDays === null ? (autoManDays?.[i] ?? null) : null);
   const set = (i: number, patch: Partial<WorkLine>) => onChange((rs) => patchRow(rs, i, patch));
@@ -247,6 +250,7 @@ export function WorkTable({
                 line={l}
                 rowNumber={i + 1}
                 reportId={reportId}
+                estimate={issueEstimate}
                 onCreated={(id) => {
                   set(i, { issueId: id });
                   onIssueCreated();

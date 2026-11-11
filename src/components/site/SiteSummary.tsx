@@ -5,6 +5,8 @@ import { visitLabel, visitNumbers } from '@/lib/calc/visit';
 import type { Issue, ReportHead } from '@/lib/db/reports';
 import type { Site } from '@/lib/db/sites';
 import { sortIssuesByStatus } from '@/lib/report/issue-status';
+import { EstimatePendingBadge } from '@/components/report/EstimatePendingBadge';
+import { IssueEstimateSubmitted } from '@/components/report/IssueEstimateSubmitted';
 import { IssueStatusChip } from '@/components/report/IssueStatusChip';
 
 function Item({ label, children }: { label: string; children: React.ReactNode }) {
@@ -19,6 +21,8 @@ function Item({ label, children }: { label: string; children: React.ReactNode })
 /**
  * 現場詳細の上部サマリー。heads は日付昇順。issues は完了していない件（見積中 → 対応中の順に並べて出す）。
  * showMoney が false（協力会社）なら、請負金額から出す進捗率を出さない（「—」も出さない）。
+ * 件の見積書（2026-11-20）：件ごとに赤い印（見積書が要で未提出）を出し、完了した件のうち未提出のもの（pendingDoneIssues）を
+ * 「見積書が未提出の完了した件」として下に出す（社員・管理者には「見積提出を記録」）。
  */
 export function SiteSummary({
   site,
@@ -28,6 +32,8 @@ export function SiteSummary({
   showMoney,
   costAdjustment = 0,
   subcontractOutputs = {},
+  isStaff = false,
+  pendingDoneIssues = [],
 }: {
   site: Site;
   heads: ReportHead[];
@@ -44,6 +50,10 @@ export function SiteSummary({
    * 直近の日報の出来高に足す。
    */
   subcontractOutputs?: Readonly<Record<string, number>>;
+  /** 社員・管理者（状態の止めの文言・「見積書を後出しにする」・「見積提出を記録」）。 */
+  isStaff?: boolean;
+  /** 完了した件のうち、見積書が要で見積提出の記録が無いもの。 */
+  pendingDoneIssues?: Issue[];
 }) {
   const costTotal = heads.reduce((sum, h) => sum + h.costTotal, 0) + costAdjustment;
   const dayOutput = (h: ReportHead) => h.outputTotal + (subcontractOutputs[h.id] ?? 0);
@@ -105,16 +115,46 @@ export function SiteSummary({
           <ul className="divide-y divide-yellow-300 rounded-lg border border-yellow-400 bg-yellow-50 text-yellow-950 dark:divide-yellow-700 dark:border-yellow-600 dark:bg-yellow-950 dark:text-yellow-50">
             {sortIssuesByStatus(issues).map((i) => (
               <li key={i.id} className="flex flex-wrap items-start justify-between gap-2 px-3 py-2">
-                <p className="min-w-0 flex-1 basis-48 self-center text-sm">
-                  <span className="font-bold">{jpDate(i.reportDate)}</span>　<span className="whitespace-pre-wrap break-words">{i.body}</span>
-                </p>
+                <div className="min-w-0 flex-1 basis-48 self-center text-sm">
+                  <p>
+                    <span className="font-bold">{jpDate(i.reportDate)}</span>　<span className="whitespace-pre-wrap break-words">{i.body}</span>
+                  </p>
+                  <EstimatePendingBadge issue={i} today={today} />
+                </div>
                 {/* 完了した現場は DB が件の変更を拒否するので、札を見せるだけにする */}
-                <IssueStatusChip issueId={i.id} body={i.body} status={i.status} readOnly={site.status === 'done'} />
+                <IssueStatusChip
+                  issueId={i.id}
+                  body={i.body}
+                  status={i.status}
+                  readOnly={site.status === 'done'}
+                  estimate={{ requirement: i.estimateRequirement, pending: i.estimatePending, isStaff }}
+                />
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {pendingDoneIssues.length > 0 && (
+        <div className="mt-4">
+          <h2 className="mb-2 text-base font-bold">見積書が未提出の完了した件（{pendingDoneIssues.length} 件）</h2>
+          <ul className="divide-y divide-red-200 rounded-lg border border-red-400 bg-red-50 text-red-950 dark:divide-red-800 dark:border-red-600 dark:bg-red-950 dark:text-red-50">
+            {pendingDoneIssues.map((i) => (
+              <li key={i.id} className="flex flex-wrap items-start justify-between gap-2 px-3 py-2">
+                <div className="min-w-0 flex-1 basis-48 self-center text-sm">
+                  <p>
+                    <span className="font-bold">{jpDate(i.reportDate)}</span>　<span className="whitespace-pre-wrap break-words">{i.body}</span>
+                  </p>
+                  <EstimatePendingBadge issue={i} today={today} />
+                </div>
+                {site.status !== 'done' && (
+                  <IssueEstimateSubmitted issue={i} viewer={{ isStaff, siteClosed: false }} />
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </section>
   );
 }

@@ -5,7 +5,8 @@ import { useState, useTransition } from 'react';
 import { todayJst } from '@/lib/calc/format';
 import { setEstimateSubmitted, type ReportStateResult } from '@/lib/db/reports-actions';
 import { canClearEstimateSubmitted, canRecordEstimateSubmitted } from '@/lib/report/estimate-submitted';
-import type { IssueStatus } from '@/lib/types';
+import { blockedEstimateClear, ESTIMATE_CLEAR_BLOCKED_MESSAGE } from '@/lib/report/estimate-requirement';
+import type { EstimateRequirement, IssueStatus } from '@/lib/types';
 import { fieldClass } from './inputs';
 
 const FAILED = '処理に失敗しました。通信状況を確認してもう一度お試しください。';
@@ -15,13 +16,14 @@ const smallButton = 'inline-flex min-h-11 items-center rounded-lg border px-3 te
  * 件の「見積提出を記録」（2026-11-14）。見積書の PDF を付けずにメール・紙で出したとき、出した日を件に残す。
  * 押すと日付（既定は今日・日本時間）と「記録」「やめる」が出る。記録があるときは小さな「取り消す」（確かめてから）。
  * 印（「見積提出 MM/DD」など）は IssueAttachmentBadges が出す。社員・管理者だけ、完了現場では出さない。
+ * 2026-11-20：見積書が要の件は完了していても記録できる。要（先に出す）の対応中・完了の件は取り消せない（理由を出す）。
  */
 export function IssueEstimateSubmitted({
   issue,
   viewer,
   onChanged,
 }: {
-  issue: { id: string; body: string; status: IssueStatus; estimateSubmittedOn: string | null };
+  issue: { id: string; body: string; status: IssueStatus; estimateSubmittedOn: string | null; estimateRequirement?: EstimateRequirement };
   viewer: { isStaff: boolean; siteClosed: boolean };
   onChanged?: () => void;
 }) {
@@ -34,6 +36,8 @@ export function IssueEstimateSubmitted({
   const canRecord = canRecordEstimateSubmitted(issue, viewer);
   const canClear = canClearEstimateSubmitted(issue, viewer);
   if (!canRecord && !canClear) return null;
+  const clearBlocked =
+    canClear && issue.estimateRequirement !== undefined && blockedEstimateClear({ estimateRequirement: issue.estimateRequirement, status: issue.status });
 
   function run(value: string | null) {
     setError(null);
@@ -61,7 +65,8 @@ export function IssueEstimateSubmitted({
 
   return (
     <div className="mt-1 w-full min-w-0 basis-full text-sm">
-      {canClear && (
+      {canClear && clearBlocked && <p className="text-xs text-gray-700 dark:text-gray-300">{ESTIMATE_CLEAR_BLOCKED_MESSAGE}</p>}
+      {canClear && !clearBlocked && (
         <button
           type="button"
           onClick={clear}
