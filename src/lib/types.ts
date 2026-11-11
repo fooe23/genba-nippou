@@ -63,6 +63,11 @@ export type IssueKind = 'extra' | 'increase' | 'change' | 'minus' | 'client_dela
  */
 export type IssueStatus = 'estimating' | 'open' | 'done';
 /**
+ * 件の見積書（2026-11-20）：before＝要（先に出す）・after＝要（お客様の指示で先に対応・後出し）・none＝不要。
+ * before で見積提出の記録が無い件は、対応中・完了にできない（DB の gn_report_issues_guard の estimate_required_first）。
+ */
+export type EstimateRequirement = 'before' | 'after' | 'none';
+/**
  * 件の精算の方法（未定・一式＝おおよその一括額で精算・見積＝材料などがはっきりしてからの見積額で精算・常用＝人工 × 常用単価で精算）。
  * 一式と見積の計算は同じ（確定額 fixedAmount）。
  */

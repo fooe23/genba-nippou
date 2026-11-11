@@ -42,7 +42,30 @@ describe('estimateBadges（件の見積の印。社員・管理者だけ）', ()
   });
 });
 
+describe('estimateBadges と赤い印（2026-11-20）', () => {
+  it('赤い印が出る件は見積中でも「見積書なし」を出さない。ファイルの印は出す', () => {
+    expect(
+      estimateBadges({ hasFile: false, estimateSubmittedOn: null, status: 'estimating', isStaff: true, pendingBadge: true }),
+    ).toEqual([]);
+    expect(
+      estimateBadges({ hasFile: true, estimateSubmittedOn: null, status: 'estimating', isStaff: true, pendingBadge: true }),
+    ).toEqual([{ kind: 'file', label: '見積書あり' }]);
+  });
+  it('協力会社は今までどおり空', () => {
+    expect(
+      estimateBadges({ hasFile: true, estimateSubmittedOn: null, status: 'estimating', isStaff: false, pendingBadge: true }),
+    ).toEqual([]);
+  });
+});
+
 describe('記録・取り消しのボタン', () => {
+  it('完了した件：見積書が要（後出し・先に出す）なら記録できる、不要・省略は今までどおりできない', () => {
+    expect(canRecordEstimateSubmitted({ status: 'done', estimateSubmittedOn: null, estimateRequirement: 'after' }, staff)).toBe(true);
+    expect(canRecordEstimateSubmitted({ status: 'done', estimateSubmittedOn: null, estimateRequirement: 'before' }, staff)).toBe(true);
+    expect(canRecordEstimateSubmitted({ status: 'done', estimateSubmittedOn: null, estimateRequirement: 'none' }, staff)).toBe(false);
+    expect(canRecordEstimateSubmitted({ status: 'done', estimateSubmittedOn: '2026-11-08', estimateRequirement: 'after' }, staff)).toBe(false);
+  });
+
   it('記録：社員・管理者で、完了現場でなく、記録が無く、件が完了していないとき', () => {
     expect(canRecordEstimateSubmitted({ status: 'estimating', estimateSubmittedOn: null }, staff)).toBe(true);
     expect(canRecordEstimateSubmitted({ status: 'open', estimateSubmittedOn: null }, staff)).toBe(true);
