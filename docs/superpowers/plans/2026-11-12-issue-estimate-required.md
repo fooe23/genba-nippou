@@ -64,7 +64,7 @@
 - 文言：`ESTIMATE_REQUIRED_FIRST_MESSAGE`（「見積提出が必須の件です。見積提出を記録するまで、対応中・完了にはできません。お客様の指示で先に対応するときは、見積書を『要（お客様の指示で先に対応・後出し）』に変えてください。」）、`ESTIMATE_REQUIRED_FIRST_PARTNER_MESSAGE`（「見積提出が必須の件です。社員が見積提出を記録するまで、対応中・完了にはできません。」）、`ESTIMATE_CLEAR_BLOCKED_MESSAGE`（「対応中・完了の件です。見積提出の記録を取り消すときは、先に見積書を『後出し』に変えてください。」）、`ESTIMATE_REQUIREMENT_STAFF_ONLY_MESSAGE`。
 - `estimateRequirementErrorMessage(dbMessage: string, op: 'status' | 'requirement' | 'clear', isStaff: boolean): string | null`（`estimate_required_first` を op ごとの文言に）。
 
-- [ ] **Step 1: テスト**：
+- [x] **Step 1: テスト**：
   - 既定：オン → before（種別なし・追加など）、オンのやり直し → none、オフ → none。
   - 止め：before・未提出で 見積中→対応中／見積中→完了／対応中→完了 が止まる、見積中→見積中は止めない。before・提出済み・after・none は止めない。
   - 見積書の変更：対応中・未提出で before に変える → 止める、見積中なら止めない、提出済みなら止めない。
@@ -75,9 +75,9 @@
   - サイン：after・完了へ・canSign → offer、canSign false → later_only、before・none・やり直し・完了→完了 → no。
   - `estimateBadges`：赤い印が出る件（pendingBadge true）は見積中でも `missing` を出さない、`file` は出す。協力会社は今までどおり空。
   - `canRecordEstimateSubmitted`：完了した after の件 → true、完了した none の件 → false（今まで通り）。
-- [ ] **Step 2: 失敗を確認**（`npx vitest run tests/report/estimate-requirement.test.ts tests/report/estimate-submitted.test.ts`）
-- [ ] **Step 3: 実装** → **Step 4:** `npm test`・`npx tsc --noEmit`・`npm run lint`
-- [ ] **Step 5: コミット** `feat(issue): 件の見積書（要・後出し・不要）の判定と印の純関数`
+- [x] **Step 2: 失敗を確認**（`npx vitest run tests/report/estimate-requirement.test.ts tests/report/estimate-submitted.test.ts`）
+- [x] **Step 3: 実装** → **Step 4:** `npm test`・`npx tsc --noEmit`・`npm run lint`
+- [x] **Step 5: コミット** `feat(issue): 件の見積書（要・後出し・不要）の判定と印の純関数`
 
 ### Task 2: SQL（列・制約・件のガード）と verify
 
@@ -213,20 +213,26 @@ begin
       select 1 from public.profiles p
        where p.id = auth.uid() and (p.account_type = 'employee' or public.is_admin())
     );
-    if tg_op = 'INSERT' and not v_staff then
-      select s.estimate_required into v_required from public.gn_sites s where s.id = v_site;
-      new.estimate_requirement := case when coalesce(v_required, false) and new.kind is distinct from 'rework' then 'before' else 'none' end;
-    elsif tg_op = 'UPDATE' and not v_staff and new.estimate_requirement is distinct from old.estimate_requirement then
+    -- （insert では old を参照しないよう、insert と update を分けて判定する）
+    if tg_op = 'INSERT' then
+      if not v_staff then
+        select s.estimate_required into v_required from public.gn_sites s where s.id = v_site;
+        new.estimate_requirement := case when coalesce(v_required, false) and new.kind is distinct from 'rework' then 'before' else 'none' end;
+      end if;
+    elsif not v_staff and new.estimate_requirement is distinct from old.estimate_requirement then
       raise exception using message = 'not_employee';
     end if;
     -- 要（先に出す）で見積提出の記録が無い件は、見積中のまま。insert の対応中は見積中にし、完了は断る。
     -- update は状態・見積書の欄・見積提出の日のどれかが変わったときだけ確かめる。
     if new.estimate_requirement = 'before' and new.estimate_submitted_on is null and new.status in ('open','done') then
-      if tg_op = 'INSERT' and new.status = 'open' then
-        new.status := 'estimating';
-        new.done_at := null;
-      elsif tg_op = 'INSERT'
-         or new.status is distinct from old.status
+      if tg_op = 'INSERT' then
+        if new.status = 'open' then
+          new.status := 'estimating';
+          new.done_at := null;
+        else
+          raise exception using message = 'estimate_required_first';
+        end if;
+      elsif new.status is distinct from old.status
          or new.estimate_requirement is distinct from old.estimate_requirement
          or new.estimate_submitted_on is distinct from old.estimate_submitted_on then
         raise exception using message = 'estimate_required_first';
@@ -258,7 +264,7 @@ create trigger gn_report_issues_guard before insert or update on public.gn_repor
 commit;
 ```
 
-（計画を書いたときに、この全文を `npm run check:sql <ファイル>` で構文だけ確かめた：10 文・plpgsql 1 本 OK。前の定義との diff で消えた行は 0。）
+（計画を書いたときに、この全文を `npm run check:sql <ファイル>` で構文だけ確かめた：10 文・plpgsql 1 本 OK。前の定義との diff で消えた行は 0。実装のとき、協力会社の insert で種別［やり直しは不要］を見るようにし、insert と update の判定を入れ子に分けて insert で old を参照しないようにした［今までの確かめの書き方に合わせる］。消えた行は 0 のまま。）
 
 **verify 24 番**（`verify_rls_auto.sql`。今の書き方［`pg_temp.as_user`・例外で PASS/FAIL を足す］どおり。現場は必須オンで作る）：
 - 24-1 協力会社が必須の現場で件を作る（`estimate_requirement` に 'none'・status 'open' を渡す）→ 'before'・'estimating' になる。
@@ -272,10 +278,10 @@ commit;
 - 24-9 制約：'later' を入れると check 違反（`gn_report_issues_estimate_requirement_ck`）。
 - 24-10 協力会社は `gn_sites.estimate_required` を読める（列の SELECT）。`contract_amount` は今までどおり読めない。
 
-- [ ] **Step 1:** SQL を書く → `npm run check:sql`（全部）。`diff` で `gn_report_issues_guard` の前の定義から消えた行が無いことを確かめる。
-- [ ] **Step 2:** `schema_genba.sql` に反映 → `npm run check:sql`。
-- [ ] **Step 3:** `verify_rls_auto.sql` に 24 番 → `npm run check:sql`。**データベースでは実行しない。**
-- [ ] **Step 4: コミット** `feat(db): 件の見積書と見積提出が必須の現場（update_2026-11-20）`
+- [x] **Step 1:** SQL を書く → `npm run check:sql`（全部）。`diff` で `gn_report_issues_guard` の前の定義から消えた行が無いことを確かめる。
+- [x] **Step 2:** `schema_genba.sql` に反映 → `npm run check:sql`。
+- [x] **Step 3:** `verify_rls_auto.sql` に 24 番 → `npm run check:sql`。**データベースでは実行しない。**
+- [x] **Step 4: コミット** `feat(db): 件の見積書と見積提出が必須の現場（update_2026-11-20）`
 
 ### Task 3: 型・読み書き（件・現場）と SQL の前の読み直し
 
@@ -283,8 +289,8 @@ commit;
 - Modify: `src/lib/db/reports.ts`（`Issue` に `estimateRequirement: EstimateRequirement` と `estimatePending: boolean`。`ISSUE_COLUMNS` に `estimate_requirement`。`toIssue` で `estimatePending` を決める［提出の日を消す前］。`hideEstimateFromPartner` は提出の日だけ消し、`estimatePending` は残す。`issueEstimateColumnsReady()` を足す［`subcontractColumnsReady` と同じ形、React の `cache` で 1 リクエスト 1 回］。列が無いときは `estimate_requirement` 抜きの列で読み、`estimateRequirement: 'none'`・`estimatePending: false`。完了した要の未提出の件を読む `listEstimatePendingDoneIssues(siteId)`［status 'done'・`estimate_requirement` が before/after・提出の日 null。列が無ければ空］、現場ごとの未提出の件の数 `countEstimatePendingBySite(siteIds)`［決めたこと 6。列が無ければ空］）、`src/lib/db/sites.ts`（`Site.estimateRequired: boolean | null`［null＝SQL の前］。`SITE_COLUMNS` に `estimate_required` を足して読み、`42703` なら抜いて読み直して null）、`src/lib/db/sites-schemas.ts`・`sites-actions.ts`（`estimateRequired` は省略可。省略なら変えない。列が無い［`PGRST204`/`42703`］ときは外して保存し直す。`settings-actions.ts` の率と同じやり方）、`src/lib/report/form-props.ts`（日報の画面に `estimateReady: boolean`・`siteEstimateRequired: boolean`・`today`）
 - Test: `tests/report/issue-row.test.ts`（`toIssue` を純関数として export するか、`issueFromRow` に切り出して：列あり／列なしの行、協力会社の隠しで提出の日が null・`estimatePending` は残る）、`tests/sites/site-row.test.ts`（`estimate_required` の有無）
 
-- [ ] **Step 1: テスト** → **Step 2: 失敗を確認** → **Step 3: 実装** → **Step 4:** test・tsc・lint
-- [ ] **Step 5: コミット** `feat(issue): 件の見積書・現場の必須の設定の読み書き（SQL の前も動く）`
+- [x] **Step 1: テスト** → **Step 2: 失敗を確認** → **Step 3: 実装** → **Step 4:** test・tsc・lint
+- [x] **Step 5: コミット** `feat(issue): 件の見積書・現場の必須の設定の読み書き（SQL の前も動く）`
 
 ### Task 4: Server Action（件の作成・状態・見積書の欄・見積提出）
 
@@ -299,8 +305,8 @@ commit;
 - `setEstimateSubmitted`：取り消し（null）の拒否 `estimate_required_first` を `ESTIMATE_CLEAR_BLOCKED_MESSAGE` に。
 - `issueErrorMessage` に `estimate_required_first` を足す（ほかの経路の保険）。
 
-- [ ] **Step 1〜4:** テスト → 失敗を確認 → 実装 → test・tsc・lint
-- [ ] **Step 5: コミット** `feat(issue): 件の見積書の欄を変える・必須の件の状態の止めの文言`
+- [x] **Step 1〜4:** テスト → 失敗を確認 → 実装 → test・tsc・lint
+- [x] **Step 5: コミット** `feat(issue): 件の見積書の欄を変える・必須の件の状態の止めの文言`
 
 ### Task 5: 画面（現場の設定・件の見積書の欄・状態の止め・赤い印）
 
@@ -320,10 +326,13 @@ commit;
   - `src/components/report/ClientConfirmView.tsx` は変えない（お客様に赤い印は出さない）。
 - Test: 画面の純関数は Task 1 のもの。追加の欄の初めの値と状態の選択肢の純関数 `newIssueFormDefaults(siteRequired, isStaff, ready)`（Task 1 のファイルに足す）のテスト。
 
-- [ ] **Step 1: テスト**（`newIssueFormDefaults`：列なし → 見積書を出さない・状態は見積中／対応中、オン・社員 → before・状態は見積中だけ、オフ・社員 → none、協力会社 → 選択なし・表示は現場の設定）
-- [ ] **Step 2〜4:** 失敗を確認 → 実装（見本の ③⑤ のとおり。375px で印・札・ボタンが折り返して重ならない）→ test・tsc・lint・build
-- [ ] **Step 5:** 手で確かめる（dev で：必須オンの現場で件を作る → 見積中・赤い印・対応中が押せない → 後出しにする → 対応中にできる → 記録すると印が消える。協力会社のアカウントで印と止める理由が見え、見積書あり／提出日・ボタンが見えない。SQL の前の DB［列なし］でも日報・現場・一覧が開く）
-- [ ] **Step 6: コミット** `feat(issue): 見積提出が必須の現場・件の見積書の欄・未提出の赤い印`
+- [x] **Step 1: テスト**（`newIssueFormDefaults`：列なし → 見積書を出さない・状態は見積中／対応中、オン・社員 → before・状態は見積中だけ、オフ・社員 → none、協力会社 → 選択なし・表示は現場の設定）
+- [x] **Step 2〜4:** 失敗を確認 → 実装（見本の ③⑤ のとおり。375px で印・札・ボタンが折り返して重ならない）→ test・tsc・lint・build
+- [x] **Step 5:** 手で確かめる（dev で：必須オンの現場で件を作る → 見積中・赤い印・対応中が押せない → 後出しにする → 対応中にできる → 記録すると印が消える。協力会社のアカウントで印と止める理由が見え、見積書あり／提出日・ボタンが見えない。SQL の前の DB［列なし］でも日報・現場・一覧が開く）
+- [x] **Step 6: コミット** `feat(issue): 見積提出が必須の現場・件の見積書の欄・未提出の赤い印`
+
+**進み具合（2026-11-12）：** 第 1 段階の Task 1〜5 は実装済み・コミット済み（push していない。SQL は check:sql だけで、データベースでは実行していない）。
+Task 5 の手での確認（dev で必須オンの現場・協力会社のアカウント・SQL の前の DB）はまだ。375px の見た目も手で確かめる。
 
 **第 1 段階の区切り：** 最終レビュー（Review Focus）→ 利用者が `update_2026-11-20_issue_estimate.sql` と verify を SQL Editor で実行 → push。
 
