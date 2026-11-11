@@ -15,6 +15,8 @@ import {
   listOpenIssues,
   listReportHeads,
   headcountColumnReady,
+  issueEstimateColumnsReady,
+  listEstimatePendingDoneIssues,
   subcontractColumnsReady,
   type ReportDetail,
 } from '@/lib/db/reports';
@@ -192,16 +194,19 @@ export async function loadReportFormProps(
   // 労務費の決まり（2026-11-17）：設定と実行予算の常用の単価（単価は社員・管理者だけ）、新しい行の常用・請負の既定に使う
   // 請負の会社の一覧（協力会社のアカウントも読める。金額は無い）。
   // 名前なし（会社と人数）の作業員の行（2026-11-19）は、DB に人数の列があるときだけ出す。
-  const [laborCost, ukeoiSupplierIds, unnamedReady] = await Promise.all([
+  // 件の見積書（2026-11-20）は、DB に列があるときだけ出す。完了した未提出の件も上の枠に出す。
+  const [laborCost, ukeoiSupplierIds, unnamedReady, estimateReady, estimatePendingDoneIssues] = await Promise.all([
     loadLaborCostContext(siteId),
     loadUkeoiSupplierIds(siteId),
     headcountColumnReady(),
+    issueEstimateColumnsReady(),
+    listEstimatePendingDoneIssues(siteId),
   ]);
   // 外注の買掛の支払先（現場の協力会社）と、DB に区分の列があるか。社員・管理者だけ読む（協力会社には区分の欄を出さない）。
   const [sitePartners, subcontractReady] = staff
     ? await Promise.all([listSitePartners(siteId), subcontractColumnsReady()])
     : [[], false];
-  const issueIds = [...openIssues.map((i) => i.id), ...issues.map((i) => i.id)];
+  const issueIds = [...new Set([...openIssues, ...issues, ...estimatePendingDoneIssues].map((i) => i.id))];
   const [attachmentViews, confirmations] = await Promise.all([
     loadAttachmentViews(reportAttachments, issueIds),
     listIssueConfirmations(issueIds),
@@ -358,5 +363,8 @@ export async function loadReportFormProps(
         : null,
     clientSignature: signature,
     issueConfirmations: Object.fromEntries(confirmations),
+    estimateReady,
+    siteEstimateRequired: estimateReady && site.estimateRequired === true,
+    estimatePendingDoneIssues,
   };
 }

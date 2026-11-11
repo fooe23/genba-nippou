@@ -14,7 +14,7 @@ const noTime = { start: null, end: null, breakMin: null, gapMin: null };
 export const site: Site = {
   id: 's1', name: '〇〇邸新築工事', clientName: '〇〇様', projectName: null, projectNo: 'K-001', overview: null,
   contractAmount: 1_000_000, startDate: '2026-10-01', endDate: '2027-01-31', contractType: '元請け', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null, estimateRequired: null,
 };
 
 export const lines: SavedReportLine[] = [
@@ -70,8 +70,8 @@ export function report(date = '2026-11-02', over: Partial<DailyReportSource> = {
 }
 
 export const issues: Issue[] = [
-  { id: 'i1', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '棚の追加', status: 'open', doneAt: null, kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null },
-  { id: 'i2', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '窓の変更', status: 'done', doneAt: '2026-11-04T03:00:00Z', kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null },
+  { id: 'i1', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '棚の追加', status: 'open', doneAt: null, kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, estimateRequirement: 'none', estimatePending: false },
+  { id: 'i2', siteId: 's1', reportId: 'r-2026-11-02', reportDate: '2026-11-02', body: '窓の変更', status: 'done', doneAt: '2026-11-04T03:00:00Z', kind: 'other', instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, estimateRequirement: 'none', estimatePending: false },
 ];
 
 export function dailyInput(over: Partial<DailyReportInput> = {}): DailyReportInput {

@@ -150,6 +150,14 @@ export interface ReportFormProps {
   isStaff: boolean;
   /** 件ごとの最新のお客様確認（取り消されていないもの。件の id → 確認）。件の印「お客様の確認：未／確認済み MM/DD」に使う。 */
   issueConfirmations: Record<string, IssueConfirmation>;
+  /**
+   * DB に件の見積書の列があるか（update_2026-11-20 の後）。false なら見積書の欄・赤い印・止める判定を出さない（今までどおり）。
+   */
+  estimateReady: boolean;
+  /** 現場の「見積提出が必須のお客様」（新しい件の見積書の既定に使う。列が無ければ false）。 */
+  siteEstimateRequired: boolean;
+  /** 完了した件のうち、見積書が要で見積提出の記録が無いもの（上の枠に「見積書が未提出の完了した件」として出す）。 */
+  estimatePendingDoneIssues: Issue[];
 }
 
 const SUBMIT_FAILED = '提出に失敗しました。通信状況を確認してもう一度お試しください。';

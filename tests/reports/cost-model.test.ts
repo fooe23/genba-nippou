@@ -14,7 +14,7 @@ import { EMPTY_LABOR_COST_CONTEXT } from '@/lib/calc/labor-cost';
 const site = (o: Partial<Site> = {}): Site => ({
   id: 's1', name: '〇〇邸新築工事', clientName: '〇〇様', projectName: null, projectNo: 'K-001', overview: '木造 2 階建て',
   contractAmount: 1_000_000, startDate: '2026-10-01', endDate: '2027-01-31', contractType: '元請け', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null, ...o,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null, estimateRequired: null, ...o,
 });
 const touched = { updatedAt: null, updatedBy: null, createdAt: '2026-01-01T00:00:00Z' };
 const worker = (id: string, name: string, trade: string | null): Worker => ({ id, name, trade, note: null, active: true, rates: [], overtimeRate: null, affiliation: 'own', supplierId: null, ...touched });
@@ -464,7 +464,7 @@ describe('② 採算の基準（契約未確定の現場）と追加・増・変
   /** 精算の項目を持つ件（既定は未定の追加）。 */
   const issue = (id: string, reportDate: string, o: Partial<Issue> = {}): Issue => ({
     id, siteId: 's1', reportId: `r-${reportDate}`, reportDate, body: `${id} の件`, status: 'open', doneAt: null, kind: 'extra',
-    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, ...o,
+    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, estimateRequirement: 'none', estimatePending: false, ...o,
   });
   const linkTo = (l: SavedReportLine, issueId: string): SavedReportLine => ({ ...l, issueId }) as SavedReportLine;
   /** 10/20 の追加の行を一式の件 iL（確定額 100,000）に紐づけ、12/01 に行の無い一式の件 iX（70,000）を登録したもの。 */
@@ -670,7 +670,7 @@ describe('外注の買掛（2026-11-17）：原価に 1 回だけ入る（見出
 describe('外注の支払いを出来高に入れる（2026-11-11）', () => {
   const issueOf = (id: string, kind: Issue['kind']): Issue => ({
     id, siteId: 's1', reportId: 'r-2026-11-10', reportDate: '2026-11-10', body: `${id} の件`, status: 'open', doneAt: null, kind,
-    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null,
+    instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, estimateRequirement: 'none', estimatePending: false,
   });
   const sub = (supplierId: string | null, vendor: string, amount: number, siteTradeId: string | null, issueId: string | null = null): SavedReportLine => ({
     kind: 'credit', itemName: 'タイル張り', spec: '', unit: '式', qty: 1, unitPrice: amount, supplierId, vendor,

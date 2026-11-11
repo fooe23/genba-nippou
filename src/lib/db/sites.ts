@@ -4,6 +4,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { getCurrentProfile, isEmployeeOrAdmin, toAccountType, type AccountType } from '@/lib/db/profile';
 import type { SiteMoneyFields } from '@/lib/sites/display';
 import { isMissingFunctionError, mergeSiteMoney, siteMoneyMap, type SiteMoneyRow } from '@/lib/sites/money';
+import { isMissingColumnError, siteColumns, siteFromRow, type SiteRow } from '@/lib/sites/site-row';
 import type { SiteRole } from '@/lib/types';
 
 // 現場まわりの読み取り（RLS 前提）。書き込みは sites-actions.ts（Server Actions）。
@@ -33,6 +34,11 @@ export interface Site {
   estimatedAmount: number | null;
   /** 常用単価の既定（客先請求・円／人工）。件を常用で精算するときの単価の初期値。未設定は null。 */
   defaultDailyRate: number | null;
+  /**
+   * 見積提出が必須のお客様（2026-11-20）。オンの現場で新しく作る件は、見積書が最初から「要（先に出す）」（やり直しは不要）。
+   * null は DB に列が無い（update_2026-11-20_issue_estimate.sql の前。設定も見積書の欄も出さない）。
+   */
+  estimateRequired: boolean | null;
 }
 export interface SiteMember {
   userId: string;
@@ -59,8 +65,9 @@ type SiteOptionalKey =
   | 'commonGapMin'
   | 'contractStatus'
   | 'estimatedAmount'
-  | 'defaultDailyRate';
-/** upsertSite に渡す入力（sites-actions.ts）。共通時間の既定・契約の状態・概算金額・常用単価の既定は省略すると変更しない（新規は DB の既定）。 */
+  | 'defaultDailyRate'
+  | 'estimateRequired';
+/** upsertSite に渡す入力（sites-actions.ts）。共通時間の既定・契約の状態・概算金額・常用単価の既定・見積提出が必須は省略すると変更しない（新規は DB の既定）。 */
 export type SiteInput = Omit<Site, 'id' | 'status' | 'deletedAt' | SiteOptionalKey> &
   Partial<Pick<Site, SiteOptionalKey>> & { id?: string; status?: Site['status'] };
 
@@ -76,33 +83,20 @@ export interface SiteAuditEntry {
   createdAt: string;
 }
 
-interface SiteRow {
-  id: string;
-  name: string;
-  client_name: string | null;
-  project_name: string | null;
-  project_no: string | null;
-  overview: string | null;
-  start_date: string | null;
-  end_date: string | null;
-  contract_type: string | null;
-  status: string;
-  common_start: string | null;
-  common_end: string | null;
-  common_break_min: number | string | null;
-  common_gap_min: number | string | null;
-  deleted_at: string | null;
-  contract_status: string | null;
-}
 interface ProfileRef { name: string | null; email: string | null; account_type: string | null; company_name: string | null; }
 interface MemberRow { user_id: string; role: SiteRole; profiles: ProfileRef | ProfileRef[] | null; }
 interface CarryoverRow { worker_id: string; man_days: number | string; labor_cost: number | string; before_date: string; }
 
-// お金の列（contract_amount・estimated_amount・default_daily_rate）は入れない。DB では authenticated に
-// その列の SELECT が無い（update_2026-11-16_site_money.sql）ので、gn_sites は必ず列を名指しで読む（select('*') は失敗する）。
-// お金の列は社員・管理者のときだけ gn_site_money で読んで重ねる（withSiteMoney）。
-const SITE_COLUMNS =
-  'id, name, client_name, project_name, project_no, overview, start_date, end_date, contract_type, status, common_start, common_end, common_break_min, common_gap_min, deleted_at, contract_status';
+// gn_sites は必ず列を名指しで読む（siteColumns。お金の列は入れない）。お金の列は社員・管理者のときだけ gn_site_money で
+// 読んで重ねる（withSiteMoney）。見積提出が必須（estimate_required。2026-11-20）の列が無い DB では、外して読み直す。
+async function selectSites<T>(
+  run: (columns: string) => PromiseLike<{ data: T | null; error: { code?: string; message: string } | null }>,
+): Promise<T | null> {
+  let res = await run(siteColumns(true));
+  if (res.error && isMissingColumnError(res.error)) res = await run(siteColumns(false));
+  if (res.error) throw new Error(res.error.message);
+  return res.data;
+}
 const SITE_MONEY_COLUMNS = 'id, contract_amount, estimated_amount, default_daily_rate';
 /** SQL の前の読み直し（.in の id の数。URL が長くなりすぎないように分ける）。 */
 const MONEY_FALLBACK_CHUNK = 100;
@@ -134,28 +128,7 @@ async function withSiteMoney(supabase: SupabaseClient, rows: SiteRow[]): Promise
   if (rows.length === 0) return [];
   const profile = await getCurrentProfile();
   const money = profile !== null && isEmployeeOrAdmin(profile) ? await loadSiteMoney(supabase, rows.map((r) => r.id)) : new Map();
-  return rows.map((r) => mergeSiteMoney(toSite(r), money));
-}
-
-function toSite(r: SiteRow): Omit<Site, keyof SiteMoneyFields> {
-  return {
-    id: r.id,
-    name: r.name,
-    clientName: r.client_name,
-    projectName: r.project_name,
-    projectNo: r.project_no,
-    overview: r.overview,
-    startDate: r.start_date,
-    endDate: r.end_date,
-    contractType: r.contract_type === '元請け' || r.contract_type === '下請' || r.contract_type === '常用' ? r.contract_type : null,
-    status: r.status === 'done' ? 'done' : 'active',
-    commonStart: r.common_start || null,
-    commonEnd: r.common_end || null,
-    commonBreakMin: r.common_break_min === null || r.common_break_min === undefined ? null : Number(r.common_break_min),
-    commonGapMin: r.common_gap_min === null || r.common_gap_min === undefined ? null : Number(r.common_gap_min),
-    deletedAt: r.deleted_at ?? null,
-    contractStatus: r.contract_status === 'tentative' ? 'tentative' : 'fixed',
-  };
+  return rows.map((r) => mergeSiteMoney(siteFromRow(r), money));
 }
 
 /**
@@ -164,9 +137,8 @@ function toSite(r: SiteRow): Omit<Site, keyof SiteMoneyFields> {
  */
 export async function listMySites(): Promise<Site[]> {
   const supabase = await createServerSupabase();
-  const { data, error } = await supabase.from('gn_sites').select(SITE_COLUMNS).is('deleted_at', null);
-  if (error) throw new Error(error.message);
-  return (await withSiteMoney(supabase, (data ?? []) as SiteRow[])).sort((a, b) => {
+  const data = await selectSites((cols) => supabase.from('gn_sites').select(cols).is('deleted_at', null));
+  return (await withSiteMoney(supabase, (data ?? []) as unknown as SiteRow[])).sort((a, b) => {
     if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
     return a.name.localeCompare(b.name, 'ja');
   });
@@ -175,13 +147,10 @@ export async function listMySites(): Promise<Site[]> {
 /** 削除済みの現場（管理画面の「削除済み」一覧用）。削除日時の新しい順。管理者以外には RLS で何も返らない。 */
 export async function listDeletedSites(): Promise<Site[]> {
   const supabase = await createServerSupabase();
-  const { data, error } = await supabase
-    .from('gn_sites')
-    .select(SITE_COLUMNS)
-    .not('deleted_at', 'is', null)
-    .order('deleted_at', { ascending: false });
-  if (error) throw new Error(error.message);
-  return withSiteMoney(supabase, (data ?? []) as SiteRow[]);
+  const data = await selectSites((cols) =>
+    supabase.from('gn_sites').select(cols).not('deleted_at', 'is', null).order('deleted_at', { ascending: false }),
+  );
+  return withSiteMoney(supabase, (data ?? []) as unknown as SiteRow[]);
 }
 
 interface AuditRow {
@@ -227,10 +196,9 @@ export async function listMyMemberSiteIds(userId: string): Promise<string[]> {
 
 export async function getSite(siteId: string): Promise<Site | null> {
   const supabase = await createServerSupabase();
-  const { data, error } = await supabase.from('gn_sites').select(SITE_COLUMNS).eq('id', siteId).maybeSingle();
-  if (error) throw new Error(error.message);
+  const data = await selectSites((cols) => supabase.from('gn_sites').select(cols).eq('id', siteId).maybeSingle());
   if (!data) return null;
-  const [site] = await withSiteMoney(supabase, [data as SiteRow]);
+  const [site] = await withSiteMoney(supabase, [data as unknown as SiteRow]);
   return site ?? null;
 }
 

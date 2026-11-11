@@ -14,7 +14,7 @@ import { joinChangesRows, type ChangesIssueRow } from '@/lib/reports/changes-pag
 const site = (o: Partial<Site> = {}): Site => ({
   id: 's1', name: '〇〇邸改修工事', clientName: '〇〇様', projectName: null, projectNo: 'K-002', overview: null,
   contractAmount: 1_000_000, startDate: '2026-10-01', endDate: null, contractType: '下請', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null, ...o,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null, estimateRequired: null, ...o,
 });
 
 const stored = (amount: number, manDays = 0) => ({ amount, manDays, overtimeHours: 0, hours: manDays * 8 });
@@ -59,7 +59,7 @@ const report = (date: string, lines: SavedReportLine[], o: Partial<ReportWithLin
 
 const issue = (id: string, reportDate: string, body: string, o: Partial<Issue> = {}): Issue => ({
   id, siteId: 's1', reportId: `r-${reportDate}`, reportDate, body, status: 'open', doneAt: null, kind: 'extra',
-  instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, ...o,
+  instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, estimateRequirement: 'none', estimatePending: false, ...o,
 });
 
 const input = (reports: ReportWithLines[], o: Partial<ChangeLedgerInput> = {}): ChangeLedgerInput => ({ site: site(), reports, issues: [], ...o });

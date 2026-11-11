@@ -30,6 +30,7 @@ import {
 import { createServerSupabase } from '@/lib/supabase/server';
 import { loadSupplierRoles, notPartnerError } from '@/lib/db/supplier-roles';
 import { isPartnerSupplier, MSG_NOT_VENDOR, nonVendorAdditions } from '@/lib/calc/supplier-roles';
+import { isMissingColumnError } from '@/lib/sites/site-row';
 import type { SiteRole } from '@/lib/types';
 
 function revalidateSite(siteId: string): void {
@@ -63,15 +64,23 @@ export async function upsertSite(input: SiteInput): Promise<string> {
     ...(v.estimatedAmount !== undefined ? { estimated_amount: v.estimatedAmount } : {}),
     ...(v.defaultDailyRate !== undefined ? { default_daily_rate: v.defaultDailyRate } : {}),
   };
+  // 見積提出が必須のお客様（2026-11-20）。省略は変更しない（新規は DB の既定：オフ）。
+  const withEstimate = v.estimateRequired !== undefined ? { ...row, estimate_required: v.estimateRequired } : row;
   // 削除済みの現場は編集しない（復元してから編集する）。
-  const query = v.id
-    ? supabase
-        .from('gn_sites')
-        .update(v.status ? { ...row, status: v.status } : row)
-        .eq('id', v.id)
-        .is('deleted_at', null)
-    : supabase.from('gn_sites').insert({ ...row, status: v.status ?? 'active' });
-  const { data, error } = await query.select('id').single();
+  const save = (r: Record<string, unknown>) =>
+    (v.id
+      ? supabase
+          .from('gn_sites')
+          .update(v.status ? { ...r, status: v.status } : r)
+          .eq('id', v.id)
+          .is('deleted_at', null)
+      : supabase.from('gn_sites').insert({ ...r, status: v.status ?? 'active' })
+    )
+      .select('id')
+      .single();
+  let { data, error } = await save(withEstimate);
+  // DB に見積提出が必須の列が無い（update_2026-11-20 の前。PGRST204・42703）ときは、その列を外して保存し直す。
+  if (error && withEstimate !== row && isMissingColumnError(error)) ({ data, error } = await save(row));
   if (error) throw new Error(error.message);
   const id = (data as { id: string }).id;
   revalidateSite(id);

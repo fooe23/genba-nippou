@@ -1,9 +1,11 @@
 import 'server-only';
+import { cache } from 'react';
 import { EMPTY_LABOR_COST_CONTEXT, laborCountedCost, type LaborCostContext } from '@/lib/calc/labor-cost';
 import { chunk, fetchAllPages } from '@/lib/calc/paging';
 import { getCurrentProfile, isEmployeeOrAdmin, requireProfile, type Profile } from '@/lib/db/profile';
 import { createServerSupabase } from '@/lib/supabase/server';
-import { isInstructionMethod, isIssueKind, isIssueStatus, isSettlementMethod, UNFINISHED_ISSUE_STATUSES } from '@/lib/report/change-labels';
+import { UNFINISHED_ISSUE_STATUSES } from '@/lib/report/change-labels';
+import { countBySite, hideEstimateDates, issueColumns, issueFromRow, type Issue, type IssueRow } from '@/lib/report/issue-row';
 import { fromLineRow, type LineRowRead } from '@/lib/report/rows';
 import {
   ISSUE_CONFIRMATION_COLUMNS,
@@ -11,7 +13,7 @@ import {
   type IssueConfirmation,
   type IssueConfirmationRow,
 } from '@/lib/report/issue-confirmations';
-import type { InstructionMethod, IssueKind, IssueStatus, ReportLine, ReportStatus, SettlementMethod, SiteRole, TimeSpec } from '@/lib/types';
+import type { ReportLine, ReportStatus, SiteRole, TimeSpec } from '@/lib/types';
 
 // 日報まわりの読み取り（RLS 前提）。
 
@@ -320,95 +322,37 @@ export async function getSubmittedCount(): Promise<number> {
 
 // ─── 重要事項の件（追加・変更・増減の指示や依頼）。書き込みは reports-actions.ts ───
 
-export interface Issue {
-  id: string;
-  siteId: string;
-  reportId: string;
-  reportDate: string;
-  body: string;
-  /** 見積中・対応中・完了。見積中と対応中は完了まで日報の上の枠に出続ける。 */
-  status: IssueStatus;
-  doneAt: string | null;
-  /** 種別（追加指示・増（数量増）・仕様変更・減・客先都合・やり直し・その他・現場判断（要協議））。表示名は ISSUE_KIND_LABELS。 */
-  kind: IssueKind;
-  /** 指示者（未入力は null）。 */
-  instructedBy: string | null;
-  instructionMethod: InstructionMethod | null;
-  /** 金額見込み（円。未入力は null）。 */
-  amountEstimate: number | null;
-  /** 精算の方法（未定・一式・見積・常用）。表示名は SETTLEMENT_METHOD_LABELS。 */
-  settlementMethod: SettlementMethod;
-  /** 確定額（円。一式・見積のとき。見積は見積額。それ以外は null）。 */
-  fixedAmount: number | null;
-  /** 常用単価（客先請求・円／人工。常用のとき。それ以外は null）。 */
-  dailyRate: number | null;
-  /** 確定日（YYYY-MM-DD。未入力は null）。 */
-  fixedOn: string | null;
-  /**
-   * 見積提出の日（YYYY-MM-DD。記録なしは null。2026-11-14）。見積書の PDF を付けずにメール・紙で出したときの記録。
-   * 協力会社のアカウントで読んだときは常に null（見積書の印と同じく協力会社には見せない。hideEstimateFromPartner）。
-   */
-  estimateSubmittedOn: string | null;
+export type { Issue } from '@/lib/report/issue-row';
+
+/**
+ * 件の見積書の列（gn_report_issues.estimate_requirement。update_2026-11-20_issue_estimate.sql）が DB にあるか。
+ * 無い（SQL の前。42703・PGRST204）なら false：見積書の欄・現場の設定・赤い印・止める判定を出さず、件は今までの列だけで読む。
+ * 1 リクエストにつき 1 回だけ問い合わせる（React の cache）。それ以外のエラーは投げる。
+ */
+export const issueEstimateColumnsReady = cache(async function issueEstimateColumnsReady(): Promise<boolean> {
+  const supabase = await createServerSupabase();
+  const { error } = await supabase.from('gn_report_issues').select('estimate_requirement').limit(1);
+  if (!error) return true;
+  if (error.code === '42703' || error.code === 'PGRST204') return false;
+  throw new Error(error.message);
+});
+
+/** 件を読む列（見積書の列は DB にあるときだけ）。 */
+async function issueSelect(): Promise<string> {
+  return issueColumns(await issueEstimateColumnsReady());
 }
 
-interface IssueRow {
-  id: string;
-  site_id: string;
-  report_id: string;
-  body: string;
-  status: string;
-  done_at: string | null;
-  kind: string | null;
-  instructed_by: string | null;
-  instruction_method: string | null;
-  amount_estimate: number | string | null;
-  settlement_method: string | null;
-  fixed_amount: number | string | null;
-  daily_rate: number | string | null;
-  fixed_on: string | null;
-  estimate_submitted_on: string | null;
-  gn_daily_reports: { report_date: string } | { report_date: string }[] | null;
-}
-
-const ISSUE_COLUMNS =
-  'id, site_id, report_id, body, status, done_at, kind, instructed_by, instruction_method, amount_estimate, settlement_method, fixed_amount, daily_rate, fixed_on, estimate_submitted_on, gn_daily_reports(report_date)';
-
-function amountOrNull(v: number | string | null): number | null {
-  if (v === null || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function toIssue(r: IssueRow): Issue {
-  return {
-    id: r.id,
-    siteId: r.site_id,
-    reportId: r.report_id,
-    reportDate: one(r.gn_daily_reports)?.report_date ?? '',
-    body: r.body,
-    // 知らない値は対応中として扱う（完了扱いにして枠から消さない）
-    status: isIssueStatus(r.status) ? r.status : 'open',
-    doneAt: r.done_at ?? null,
-    kind: isIssueKind(r.kind) ? r.kind : 'other',
-    instructedBy: r.instructed_by || null,
-    instructionMethod: isInstructionMethod(r.instruction_method) ? r.instruction_method : null,
-    amountEstimate: amountOrNull(r.amount_estimate),
-    settlementMethod: isSettlementMethod(r.settlement_method) ? r.settlement_method : 'undecided',
-    fixedAmount: amountOrNull(r.fixed_amount),
-    dailyRate: amountOrNull(r.daily_rate),
-    fixedOn: r.fixed_on || null,
-    estimateSubmittedOn: r.estimate_submitted_on || null,
-  };
-}
+const toIssue = issueFromRow;
 
 /**
  * 協力会社のアカウント（と、プロフィールが読めないとき）には見積提出の日を渡さない（null にする）。列は RLS で
  * 現場メンバーが読めるが、出るのは日付だけ。画面・お客様用の画面・PDF に出さないため、件を読むところで必ず通す。
+ * 赤い印に使う estimatePending（未提出かどうか）は、日付を消す前に issueFromRow で決めてあるので残る。
  */
 async function hideEstimateFromPartner(list: Issue[]): Promise<Issue[]> {
   const profile = await getCurrentProfile();
   if (profile && isEmployeeOrAdmin(profile)) return list;
-  return list.map((i) => (i.estimateSubmittedOn === null ? i : { ...i, estimateSubmittedOn: null }));
+  return hideEstimateDates(list);
 }
 
 /** 現場の完了していない件（見積中・対応中）。日報の日付の昇順（同日は登録順）。 */
@@ -416,7 +360,7 @@ export async function listOpenIssues(siteId: string): Promise<Issue[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from('gn_report_issues')
-    .select(ISSUE_COLUMNS)
+    .select(await issueSelect())
     .eq('site_id', siteId)
     .in('status', [...UNFINISHED_ISSUE_STATUSES])
     .order('created_at', { ascending: true });
@@ -431,7 +375,7 @@ export async function listIssuesForReport(reportId: string): Promise<Issue[]> {
   const supabase = await createServerSupabase();
   const { data, error } = await supabase
     .from('gn_report_issues')
-    .select(ISSUE_COLUMNS)
+    .select(await issueSelect())
     .eq('report_id', reportId)
     .order('created_at', { ascending: true });
   if (error) throw new Error(error.message);
@@ -446,9 +390,10 @@ export async function listIssuesByIds(ids: string[]): Promise<Issue[]> {
   const unique = [...new Set(ids)];
   if (unique.length === 0) return [];
   const supabase = await createServerSupabase();
+  const columns = await issueSelect();
   const parts = await Promise.all(
     chunk(unique, REPORT_ID_CHUNK).map(async (part) => {
-      const { data, error } = await supabase.from('gn_report_issues').select(ISSUE_COLUMNS).in('id', part);
+      const { data, error } = await supabase.from('gn_report_issues').select(columns).in('id', part);
       if (error) throw new Error(error.message);
       return ((data ?? []) as unknown as IssueRow[]).map(toIssue);
     }),
@@ -473,12 +418,13 @@ export async function getReportKey(reportId: string): Promise<{ siteId: string; 
 export async function listIssuesForReports(reportIds: string[]): Promise<Issue[]> {
   if (reportIds.length === 0) return [];
   const supabase = await createServerSupabase();
+  const columns = await issueSelect();
   const pages = await Promise.all(
     chunk(reportIds, REPORT_ID_CHUNK).map((part) =>
       fetchAllPages<IssueRow>(async (from, to) => {
         const { data, error } = await supabase
           .from('gn_report_issues')
-          .select(ISSUE_COLUMNS)
+          .select(columns)
           .in('report_id', part)
           .order('created_at', { ascending: true })
           .order('id', { ascending: true })
@@ -489,6 +435,52 @@ export async function listIssuesForReports(reportIds: string[]): Promise<Issue[]
     ),
   );
   return hideEstimateFromPartner(pages.flat().map(toIssue));
+}
+
+/**
+ * 現場の、完了した件のうち見積書が要で見積提出の記録が無いもの（日報の上の枠・現場の画面の「見積書が未提出の完了した件」。
+ * 2026-11-20）。日報の日付の昇順。DB に見積書の列が無ければ空。
+ */
+export async function listEstimatePendingDoneIssues(siteId: string): Promise<Issue[]> {
+  if (!(await issueEstimateColumnsReady())) return [];
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_report_issues')
+    .select(issueColumns(true))
+    .eq('site_id', siteId)
+    .eq('status', 'done')
+    .in('estimate_requirement', ['before', 'after'])
+    .is('estimate_submitted_on', null)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  const list = await hideEstimateFromPartner(((data ?? []) as unknown as IssueRow[]).map(toIssue));
+  return list.sort((a, b) => a.reportDate.localeCompare(b.reportDate));
+}
+
+/**
+ * 現場ごとの、見積書が要で見積提出の記録が無い件の数（完了した件も数える。ホーム・管理者の現場の一覧。2026-11-20）。
+ * 画面は社員・管理者にだけ出す。DB に見積書の列が無ければ空。
+ */
+export async function countEstimatePendingBySite(siteIds: string[]): Promise<Record<string, number>> {
+  if (siteIds.length === 0 || !(await issueEstimateColumnsReady())) return {};
+  const supabase = await createServerSupabase();
+  const pages = await Promise.all(
+    chunk(siteIds, REPORT_ID_CHUNK).map((part) =>
+      fetchAllPages<{ site_id: string }>(async (from, to) => {
+        const { data, error } = await supabase
+          .from('gn_report_issues')
+          .select('site_id')
+          .in('site_id', part)
+          .in('estimate_requirement', ['before', 'after'])
+          .is('estimate_submitted_on', null)
+          .order('id', { ascending: true })
+          .range(from, to);
+        if (error) throw new Error(error.message);
+        return (data ?? []) as { site_id: string }[];
+      }),
+    ),
+  );
+  return countBySite(pages.flat());
 }
 
 // ─── 日報の修正申請（承認待ち一覧用）。出すのは reports-actions.ts の requestReportFix ───

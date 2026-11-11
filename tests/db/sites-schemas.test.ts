@@ -329,3 +329,12 @@ describe('sitePartnerWorkerRpcError（gn_add_site_partner_worker のエラー �
     expect(sitePartnerWorkerRpcError(null)).toBe('作業員の登録に失敗しました。もう一度お試しください。');
   });
 });
+
+describe('siteInputSchema（見積提出が必須のお客様）', () => {
+  it('省略は undefined（変更しない）、真偽を受け付け、それ以外は日本語の文言で弾く', () => {
+    expect(siteInputSchema.parse(base).estimateRequired).toBeUndefined();
+    expect(siteInputSchema.parse({ ...base, estimateRequired: true }).estimateRequired).toBe(true);
+    expect(siteInputSchema.parse({ ...base, estimateRequired: false }).estimateRequired).toBe(false);
+    expect(firstError(siteInputSchema, { ...base, estimateRequired: 'yes' })).toBe('見積提出が必須の指定が正しくありません');
+  });
+});

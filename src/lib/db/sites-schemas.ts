@@ -56,6 +56,8 @@ export const siteInputSchema = z.object({
     .int('常用単価の既定は円単位の整数で入力してください')
     .nullable()
     .optional(),
+  // 見積提出が必須のお客様（2026-11-20。任意）。省略時は変更しない。
+  estimateRequired: z.boolean({ error: '見積提出が必須の指定が正しくありません' }).optional(),
 });
 export type SiteInputParsed = z.output<typeof siteInputSchema>;
 

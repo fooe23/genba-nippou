@@ -16,7 +16,7 @@ const time = { start: null, end: null, breakMin: null, gapMin: null };
 const site: Site = {
   id: 's1', name: '〇〇様邸', clientName: '〇〇様', projectName: null, projectNo: 'K-010', overview: null,
   contractAmount: 1_000_000, startDate: '2026-11-01', endDate: '2026-12-31', contractType: '元請け', status: 'active',
-  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null,
+  commonStart: null, commonEnd: null, commonBreakMin: null, commonGapMin: null, deletedAt: null, contractStatus: 'fixed', estimatedAmount: null, defaultDailyRate: null, estimateRequired: null,
 };
 
 /** 自社 Ｓさん 1.0 人工・20,000 円。 */
@@ -71,7 +71,7 @@ export function ledgerReport(date: string, lines: SavedReportLine[]): ReportWith
 
 const incIssue: Issue = {
   id: 'iInc', siteId: 's1', reportId: 'r-2026-11-10', reportDate: '2026-11-10', body: 'タイル目地の増', status: 'open', doneAt: null, kind: 'increase',
-  instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null,
+  instructedBy: null, instructionMethod: null, amountEstimate: null, settlementMethod: 'undecided', fixedAmount: null, dailyRate: null, fixedOn: null, estimateSubmittedOn: null, estimateRequirement: 'none', estimatePending: false,
 };
 
 export function ledgerInput(reports: ReportWithLines[] = [ledgerReport('2026-11-10', dayLines())]): CostReportInput {
