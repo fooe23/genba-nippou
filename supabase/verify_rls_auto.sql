@@ -1,4 +1,4 @@
--- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］、20 は積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合［update_2026-11-15］、21 は現場のお金の列［update_2026-11-16］、22 は外注の買掛・行の根拠の件・請負の会社の一覧［update_2026-11-17］、23 は名前なし（会社と人数）の作業員の行［update_2026-11-19］）
+-- gn_ スキーマの権限・ガードの自動検証（verify_rls.md の手順 0〜9 を 1 本にまとめたもの。10 は客先確認のガード例外［update_2026-11-04c］、11 は作業員の所属・現場の協力会社［update_2026-11-07］、12 は現場からの協力会社の作業員の登録［update_2026-11-07b］、13 は件の見積中・承認解除・修正申請［update_2026-11-08］、14 は日報・件の添付［update_2026-11-09］、15 はお客様のサイン［update_2026-11-10］、16 は現場判断の件・指示なし、17 は件の直し・削除［update_2026-11-11］、18 は件ごとのお客様確認［update_2026-11-13］、19 は件の見積提出の記録［update_2026-11-14］、20 は積算連携の工種・元請けの内訳・実行予算・読み替え表・進み具合［update_2026-11-15］、21 は現場のお金の列［update_2026-11-16］、22 は外注の買掛・行の根拠の件・請負の会社の一覧［update_2026-11-17］、23 は名前なし（会社と人数）の作業員の行［update_2026-11-19］、24 は件の見積書［update_2026-11-20］）
 --
 -- 使い方：Supabase の SQL Editor に全部貼って Run する。
 -- 結果は「ERROR: VERIFY_RLS ...」として表示される（わざと例外で終わらせることで、
@@ -2842,6 +2842,217 @@ begin
     end;
   exception when others then
     perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 23 準備でエラー: %s\n', sqlerrm);
+  end;
+
+  -- ===== 24. 件の見積書と見積提出が必須の現場（update_2026-11-20） =====
+  -- 現場 S24（必須オン）・S24B（必須オフ）：A＝協力会社の担当（staff）。C＝社員（割り当てなし）。
+  -- 件は日報が下書きのうちに作り、24-6 で日報を承認済みにする（SQL Editor から）。
+  declare
+    s24  uuid := '00000000-0000-0000-0000-000000002401';
+    s24b uuid := '00000000-0000-0000-0000-000000002402';
+    r24 uuid; r24b uuid;
+    i1 uuid; i2 uuid; i3 uuid; i4 uuid; i5 uuid; i6 uuid; i7 uuid; i8 uuid; i9 uuid;
+    b1 boolean;
+  begin
+    insert into public.gn_sites (id, name, status, estimate_required) values (s24, '検証現場S24', 'active', true), (s24b, '検証現場S24B', 'active', false);
+    insert into public.gn_site_members (site_id, user_id, role) values (s24, v_a, 'staff'), (s24b, v_a, 'staff');
+    perform pg_temp.as_user(v_a);
+    select public.gn_save_report(jsonb_build_object('site_id', s24, 'report_date', '2027-04-01', 'weather', '晴れ'), '[]'::jsonb) into r24;
+    select public.gn_save_report(jsonb_build_object('site_id', s24b, 'report_date', '2027-04-01', 'weather', '晴れ'), '[]'::jsonb) into r24b;
+    perform pg_temp.as_editor();
+
+    -- 24-1 協力会社が必須の現場で件を作る（'none'・対応中を渡す）→ 要（先に出す）・見積中になる
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_issues (site_id, report_id, body, kind, status, estimate_requirement)
+        values (s24, r24, '協力会社の件', 'extra', 'open', 'none') returning id into i1;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i1 and estimate_requirement = 'before' and status = 'estimating';
+      if n = 1 then rep := rep || E'PASS 24-1 協力会社が必須の現場で作る件は要（先に出す）・見積中になる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-1 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 24-1 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 24-2 協力会社は見積書の欄を変えられない（not_employee）
+    begin
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_issues set estimate_requirement = 'after' where id = i1;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 24-2 協力会社の見積書の欄の変更が通った\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%not_employee%' then rep := rep || E'PASS 24-2 協力会社は見積書の欄を変えられない（not_employee）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-2 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 24-3 要（先に出す）・未提出の件は、社員でも対応中・完了にできない（estimate_required_first）
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set status = 'open' where id = i1;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 24-3 未提出の必須の件を対応中にできた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%estimate_required_first%' then rep := rep || E'PASS 24-3 未提出の必須の件は対応中にできない（estimate_required_first）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-3 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set status = 'done', done_at = '2027-04-01' where id = i1;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 24-3b 未提出の必須の件を完了にできた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%estimate_required_first%' then rep := rep || E'PASS 24-3b 未提出の必須の件は完了にできない（estimate_required_first）\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-3b 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 24-4 社員が見積提出を記録してから、対応中・完了にできる
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set estimate_submitted_on = '2027-04-01' where id = i1;
+      update public.gn_report_issues set status = 'open' where id = i1;
+      update public.gn_report_issues set status = 'done', done_at = '2027-04-01' where id = i1;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i1 and status = 'done';
+      if n = 1 then rep := rep || E'PASS 24-4 見積提出を記録すれば対応中・完了にできる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-4 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 24-4 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 24-5 要（先に出す）の対応中の件の記録は取り消せない。後出しに変えてから取り消せる
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_report_issues (site_id, report_id, body, kind, status, estimate_requirement, estimate_submitted_on)
+        values (s24, r24, '記録してから対応中の件', 'extra', 'estimating', 'before', '2027-04-01') returning id into i2;
+      update public.gn_report_issues set status = 'open' where id = i2;
+      perform pg_temp.as_editor();
+      begin
+        perform pg_temp.as_user(v_c);
+        update public.gn_report_issues set estimate_submitted_on = null where id = i2;
+        perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 24-5 必須の対応中の件の記録を取り消せた\n';
+      exception when others then
+        perform pg_temp.as_editor();
+        if sqlerrm like '%estimate_required_first%' then rep := rep || E'PASS 24-5 必須の対応中の件の記録は取り消せない（estimate_required_first）\n';
+        else fails := fails + 1; rep := rep || format(E'FAIL 24-5 想定外: %s\n', sqlerrm); end if;
+      end;
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set estimate_requirement = 'after' where id = i2;
+      update public.gn_report_issues set estimate_submitted_on = null where id = i2;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i2 and estimate_requirement = 'after' and estimate_submitted_on is null;
+      if n = 1 then rep := rep || E'PASS 24-5b 後出しに変えてから記録を取り消せる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-5b 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 24-5b エラー: %s\n', sqlerrm);
+    end;
+
+    -- 24-6 承認済みの日報の件：後出し・不要の件の状態は社員も協力会社も変えられる。要（先に出す）・記録ありの件も変えられる
+    begin
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_report_issues (site_id, report_id, body, kind, status, estimate_requirement)
+        values (s24, r24, '後出しの件', 'extra', 'estimating', 'after') returning id into i3;
+      insert into public.gn_report_issues (site_id, report_id, body, kind, status, estimate_requirement)
+        values (s24, r24, '不要の件', 'other', 'estimating', 'none') returning id into i4;
+      insert into public.gn_report_issues (site_id, report_id, body, kind, status, estimate_requirement)
+        values (s24, r24, '対応中の不要の件', 'other', 'open', 'none') returning id into i7;
+      insert into public.gn_report_issues (site_id, report_id, body, kind, status, estimate_requirement)
+        values (s24, r24, '見積中の不要の件', 'other', 'estimating', 'none') returning id into i8;
+      perform pg_temp.as_editor();
+      update public.gn_daily_reports set status = 'approved', approved_by = v_admin, approved_at = now() where id = r24;
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set status = 'open' where id = i3;
+      update public.gn_report_issues set status = 'open' where id = i1;
+      perform pg_temp.as_editor();
+      perform pg_temp.as_user(v_a);
+      update public.gn_report_issues set status = 'done', done_at = '2027-04-02' where id = i3;
+      update public.gn_report_issues set status = 'open' where id = i4;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues
+       where (id = i3 and status = 'done') or (id = i4 and status = 'open') or (id = i1 and status = 'open');
+      if n = 3 then rep := rep || E'PASS 24-6 承認済みの日報の後出し・不要・記録ありの件の状態は今までどおり変えられる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-6 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 24-6 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 24-7 対応中・未提出の件を要（先に出す）にできない。見積中なら変えられる（日報は承認済みのまま）
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set estimate_requirement = 'before' where id = i7;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 24-7 対応中・未提出の件を要（先に出す）にできた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%estimate_required_first%' then rep := rep || E'PASS 24-7 対応中・未提出の件は要（先に出す）にできない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-7 想定外: %s\n', sqlerrm); end if;
+    end;
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set estimate_requirement = 'before' where id = i8;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues where id = i8 and estimate_requirement = 'before';
+      if n = 1 then rep := rep || E'PASS 24-7b 見積中の件は承認済みの日報でも要（先に出す）に変えられる\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-7b 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 24-7b エラー: %s\n', sqlerrm);
+    end;
+
+    -- 24-8 必須オフの現場で協力会社が作る件は不要。必須の現場でも協力会社のやり直しの件は不要。社員が渡した後出しはそのまま
+    begin
+      perform pg_temp.as_user(v_a);
+      insert into public.gn_report_issues (site_id, report_id, body, kind, status, estimate_requirement)
+        values (s24b, r24b, 'オフの現場の件', 'extra', 'open', 'before') returning id into i5;
+      perform public.gn_save_report(jsonb_build_object('site_id', s24, 'report_date', '2027-04-02', 'weather', '晴れ'), '[]'::jsonb);
+      insert into public.gn_report_issues (site_id, report_id, body, kind, status)
+        select s24, r.id, 'やり直しの件', 'rework', 'open' from public.gn_daily_reports r where r.site_id = s24 and r.report_date = '2027-04-02'
+        returning id into i6;
+      perform pg_temp.as_editor();
+      perform pg_temp.as_user(v_c);
+      insert into public.gn_report_issues (site_id, report_id, body, kind, status, estimate_requirement)
+        select s24, r.id, '社員の後出しの件', 'extra', 'open', 'after' from public.gn_daily_reports r where r.site_id = s24 and r.report_date = '2027-04-02'
+        returning id into i9;
+      perform pg_temp.as_editor();
+      select count(*) into n from public.gn_report_issues
+       where (id = i5 and estimate_requirement = 'none' and status = 'open')
+          or (id = i6 and estimate_requirement = 'none' and status = 'open')
+          or (id = i9 and estimate_requirement = 'after' and status = 'open');
+      if n = 3 then rep := rep || E'PASS 24-8 オフの現場・やり直しは不要、社員の後出しはそのまま\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-8 行=%s\n', n); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 24-8 エラー: %s\n', sqlerrm);
+    end;
+
+    -- 24-9 見積書の値は 3 つだけ（gn_report_issues_estimate_requirement_ck）
+    begin
+      perform pg_temp.as_user(v_c);
+      update public.gn_report_issues set estimate_requirement = 'later' where id = i4;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 24-9 見積書に later を入れられた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlerrm like '%gn_report_issues_estimate_requirement_ck%' then rep := rep || E'PASS 24-9 見積書の値は 3 つだけ\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-9 想定外: %s\n', sqlerrm); end if;
+    end;
+
+    -- 24-10 協力会社は現場の「見積提出が必須のお客様」を読める（請負金額は今までどおり読めない）
+    begin
+      perform pg_temp.as_user(v_a);
+      select estimate_required into b1 from public.gn_sites where id = s24;
+      perform pg_temp.as_editor();
+      if b1 then rep := rep || E'PASS 24-10 協力会社は見積提出が必須の設定を読める\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-10 値=%s\n', b1); end if;
+    exception when others then
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 24-10 エラー: %s\n', sqlerrm);
+    end;
+    begin
+      perform pg_temp.as_user(v_a);
+      select count(*) into n from (select contract_amount from public.gn_sites where id = s24) q;
+      perform pg_temp.as_editor(); fails := fails + 1; rep := rep || E'FAIL 24-10b 協力会社が請負金額の列を読めた\n';
+    exception when others then
+      perform pg_temp.as_editor();
+      if sqlstate = '42501' then rep := rep || E'PASS 24-10b 協力会社は請負金額の列を今までどおり読めない\n';
+      else fails := fails + 1; rep := rep || format(E'FAIL 24-10b 想定外: %s\n', sqlerrm); end if;
+    end;
+  exception when others then
+    perform pg_temp.as_editor(); fails := fails + 1; rep := rep || format(E'FAIL 24 準備でエラー: %s\n', sqlerrm);
   end;
 
   -- ===== 終わり：すべて取り消す =====

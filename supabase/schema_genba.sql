@@ -45,6 +45,9 @@ alter table public.gn_sites add column if not exists estimated_amount numeric
 -- 常用単価の既定（客先請求・円／人工）。件を常用で精算するときの単価の初期値
 alter table public.gn_sites add column if not exists default_daily_rate numeric
   check (default_daily_rate is null or default_daily_rate >= 0);
+-- 既存環境向け（2026-11-20 追加列。update_2026-11-20_issue_estimate.sql）：見積提出が必須のお客様。
+-- オンの現場で新しく作る件は、見積書が最初から「要（先に出す）」（やり直しは「不要」）。お金の列ではないので協力会社も読める。
+alter table public.gn_sites add column if not exists estimate_required boolean not null default false;
 
 
 create table if not exists public.gn_site_members (
@@ -316,6 +319,14 @@ alter table public.gn_report_issues add column if not exists fixed_on date;
 -- auth.uid() にし、提出日が null なら記録した人も null にする。協力会社のアカウントにはアプリが提出日を渡さない（画面に出さない）。
 alter table public.gn_report_issues add column if not exists estimate_submitted_on date;
 alter table public.gn_report_issues add column if not exists estimate_submitted_by uuid references public.profiles(id);
+-- 既存環境向け（2026-11-20 追加列。update_2026-11-20_issue_estimate.sql）：件の見積書
+-- （'before'＝要［先に出す］・'after'＝要［お客様の指示で先に対応・後出し］・'none'＝不要）。
+-- check は名前付き（列に書くと自動の名前 gn_report_issues_estimate_requirement_check になり、付け直しで重なるため）。
+-- 既存の件を埋める（見積提出の記録がある件だけ 'before'）のは update_2026-11-20 だけ（新規環境は件が無い）。
+alter table public.gn_report_issues add column if not exists estimate_requirement text not null default 'none';
+alter table public.gn_report_issues drop constraint if exists gn_report_issues_estimate_requirement_ck;
+alter table public.gn_report_issues add constraint gn_report_issues_estimate_requirement_ck
+  check (estimate_requirement in ('before','after','none'));
 -- 労務の行の常用・請負と、その日の所属の写し（2026-11-07。update_2026-11-07_worker_affiliation.sql）。労務の行だけ使う。
 --   * labor_contract：'jouyou'（常用）・'ukeoi'（請負）。null は常用扱い。所属が協力会社の作業員の行だけ値を持つ。
 --   * affiliation・supplier_id：保存時に作業員マスターから写した所属（名前・日当の写しと同じ扱い）。
@@ -887,6 +898,8 @@ create trigger gn_report_lines_compute before insert or update on public.gn_repo
 -- 社員か管理者だけ。協力会社・profiles の行が無いユーザーは not_employee（同じ内容の単独ファイル：update_2026-11-05b_issue_settlement_guard.sql）。
 -- 見積提出（estimate_submitted_on・estimate_submitted_by）も同じく社員か管理者だけ、日報の状態に関係なくいつでも（2026-11-14。
 -- update_2026-11-14_estimate_submitted.sql）。
+-- 件の見積書（estimate_requirement）と、要（先に出す）で見積提出の記録が無い件の止め（estimate_required_first）は 2026-11-20
+-- （update_2026-11-20_issue_estimate.sql）。
 create or replace function public.gn_report_issues_guard()
 returns trigger language plpgsql security invoker set search_path = public as $$
 declare
@@ -895,6 +908,8 @@ declare
   v_creator  uuid;
   v_settles  boolean;
   v_estimate boolean;
+  v_staff    boolean;
+  v_required boolean;
 begin
   -- 件の日報（report_id）は、アプリの利用者からは変えられない（提出済みの日報の件を自分の下書きの日報に付け替えて
   -- 中身の鍵を外すことを防ぐ）。2026-11-12（update_2026-11-12_issue_report_fixed.sql）。SQL Editor・service role は対象外。
@@ -940,6 +955,40 @@ begin
     new.estimate_submitted_by := null;
   elsif v_estimate and auth.uid() is not null then
     new.estimate_submitted_by := auth.uid();
+  end if;
+  -- 件の見積書（要［先に出す］・要［後出し］・不要）。2026-11-20（update_2026-11-20_issue_estimate.sql）。
+  -- 協力会社（と profiles の行が無いユーザー）が件を作るときは、渡した値を見ずに現場の設定と種別（やり直しは不要）から決める。変える（update）のは
+  -- 社員か管理者だけ（not_employee）。件の日報の状態に関係なくいつでも変えられる。auth.uid() が無い呼び出しは対象外。
+  if auth.uid() is not null then
+    v_staff := exists (
+      select 1 from public.profiles p
+       where p.id = auth.uid() and (p.account_type = 'employee' or public.is_admin())
+    );
+    -- （insert では old を参照しないよう、insert と update を分けて判定する）
+    if tg_op = 'INSERT' then
+      if not v_staff then
+        select s.estimate_required into v_required from public.gn_sites s where s.id = v_site;
+        new.estimate_requirement := case when coalesce(v_required, false) and new.kind is distinct from 'rework' then 'before' else 'none' end;
+      end if;
+    elsif not v_staff and new.estimate_requirement is distinct from old.estimate_requirement then
+      raise exception using message = 'not_employee';
+    end if;
+    -- 要（先に出す）で見積提出の記録が無い件は、見積中のまま。insert の対応中は見積中にし、完了は断る。
+    -- update は状態・見積書の欄・見積提出の日のどれかが変わったときだけ確かめる。
+    if new.estimate_requirement = 'before' and new.estimate_submitted_on is null and new.status in ('open','done') then
+      if tg_op = 'INSERT' then
+        if new.status = 'open' then
+          new.status := 'estimating';
+          new.done_at := null;
+        else
+          raise exception using message = 'estimate_required_first';
+        end if;
+      elsif new.status is distinct from old.status
+         or new.estimate_requirement is distinct from old.estimate_requirement
+         or new.estimate_submitted_on is distinct from old.estimate_submitted_on then
+        raise exception using message = 'estimate_required_first';
+      end if;
+    end if;
   end if;
   -- 件の中身（内容・種別・指示者・指示方法・金額見込み）を直せるのは、件の日報が下書きか差戻しのあいだだけ（管理者も同じ）。
   -- それ以外は issue_locked。協力会社は自分が作った日報の件だけ（issue_not_own）。状態・精算・見積提出の項目は今までどおり
@@ -1292,7 +1341,8 @@ create policy gn_sites_admin_delete on public.gn_sites for delete to authenticat
 revoke select on public.gn_sites from authenticated, anon;
 grant select (
   id, name, client_name, project_name, project_no, overview, start_date, end_date, contract_type, status,
-  deleted_at, deleted_by, common_start, common_end, common_break_min, common_gap_min, contract_status, created_at, updated_at
+  deleted_at, deleted_by, common_start, common_end, common_break_min, common_gap_min, contract_status, created_at, updated_at,
+  estimate_required
 ) on public.gn_sites to authenticated;
 create or replace function public.gn_site_money(p_site_ids uuid[])
 returns table (site_id uuid, contract_amount numeric, estimated_amount numeric, default_daily_rate numeric)
