@@ -13,6 +13,8 @@ const db = vi.hoisted(() => ({
   head: null as Result | null,
   write: null as Result | null,
   calls: [] as { table: string; op: string; arg?: unknown }[],
+  site: null as Result | null,
+  estimateReady: false,
   profile: { id: 'u1', name: '担当', email: '', isAdmin: false, accountType: 'employee', companyName: null } as Record<string, unknown>,
 }));
 
@@ -23,7 +25,7 @@ function builder(table: string) {
   for (const m of ['select', 'eq', 'in', 'is', 'order']) b[m] = chain;
   b.update = (arg: unknown) => ((op = 'update'), db.calls.push({ table, op, arg }), b);
   b.insert = (arg: unknown) => ((op = 'insert'), db.calls.push({ table, op, arg }), b);
-  b.maybeSingle = () => Promise.resolve(db.head);
+  b.maybeSingle = () => Promise.resolve(table === 'gn_sites' ? db.site : db.head);
   b.single = () => Promise.resolve(db.write);
   b.then = (resolve: (r: Result | null) => unknown, reject: (e: unknown) => unknown) =>
     Promise.resolve(op === 'select' ? db.head : db.write).then(resolve, reject);
@@ -32,14 +34,17 @@ function builder(table: string) {
 
 vi.mock('server-only', () => ({}));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
-vi.mock('@/lib/db/profile', () => ({ requireProfile: vi.fn(async () => db.profile) }));
+vi.mock('@/lib/db/profile', () => ({
+  requireProfile: vi.fn(async () => db.profile),
+  isEmployeeOrAdmin: (p: { isAdmin: boolean; accountType: string }) => p.isAdmin || p.accountType === 'employee',
+}));
 vi.mock('@/lib/supabase/server', () => ({ createServerSupabase: vi.fn(async () => ({ from: (t: string) => builder(t) })) }));
 vi.mock('@/lib/db/masters', () => ({ listLeaseItems: vi.fn(), listVehicles: vi.fn(), listWorkers: vi.fn() }));
-vi.mock('@/lib/db/reports', () => ({ getPreviousReport: vi.fn() }));
+vi.mock('@/lib/db/reports', () => ({ getPreviousReport: vi.fn(), issueEstimateColumnsReady: vi.fn(async () => db.estimateReady) }));
 vi.mock('@/lib/db/settings', () => ({ getSettings: vi.fn() }));
 vi.mock('@/lib/db/supplier-roles', () => ({ loadSupplierRoles: vi.fn() }));
 
-const { addIssue, reopenReport, requestReportFix, setIssueStatus } = await import('@/lib/db/reports-actions');
+const { addIssue, reopenReport, requestReportFix, setEstimateRequirement, setEstimateSubmitted, setIssueStatus } = await import('@/lib/db/reports-actions');
 
 const REPORT = '11111111-1111-4111-8111-111111111111';
 const ISSUE = '22222222-2222-4222-8222-222222222222';
@@ -49,6 +54,8 @@ beforeEach(() => {
   db.head = { data: { site_id: 's1', report_date: '2026-11-06', status: 'approved' }, error: null };
   db.write = { data: [{ id: REPORT, site_id: 's1', updated_at: '2026-11-06T10:00:00+00:00' }], error: null };
   db.profile = { id: 'u1', name: '担当', email: '', isAdmin: false, accountType: 'employee', companyName: null };
+  db.site = null;
+  db.estimateReady = false;
 });
 
 describe('件の状態', () => {
@@ -172,6 +179,65 @@ describe('addIssue の状態', () => {
   it('完了の件は追加できない', async () => {
     expect(await addIssue(REPORT, '棚の追加', { status: 'done' as never })).toEqual({ ok: false, error: '件の状態は見積中か対応中から選んでください' });
     expect(db.calls).toEqual([]);
+  });
+});
+
+describe('件の見積書（2026-11-20）', () => {
+  const PARTNER = { id: 'u2', name: '職長', email: '', isAdmin: false, accountType: 'partner', companyName: '協力' };
+  beforeEach(() => {
+    db.head = { data: { site_id: 's1', report_date: '2026-11-06' }, error: null };
+    db.write = { data: { id: ISSUE }, error: null };
+  });
+  it('列が無い（SQL の前）：見積書を送らず今までどおり', async () => {
+    expect(await addIssue(REPORT, '棚の追加', { estimateRequirement: 'before' })).toEqual({ ok: true, id: ISSUE });
+    expect(db.calls).toHaveLength(1);
+    expect(db.calls[0].arg).not.toHaveProperty('estimate_requirement');
+    expect((db.calls[0].arg as { status: string }).status).toBe('open');
+  });
+  it('必須の現場で社員が作る：既定は要（先に出す）・見積中。やり直しは不要', async () => {
+    db.estimateReady = true;
+    db.site = { data: { estimate_required: true }, error: null };
+    expect(await addIssue(REPORT, '軒先の修繕', { kind: 'extra', status: 'open' })).toEqual({ ok: true, id: ISSUE });
+    expect(db.calls[0].arg).toMatchObject({ estimate_requirement: 'before', status: 'estimating' });
+    db.calls = [];
+    expect(await addIssue(REPORT, '手直し', { kind: 'rework' })).toEqual({ ok: true, id: ISSUE });
+    expect(db.calls[0].arg).toMatchObject({ estimate_requirement: 'none', status: 'open' });
+  });
+  it('協力会社は見積書を送らない（DB が決める）。状態は必須の現場なら見積中', async () => {
+    db.estimateReady = true;
+    db.site = { data: { estimate_required: true }, error: null };
+    db.profile = PARTNER;
+    expect(await addIssue(REPORT, '軒先の修繕', { kind: 'extra', estimateRequirement: 'none' })).toEqual({ ok: true, id: ISSUE });
+    expect(db.calls[0].arg).not.toHaveProperty('estimate_requirement');
+    expect((db.calls[0].arg as { status: string }).status).toBe('estimating');
+  });
+  it('setIssueStatus：DB の estimate_required_first を社員・協力会社の文言に', async () => {
+    db.write = { data: null, error: { message: 'estimate_required_first' } };
+    const staff = await setIssueStatus(ISSUE, 'open');
+    expect(staff.ok === false && staff.error).toContain('見積書を『要（お客様の指示で先に対応・後出し）』に変えてください');
+    db.profile = PARTNER;
+    const partner = await setIssueStatus(ISSUE, 'open');
+    expect(partner.ok === false && partner.error).toContain('社員が見積提出を記録するまで');
+  });
+  it('setEstimateRequirement：協力会社・列なしは送らない。社員は送る', async () => {
+    db.profile = PARTNER;
+    expect(await setEstimateRequirement(ISSUE, 'after')).toEqual({ ok: false, error: '見積書の欄は社員・管理者のアカウントだけが変えられます。' });
+    db.profile = { id: 'u1', name: '担当', email: '', isAdmin: false, accountType: 'employee', companyName: null };
+    expect(await setEstimateRequirement(ISSUE, 'after')).toEqual({ ok: false, error: 'まだ使えません（管理者に SQL の実行を頼んでください）' });
+    expect(await setEstimateRequirement(ISSUE, 'later' as never)).toEqual({ ok: false, error: '見積書の指定が正しくありません' });
+    expect(db.calls).toEqual([]);
+    db.estimateReady = true;
+    db.write = { data: [{ site_id: 's1' }], error: null };
+    expect(await setEstimateRequirement(ISSUE, 'after')).toEqual({ ok: true });
+    expect(db.calls).toEqual([{ table: 'gn_report_issues', op: 'update', arg: { estimate_requirement: 'after' } }]);
+    db.write = { data: null, error: { message: 'estimate_required_first' } };
+    const r = await setEstimateRequirement(ISSUE, 'before');
+    expect(r.ok === false && r.error).toContain('『要（先に出す）』にできません');
+  });
+  it('setEstimateSubmitted：要（先に出す）の対応中の件の取り消しは、後出しに変える案内', async () => {
+    db.write = { data: null, error: { message: 'estimate_required_first' } };
+    const r = await setEstimateSubmitted(ISSUE, null);
+    expect(r.ok === false && r.error).toContain('先に見積書を『後出し』に変えてください');
   });
 });
 

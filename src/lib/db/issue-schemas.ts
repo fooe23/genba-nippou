@@ -3,6 +3,7 @@ import { dateSchema } from '@/lib/db/masters-schemas';
 import { ISSUE_KINDS, ISSUE_STATUSES, NEW_ISSUE_STATUSES, SETTLEMENT_METHODS } from '@/lib/report/change-labels';
 import type { IssueStatus } from '@/lib/types';
 import { instructionMethodSchema } from '@/lib/report/schema';
+import { ESTIMATE_REQUIREMENTS } from '@/lib/report/estimate-requirement';
 
 // 重要事項の件の種別・指示者・指示方法・金額見込み（addIssue の追加の項目）の入力検証。
 // サーバー（Server Action）とクライアント（フォーム）の両方で使う。どれも省略でき、省略時は「その他」・指示なし。
@@ -64,6 +65,10 @@ export const newIssueStatusSchema = z
   .enum(NEW_ISSUE_STATUSES, { error: '件の状態は見積中か対応中から選んでください' })
   .default('open');
 export type NewIssueStatus = z.output<typeof newIssueStatusSchema>;
+/** 件を追加するときの見積書（2026-11-20。省略は現場の既定と種別。社員・管理者だけが使う）。 */
+export const newIssueEstimateSchema = z
+  .enum(ESTIMATE_REQUIREMENTS, { error: '見積書の指定が正しくありません' })
+  .optional();
 
 export type IssueStatusPatch = { status: IssueStatus; done_at: string | null };
 

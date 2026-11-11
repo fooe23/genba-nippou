@@ -16,6 +16,7 @@ import {
   isEstimatePending,
   isEstimateRequirement,
   newIssueStatusFor,
+  planNewIssueEstimate,
   shouldOfferSignature,
 } from '@/lib/report/estimate-requirement';
 
@@ -167,5 +168,42 @@ describe('estimateRequirementErrorMessage', () => {
     expect(estimateRequirementErrorMessage('estimate_required_first', 'clear', true)).toBe(ESTIMATE_CLEAR_BLOCKED_MESSAGE);
     expect(estimateRequirementErrorMessage('estimate_required_first', 'requirement', true)).toContain('対応中・完了');
     expect(estimateRequirementErrorMessage('other error', 'status', true)).toBeNull();
+  });
+});
+
+describe('planNewIssueEstimate（件を作るときの見積書と状態）', () => {
+  it('列が無い（SQL の前）：見積書を送らず、状態は渡したまま', () => {
+    expect(planNewIssueEstimate({ ready: false, isStaff: true, siteRequired: true, kind: 'extra', requested: 'before', status: 'open' })).toEqual({
+      send: null,
+      status: 'open',
+    });
+  });
+  it('社員：渡した値（省略は現場の既定と種別）を送り、要（先に出す）なら見積中', () => {
+    expect(planNewIssueEstimate({ ready: true, isStaff: true, siteRequired: true, kind: 'extra', requested: undefined, status: 'open' })).toEqual({
+      send: 'before',
+      status: 'estimating',
+    });
+    expect(planNewIssueEstimate({ ready: true, isStaff: true, siteRequired: true, kind: 'rework', requested: undefined, status: 'open' })).toEqual({
+      send: 'none',
+      status: 'open',
+    });
+    expect(planNewIssueEstimate({ ready: true, isStaff: true, siteRequired: true, kind: 'extra', requested: 'after', status: 'open' })).toEqual({
+      send: 'after',
+      status: 'open',
+    });
+    expect(planNewIssueEstimate({ ready: true, isStaff: true, siteRequired: false, kind: 'extra', requested: 'before', status: 'open' })).toEqual({
+      send: 'before',
+      status: 'estimating',
+    });
+  });
+  it('協力会社：見積書は送らない（DB が決める）。状態は現場の既定と種別で決める', () => {
+    expect(planNewIssueEstimate({ ready: true, isStaff: false, siteRequired: true, kind: 'extra', requested: 'after', status: 'open' })).toEqual({
+      send: null,
+      status: 'estimating',
+    });
+    expect(planNewIssueEstimate({ ready: true, isStaff: false, siteRequired: true, kind: 'rework', requested: undefined, status: 'open' })).toEqual({
+      send: null,
+      status: 'open',
+    });
   });
 });

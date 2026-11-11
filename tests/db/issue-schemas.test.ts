@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { firstError } from '@/lib/db/masters-schemas';
-import { issueExtraSchema } from '@/lib/db/issue-schemas';
+import { issueExtraSchema, newIssueEstimateSchema } from '@/lib/db/issue-schemas';
 
 // 重要事項の件の種別・指示者・指示方法・金額見込み（addIssue の追加の項目）。
 
@@ -25,5 +25,14 @@ describe('issueExtraSchema', () => {
     expect(firstError(issueExtraSchema, { amountEstimate: -1 })).toBe('金額見込みは0以上の数値で入力してください');
     expect(firstError(issueExtraSchema, { amountEstimate: 'abc' })).toBe('金額見込みは0以上の数値で入力してください');
     expect(firstError(issueExtraSchema, { instructedBy: 'あ'.repeat(101) })).toBe('指示者は100文字以内で入力してください');
+  });
+});
+
+describe('newIssueEstimateSchema（新しい件の見積書。2026-11-20）', () => {
+  it('省略は undefined（現場の既定）、3 つの値だけ通す', () => {
+    expect(newIssueEstimateSchema.parse(undefined)).toBeUndefined();
+    expect(newIssueEstimateSchema.parse('after')).toBe('after');
+    expect(newIssueEstimateSchema.safeParse('later').success).toBe(false);
+    expect(firstError(newIssueEstimateSchema, 'later')).toBe('見積書の指定が正しくありません');
   });
 });

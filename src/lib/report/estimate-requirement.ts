@@ -69,6 +69,27 @@ export function newIssueStatusFor(
   return requested ?? 'open';
 }
 
+/**
+ * 件を作るときの見積書と状態（addIssue）。send は DB に送る見積書（null＝送らない）。
+ * - DB に列が無い（ready=false）：送らない。状態は渡したまま。
+ * - 社員・管理者：渡した値（省略は現場の既定と種別）を送る。
+ * - 協力会社：送らない（DB が現場の設定と種別から決める）。状態は同じ決め方の見積書で決める。
+ * 要（先に出す）なら状態は見積中（DB も対応中を見積中にする）。
+ */
+export function planNewIssueEstimate(p: {
+  ready: boolean;
+  isStaff: boolean;
+  siteRequired: boolean;
+  kind: IssueKind;
+  requested: EstimateRequirement | undefined;
+  status: 'estimating' | 'open';
+}): { send: EstimateRequirement | null; status: 'estimating' | 'open' } {
+  if (!p.ready) return { send: null, status: p.status };
+  const fallback = defaultEstimateRequirement(p.siteRequired, p.kind);
+  const requirement = p.isStaff ? (p.requested ?? fallback) : fallback;
+  return { send: p.isStaff ? requirement : null, status: newIssueStatusFor(requirement, p.status) };
+}
+
 const dayNumber = (date: string) => {
   const [y, m, d] = date.split('-').map(Number);
   return Math.floor(Date.UTC(y, m - 1, d) / 86_400_000);

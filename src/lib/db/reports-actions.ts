@@ -13,6 +13,7 @@ import {
   issueExtraSchema,
   issueSettlementSchema,
   issueStatusPatch,
+  newIssueEstimateSchema,
   newIssueStatusSchema,
   type IssueExtraInput,
   type IssueSettlementInput,
@@ -22,7 +23,7 @@ import { dateSchema } from '@/lib/db/masters-schemas';
 import { todayJst } from '@/lib/calc/format';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { listLeaseItems, listVehicles, listWorkers } from '@/lib/db/masters';
-import { getPreviousReport, headcountColumnReady, listIssuesByIds, subcontractColumnsReady } from '@/lib/db/reports';
+import { getPreviousReport, headcountColumnReady, issueEstimateColumnsReady, listIssuesByIds, subcontractColumnsReady } from '@/lib/db/reports';
 import { getSettings } from '@/lib/db/settings';
 import {
   copyableLines,
@@ -42,6 +43,14 @@ import { usesFixedAmount } from '@/lib/report/change-labels';
 import { fillAutoManDays } from '@/lib/report/auto-man-days';
 import { issueEditErrorMessage } from '@/lib/report/issue-status';
 import { ESTIMATE_SUBMITTED_STAFF_ONLY_MESSAGE, estimateSubmittedOnSchema } from '@/lib/report/estimate-submitted';
+import {
+  ESTIMATE_REQUIRED_FIRST_MESSAGE,
+  ESTIMATE_REQUIREMENT_NOT_READY_MESSAGE,
+  ESTIMATE_REQUIREMENT_STAFF_ONLY_MESSAGE,
+  estimateRequirementErrorMessage,
+  estimateRequirementSchema,
+  planNewIssueEstimate,
+} from '@/lib/report/estimate-requirement';
 import { UNLINKED_CHANGE_LINES, unlinkedChangeLines, unlinkedChangeMessage } from '@/lib/report/unlinked-change-lines';
 import { applyIssueInstructions } from '@/lib/report/issue-instructions';
 import { applyMasterSnapshots, EMPTY_SNAPSHOT_MASTERS, needsMasterSnapshots, type StoredAffiliations } from '@/lib/report/snapshots';
@@ -74,7 +83,7 @@ import { renderClientDailyPdf } from '@/lib/reports/client-daily-render';
 import { loadSupplierRoles } from '@/lib/db/supplier-roles';
 import { creditSupplierError, materialCreditSupplierIds, subcontractSupplierError } from '@/lib/calc/supplier-roles';
 import { subcontractInputError } from '@/lib/report/purchase-kind';
-import type { IssueStatus, ReportLine } from '@/lib/types';
+import type { EstimateRequirement, IssueStatus, ReportLine } from '@/lib/types';
 
 // 日報の保存（Server Actions）。本番では throw した文言がクライアントに届かないため、
 // 例外は投げずに { ok, error } を返す。
@@ -812,6 +821,8 @@ const PARTNER_SETTLEMENT_MESSAGE = '協力会社は精算の項目を変更で�
 function issueErrorMessage(dbMessage: string | null | undefined): string {
   const m = dbMessage ?? '';
   if (m.includes('site_closed')) return SITE_CLOSED_MESSAGE;
+  // 要（先に出す）で見積提出の記録が無い件を対応中・完了にしようとした（2026-11-20。ほかの経路の保険）
+  if (m.includes('estimate_required_first')) return ESTIMATE_REQUIRED_FIRST_MESSAGE;
   // 協力会社が精算の項目（精算の方法・確定額・常用単価・確定日）を変えようとした（gn_report_issues_guard）
   if (m.includes('not_employee')) return PARTNER_SETTLEMENT_MESSAGE;
   return m.includes('report_not_found') ? NOT_FOUND : GENERIC_ERROR;
@@ -883,21 +894,29 @@ export async function deleteIssue(issueId: string): Promise<ReportStateResult> {
   }
 }
 
+/** ホーム・管理者の現場の一覧の「見積が未提出の件 N 件」（2026-11-20）。 */
+function revalidateEstimateCounts() {
+  revalidatePath('/');
+  revalidatePath('/admin/sites');
+}
+
 function revalidateIssuePages(siteId: string, reportDate: string) {
   revalidatePath(`/sites/${siteId}`);
   revalidatePath(`/sites/${siteId}/reports/${reportDate}`);
 }
 
 /**
- * 件を追加する。extra（種別・指示者・指示方法・金額見込み・状態）は省略でき、
+ * 件を追加する。extra（種別・指示者・指示方法・金額見込み・状態・見積書）は省略でき、
  * 省略時は種別「その他」・指示なし・対応中。状態は見積中か対応中だけ選べる。
+ * 見積書（2026-11-20。DB に列があるとき）：社員・管理者は渡した値（省略は現場の既定と種別）を入れる。協力会社は送らない
+ * （DB が現場の設定と種別から決める）。要（先に出す）なら状態は見積中にする（planNewIssueEstimate）。
  */
 export async function addIssue(
   reportId: string,
   body: string,
-  extra?: IssueExtraInput & { status?: NewIssueStatus },
+  extra?: IssueExtraInput & { status?: NewIssueStatus; estimateRequirement?: EstimateRequirement },
 ): Promise<AddIssueResult> {
-  await requireProfile();
+  const profile = await requireProfile();
   if (!reportIdSchema.safeParse(reportId).success) return { ok: false, error: '日報の指定が正しくありません' };
   const b = issueBodySchema.safeParse(body);
   if (!b.success) return { ok: false, error: b.error.issues[0].message };
@@ -905,6 +924,8 @@ export async function addIssue(
   if (!x.success) return { ok: false, error: x.error.issues[0]?.message ?? '入力内容が正しくありません' };
   const st = newIssueStatusSchema.safeParse(extra?.status);
   if (!st.success) return { ok: false, error: st.error.issues[0].message };
+  const er = newIssueEstimateSchema.safeParse(extra?.estimateRequirement);
+  if (!er.success) return { ok: false, error: er.error.issues[0].message };
 
   try {
     const supabase = await createServerSupabase();
@@ -920,6 +941,26 @@ export async function addIssue(
     if (!head) return { ok: false, error: NOT_FOUND };
     const h = head as { site_id: string; report_date: string };
 
+    // 件の見積書（2026-11-20）：DB に列があるときだけ、現場の「見積提出が必須」を読んで決める。
+    const ready = await issueEstimateColumnsReady();
+    let siteRequired = false;
+    if (ready) {
+      const { data: site, error: siteError } = await supabase.from('gn_sites').select('estimate_required').eq('id', h.site_id).maybeSingle();
+      if (siteError) {
+        console.error('[addIssue:site]', siteError.message);
+        return { ok: false, error: GENERIC_ERROR };
+      }
+      siteRequired = (site as { estimate_required: boolean | null } | null)?.estimate_required === true;
+    }
+    const plan = planNewIssueEstimate({
+      ready,
+      isStaff: isEmployeeOrAdmin(profile),
+      siteRequired,
+      kind: x.data.kind,
+      requested: er.data,
+      status: st.data,
+    });
+
     const { data, error } = await supabase
       .from('gn_report_issues')
       .insert({
@@ -930,7 +971,8 @@ export async function addIssue(
         instructed_by: x.data.instructedBy,
         instruction_method: x.data.instructionMethod,
         amount_estimate: x.data.amountEstimate,
-        status: st.data,
+        status: plan.status,
+        ...(plan.send !== null ? { estimate_requirement: plan.send } : {}),
       })
       .select('id')
       .single();
@@ -939,6 +981,8 @@ export async function addIssue(
       return { ok: false, error: issueErrorMessage(error.message) };
     }
     revalidateIssuePages(h.site_id, h.report_date);
+    // ホーム・管理者の現場の一覧の「見積が未提出の件」の数
+    if (ready) revalidateEstimateCounts();
     return { ok: true, id: String((data as { id: string }).id) };
   } catch (e) {
     console.error('[addIssue]', e);
@@ -951,7 +995,7 @@ export async function addIssue(
  * 見積中・対応中に変えると消す。
  */
 export async function setIssueStatus(issueId: string, status: IssueStatus, doneAt?: string): Promise<ReportStateResult> {
-  await requireProfile();
+  const profile = await requireProfile();
   if (!z.guid().safeParse(issueId).success) return { ok: false, error: '件の指定が正しくありません' };
   const p = issueStatusPatch(status, doneAt, todayJst());
   if (!p.ok) return { ok: false, error: p.error };
@@ -965,7 +1009,11 @@ export async function setIssueStatus(issueId: string, status: IssueStatus, doneA
       .select('site_id');
     if (error) {
       console.error('[setIssueStatus]', error.message);
-      return { ok: false, error: issueErrorMessage(error.message) };
+      // 要（先に出す）で見積提出の記録が無い件（estimate_required_first。2026-11-20）。画面でも先に止めるが、DB が正。
+      return {
+        ok: false,
+        error: estimateRequirementErrorMessage(error.message, 'status', isEmployeeOrAdmin(profile)) ?? issueErrorMessage(error.message),
+      };
     }
     const row = (data ?? [])[0] as { site_id: string } | undefined;
     if (!row) return { ok: false, error: '件が見つからないか、権限がありません' };
@@ -1046,15 +1094,54 @@ export async function setEstimateSubmitted(issueId: string, date: string | null)
     if (error) {
       console.error('[setEstimateSubmitted]', error.message);
       if (error.message.includes('not_employee')) return { ok: false, error: ESTIMATE_SUBMITTED_STAFF_ONLY_MESSAGE };
-      return { ok: false, error: issueErrorMessage(error.message) };
+      // 要（先に出す）の対応中・完了の件の記録の取り消し（estimate_required_first。2026-11-20）
+      return { ok: false, error: estimateRequirementErrorMessage(error.message, 'clear', true) ?? issueErrorMessage(error.message) };
     }
     const row = (data ?? [])[0] as { site_id: string } | undefined;
     if (!row) return { ok: false, error: '件が見つからないか、権限がありません' };
     // 件は日報の上の枠・件の一覧・お客様用の確認画面・帳票に出るため、その現場の下を全部更新する。
     revalidatePath(`/sites/${row.site_id}`, 'layout');
+    revalidateEstimateCounts();
     return { ok: true };
   } catch (e) {
     console.error('[setEstimateSubmitted]', e);
+    return { ok: false, error: GENERIC_ERROR };
+  }
+}
+
+/**
+ * 件の見積書（要［先に出す］・要［後出し］・不要。2026-11-20）を変える。社員（管理者を含む）だけ。
+ * 日報の状態に関係なくいつでも（状態・精算・見積提出と同じ）。完了現場は DB のガード（site_closed）、協力会社の直接の更新は
+ * DB のガード（not_employee）、対応中・完了で未提出の件を要（先に出す）にするのは DB のガード（estimate_required_first）が止める。
+ * DB に列が無い（SQL の前）ときは使えない。
+ */
+export async function setEstimateRequirement(issueId: string, requirement: EstimateRequirement): Promise<ReportStateResult> {
+  const profile = await requireProfile();
+  if (!isEmployeeOrAdmin(profile)) return { ok: false, error: ESTIMATE_REQUIREMENT_STAFF_ONLY_MESSAGE };
+  if (!z.guid().safeParse(issueId).success) return { ok: false, error: '件の指定が正しくありません' };
+  const r = estimateRequirementSchema.safeParse(requirement);
+  if (!r.success) return { ok: false, error: r.error.issues[0].message };
+
+  try {
+    if (!(await issueEstimateColumnsReady())) return { ok: false, error: ESTIMATE_REQUIREMENT_NOT_READY_MESSAGE };
+    const supabase = await createServerSupabase();
+    const { data, error } = await supabase
+      .from('gn_report_issues')
+      .update({ estimate_requirement: r.data })
+      .eq('id', issueId)
+      .select('site_id');
+    if (error) {
+      console.error('[setEstimateRequirement]', error.message);
+      if (error.message.includes('not_employee')) return { ok: false, error: ESTIMATE_REQUIREMENT_STAFF_ONLY_MESSAGE };
+      return { ok: false, error: estimateRequirementErrorMessage(error.message, 'requirement', true) ?? issueErrorMessage(error.message) };
+    }
+    const row = (data ?? [])[0] as { site_id: string } | undefined;
+    if (!row) return { ok: false, error: '件が見つからないか、権限がありません' };
+    revalidatePath(`/sites/${row.site_id}`, 'layout');
+    revalidateEstimateCounts();
+    return { ok: true };
+  } catch (e) {
+    console.error('[setEstimateRequirement]', e);
     return { ok: false, error: GENERIC_ERROR };
   }
 }
