@@ -3,7 +3,9 @@ import {
   changeReportFileName,
   costReportFileName,
   dailyReportFileName,
+  ledgerFileName,
   parseChangesQuery,
+  parseLedgerQuery,
   parseCostQuery,
   parseDailyQuery,
 } from '@/lib/reports/query';
@@ -221,5 +223,21 @@ describe('changeReportFileName', () => {
   it('禁止文字は _、空なら「現場」', () => {
     expect(changeReportFileName(' A/B:C*? ', { kind: 'all' }, '2026-11-03', 'pdf', 'client')).toBe('A_B_C___精算のご提案_20261103.pdf');
     expect(changeReportFileName('  ', { kind: 'all' }, '2026-11-03', 'xlsx', 'internal')).toBe('現場_変更増減_社内確認用_20261103.xlsx');
+  });
+});
+
+describe('parseLedgerQuery（現場管理台帳 /api/export）', () => {
+  const u = (q: string) => `http://localhost/api/export?${q}`;
+  it('現場・期間（all か YYYY-MM）を返す。format は要らない', () => {
+    expect(parseLedgerQuery(u(`site=${SITE}&period=all`))).toEqual({ siteId: SITE, period: { kind: 'all' } });
+    expect(parseLedgerQuery(new URL(u(`period=2026-11&site=${SITE}&format=pdf`)))).toEqual({ siteId: SITE, period: { kind: 'month', month: '2026-11' } });
+  });
+  it('現場・期間が違えばエラー（以前の ?month= だけでもエラー）', () => {
+    expect(parseLedgerQuery(u('period=all'))).toEqual({ error: '現場の指定が正しくありません' });
+    expect(parseLedgerQuery(u(`site=${SITE}&month=2026-11`))).toEqual({ error: '集計期間の指定が正しくありません' });
+    expect(parseLedgerQuery(u(`site=${SITE}&period=2026-13`))).toEqual({ error: '集計期間の指定が正しくありません' });
+  });
+  it('ファイル名', () => {
+    expect(ledgerFileName('A/B邸', { kind: 'all' }, '2026-11-12')).toMatch(/_現場管理台帳_20261112\.xlsx$/);
   });
 });

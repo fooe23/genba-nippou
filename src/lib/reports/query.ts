@@ -44,6 +44,16 @@ export function costReportFileName(siteName: string, period: CostReportPeriod, o
   return periodFileName(siteName, '工事原価集計表', period, outputDate, ext);
 }
 
+/** 現場管理台帳（/api/export。2026-11-11）：`?site=<uuid>&period=all|YYYY-MM` を読む（工事原価集計表と同じ。形式は .xlsx だけ）。 */
+export function parseLedgerQuery(url: URL | string): { siteId: string; period: CostReportPeriod } | { error: string } {
+  const params = (typeof url === 'string' ? new URL(url) : url).searchParams;
+  const siteId = params.get('site') ?? '';
+  const period = params.get('period') ?? '';
+  if (!isUuid(siteId)) return { error: '現場の指定が正しくありません' };
+  if (period !== 'all' && !MONTH_RE.test(period)) return { error: '集計期間の指定が正しくありません' };
+  return { siteId, period: period === 'all' ? { kind: 'all' } : { kind: 'month', month: period } };
+}
+
 /** 現場管理台帳（2026-11-11）：`現場名_現場管理台帳_YYYYMMDD.xlsx`（工期全体。日付は出力日）、月は `現場名_現場管理台帳_YYYY年MM月.xlsx`。 */
 export function ledgerFileName(siteName: string, period: CostReportPeriod, outputDate: string): string {
   return periodFileName(siteName, '現場管理台帳', period, outputDate, 'xlsx');

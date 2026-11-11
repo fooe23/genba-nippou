@@ -2,13 +2,9 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { isUuid } from '@/lib/uuid';
 import { monthKey, todayJst } from '@/lib/calc/format';
-import { loadExportInput, loadMonthReports } from '@/lib/db/export';
 import { requireProfile } from '@/lib/db/profile';
 import { listReportHeads } from '@/lib/db/reports';
 import { getSite } from '@/lib/db/sites';
-import { buildExportPayload } from '@/lib/export/payload';
-import { overflowNotice } from '@/lib/export/query';
-import type { ExportInput } from '@/lib/export/types';
 import { ExportPanel, type ExportMonthOption } from '@/components/export/ExportPanel';
 
 export const metadata = { title: '出力' };
@@ -17,25 +13,18 @@ function monthLabel(month: string): string {
   return `${Number(month.slice(0, 4))}年${Number(month.slice(5, 7))}月`;
 }
 
-/**
- * 日報のある月（新しい順）と、それぞれ原本 Excel に入りきるか。
- * 月によらない部分（現場・設定・マスター・全日報の原価と労務行・繰越）は 1 回だけ読み、月ごとには日報だけ読む。
- */
+/** 日報のある月（新しい順）と、それぞれの日報の件数。 */
 async function exportMonths(siteId: string): Promise<ExportMonthOption[]> {
   const heads = await listReportHeads(siteId);
-  const months = [...new Set(heads.map((h) => monthKey(h.reportDate)))].sort().reverse();
-  if (months.length === 0) return [];
-  const [base, rest] = await Promise.all([
-    loadExportInput(siteId, months[0]),
-    Promise.all(months.slice(1).map((m) => loadMonthReports(siteId, m))),
-  ]);
-  const inputs: ExportInput[] = [base, ...months.slice(1).map((month, i) => ({ ...base, month, reports: rest[i] }))];
-  return inputs.map((input) => ({
-    month: input.month,
-    label: monthLabel(input.month),
-    reportCount: input.reports.length,
-    notice: overflowNotice(buildExportPayload(input).warnings),
-  }));
+  const counts = new Map<string, number>();
+  for (const h of heads) {
+    const m = monthKey(h.reportDate);
+    counts.set(m, (counts.get(m) ?? 0) + 1);
+  }
+  return [...counts.keys()]
+    .sort()
+    .reverse()
+    .map((month) => ({ month, label: monthLabel(month), reportCount: counts.get(month)! }));
 }
 
 export default async function ExportPage({ params }: PageProps<'/sites/[siteId]/export'>) {

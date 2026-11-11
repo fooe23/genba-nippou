@@ -1,44 +1,32 @@
-import { loadExportInput } from '@/lib/db/export';
+import { todayJst } from '@/lib/calc/format';
 import { getCurrentProfile } from '@/lib/db/profile';
+import { loadCostReportInput } from '@/lib/db/reports-data';
+import { getSettings, type Settings } from '@/lib/db/settings';
 import { getSite } from '@/lib/db/sites';
-import { FillError, fillWorkbook } from '@/lib/export/fill-client';
-import { buildExportPayload } from '@/lib/export/payload';
-import { contentDisposition, overflowNotice, parseExportQuery } from '@/lib/export/query';
-import type { ExportInput } from '@/lib/export/types';
-import { createServerSupabase } from '@/lib/supabase/server';
+import { contentDisposition } from '@/lib/export/query';
+import { buildCostReport } from '@/lib/reports/cost-model';
+import { buildLedgerAttendance } from '@/lib/reports/ledger-attendance';
+import { buildLedgerXlsx } from '@/lib/reports/ledger-xlsx';
+import { ledgerFileName, parseLedgerQuery } from '@/lib/reports/query';
+import type { CostReportInput } from '@/lib/reports/types';
 
-// 原本 Excel（V34 雛形の xlsm）を 1 か月分作って返す。GET /api/export?site=<uuid>&month=YYYY-MM
-// 失敗はすべて JSON { ok: false, error }（400 クエリ・雛形に入りきらない／401・403 権限／404 現場・日報なし／500 作成失敗）。
+// 現場管理台帳（.xlsx。2026-11-11）。GET /api/export?site=<uuid>&period=all|YYYY-MM
+// 数字は工事原価集計表と同じ読み込み・計算（loadCostReportInput → buildCostReport）。シートは「現場原価集計」「出面一覧」。
+// 日報が無い期間も空の台帳（「日報がありません」）を返す。失敗はすべて JSON { ok: false, error }
+// （400 クエリ／401・403 権限／404 現場／500 読み込み・作成失敗）。
 
 export const runtime = 'nodejs';
 
-const XLSM_TYPE = 'application/vnd.ms-excel.sheet.macroEnabled.12';
-const BUCKET = 'gn-exports';
+const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 function fail(status: number, error: string): Response {
   return Response.json({ ok: false, error }, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
-/**
- * 作った xlsm を Storage（gn-exports/<site_id>/<month>/…）にも残す。失敗してもダウンロードは続ける。
- * Storage のキーは ASCII しか使えないので、日本語のファイル名ではなく daicho_v34_<month>.xlsm で置く。
- */
-async function keepCopy(siteId: string, month: string, data: Buffer): Promise<void> {
-  try {
-    const supabase = await createServerSupabase();
-    const { error } = await supabase.storage
-      .from(BUCKET)
-      .upload(`${siteId}/${month}/daicho_v34_${month}.xlsm`, data, { upsert: true, contentType: XLSM_TYPE });
-    if (error) console.error('[export] storage upload', error.message);
-  } catch (e) {
-    console.error('[export] storage upload', e);
-  }
-}
-
 export async function GET(request: Request): Promise<Response> {
-  const query = parseExportQuery(request.url);
+  const query = parseLedgerQuery(request.url);
   if ('error' in query) return fail(400, query.error);
-  const { siteId, month } = query;
+  const { siteId, period } = query;
 
   const profile = await getCurrentProfile();
   if (!profile) return fail(401, 'ログインしてください');
@@ -48,38 +36,31 @@ export async function GET(request: Request): Promise<Response> {
   const site = await getSite(siteId);
   if (!site || site.deletedAt !== null) return fail(404, '現場が見つかりません');
 
-  let input: ExportInput;
+  let input: CostReportInput;
+  let rates: Settings['rates'];
   try {
-    input = await loadExportInput(siteId, month);
+    [input, { rates }] = await Promise.all([loadCostReportInput(siteId), getSettings()]);
   } catch (e) {
     console.error('[export] load', e);
     return fail(500, '日報を読み込めませんでした。時間をおいてやり直してください');
   }
-  if (input.reports.length === 0) return fail(404, 'この月の日報がありません');
 
-  const { payload, warnings } = buildExportPayload(input);
-  const notice = overflowNotice(warnings);
-  if (notice) return fail(400, notice);
+  const now = { date: todayJst(), by: profile.name || profile.email, at: new Date().toISOString() };
 
   let data: Buffer;
   try {
-    data = await fillWorkbook(payload);
+    const model = buildCostReport(input, period, now, rates);
+    data = await buildLedgerXlsx(model, buildLedgerAttendance(input, period));
   } catch (e) {
-    if (e instanceof FillError) {
-      console.error('[export] fill', e.code, e.message);
-      return fail(500, e.message);
-    }
-    console.error('[export] fill', e);
-    return fail(500, 'Excel の作成に失敗しました');
+    console.error('[export] build', e);
+    return fail(500, '現場管理台帳の作成に失敗しました');
   }
-
-  await keepCopy(siteId, month, data);
 
   return new Response(new Uint8Array(data), {
     status: 200,
     headers: {
-      'Content-Type': XLSM_TYPE,
-      'Content-Disposition': contentDisposition(payload.file_name),
+      'Content-Type': XLSX_TYPE,
+      'Content-Disposition': contentDisposition(ledgerFileName(site.name, period, now.date)),
       'Content-Length': String(data.length),
       'Cache-Control': 'no-store',
     },
