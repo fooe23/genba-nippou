@@ -44,6 +44,11 @@ export function costReportFileName(siteName: string, period: CostReportPeriod, o
   return periodFileName(siteName, '工事原価集計表', period, outputDate, ext);
 }
 
+/** 現場管理台帳（2026-11-11）：`現場名_現場管理台帳_YYYYMMDD.xlsx`（工期全体。日付は出力日）、月は `現場名_現場管理台帳_YYYY年MM月.xlsx`。 */
+export function ledgerFileName(siteName: string, period: CostReportPeriod, outputDate: string): string {
+  return periodFileName(siteName, '現場管理台帳', period, outputDate, 'xlsx');
+}
+
 /** `現場名_帳票名_YYYYMMDD.拡張子`（工期全体。日付は出力日）、月は `現場名_帳票名_YYYY年MM月.拡張子`。 */
 function periodFileName(siteName: string, title: string, period: CostReportPeriod, outputDate: string, ext: string): string {
   const when = period.kind === 'all' ? outputDate.replaceAll('-', '') : `${period.month.slice(0, 4)}年${period.month.slice(5, 7)}月`;
