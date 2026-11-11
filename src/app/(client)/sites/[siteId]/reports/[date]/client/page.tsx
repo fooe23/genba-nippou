@@ -5,7 +5,7 @@ import { dateSchema } from '@/lib/db/masters-schemas';
 import { isEmployeeOrAdmin, requireProfile } from '@/lib/db/profile';
 import { listAttachmentsForIssues, listAttachmentsForReport, listClientIssuePhotosOn, signedUrls } from '@/lib/db/attachments';
 import { getClientSignatureState, signatureImageUrl } from '@/lib/db/client-signature';
-import { getReport, getSignatureIssueSet, listIssuesByIds, listIssuesForReports, listOpenIssues } from '@/lib/db/reports';
+import { getReport, getSignatureIssueSet, listIssuesByIds, listIssuesDoneOn, listIssuesForReports, listOpenIssues } from '@/lib/db/reports';
 import { clientIssueIdsForReport } from '@/lib/report/client-signature';
 import { loadDailyReportInput } from '@/lib/db/reports-data';
 import { getSite } from '@/lib/db/sites';
@@ -56,9 +56,11 @@ export default async function ClientConfirmPage({ params, searchParams }: PagePr
   const model = buildDailyReport(input);
   const showEstimate = isEmployeeOrAdmin(profile);
 
-  const [signature, openIssues, reportAttachments, issuePhotos] = await Promise.all([
+  const [signature, openIssues, doneOnDate, reportAttachments, issuePhotos] = await Promise.all([
     getClientSignatureState(reportId),
     listOpenIssues(siteId),
+    // その日に完了にした件（前の日の後出しの件を今日完了にして、そのままサインをもらう。2026-11-20）
+    listIssuesDoneOn(siteId, date),
     listAttachmentsForReport(reportId),
     listClientIssuePhotosOn(siteId, date),
   ]);
@@ -74,10 +76,10 @@ export default async function ClientConfirmPage({ params, searchParams }: PagePr
     : [];
 
   // 件番号（その件を書いた日報の中での登録順）を付けるため、関係する件の日報の件をまとめて読む
-  const known = new Map([...input.issues, ...openIssues].map((i) => [i.id, i]));
+  const known = new Map([...input.issues, ...openIssues, ...doneOnDate].map((i) => [i.id, i]));
   const extraIds = [...issuePhotos.flatMap((a) => (a.issueId ? [a.issueId] : [])), ...confirmedIds].filter((id) => !known.has(id));
   const extra = (await listIssuesByIds(extraIds)).filter((i) => i.siteId === siteId);
-  const reportIds = [...new Set([...input.issues, ...openIssues, ...extra].map((i) => i.reportId))];
+  const reportIds = [...new Set([...input.issues, ...openIssues, ...doneOnDate, ...extra].map((i) => i.reportId))];
   const all = (await listIssuesForReports(reportIds)).filter((i) => i.siteId === siteId);
   const numbers = issueNumbers(all);
   const numbered: ClientListIssue[] = all.map((i) => ({
@@ -87,12 +89,14 @@ export default async function ClientConfirmPage({ params, searchParams }: PagePr
     body: i.body,
     status: i.status,
     estimateSubmittedOn: i.estimateSubmittedOn,
+    estimateRequirement: i.estimateRequirement,
+    estimatePending: i.estimatePending,
     number: numbers.get(i.id) ?? 0,
   }));
   const byId = new Map(numbered.map((i) => [i.id, i]));
   const pick = (list: { id: string }[]) => list.flatMap((i) => byId.get(i.id) ?? []);
 
-  const candidates = signed ? [] : clientConfirmCandidates(pick(input.issues), pick(openIssues));
+  const candidates = signed ? [] : clientConfirmCandidates(pick(input.issues), pick(openIssues), pick(doneOnDate));
   const rowIssueIds = signed ? confirmedIds : candidates.map((c) => c.id);
   const attachmentsByIssue = await listAttachmentsForIssues(rowIssueIds);
   const toRow = (i: ClientListIssue): ClientConfirmIssue | null => {

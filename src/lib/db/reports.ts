@@ -370,6 +370,24 @@ export async function listOpenIssues(siteId: string): Promise<Issue[]> {
   return list.sort((a, b) => a.reportDate.localeCompare(b.reportDate));
 }
 
+/**
+ * 現場の、その日（done_at）に完了にした件（お客様用の確認画面の候補。前の日に書いた後出しの件を今日完了にして、
+ * そのままサインをもらうため。2026-11-20）。日報の日付の昇順（同日は登録順）。
+ */
+export async function listIssuesDoneOn(siteId: string, date: string): Promise<Issue[]> {
+  const supabase = await createServerSupabase();
+  const { data, error } = await supabase
+    .from('gn_report_issues')
+    .select(await issueSelect())
+    .eq('site_id', siteId)
+    .eq('status', 'done')
+    .eq('done_at', date)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  const list = await hideEstimateFromPartner(((data ?? []) as unknown as IssueRow[]).map(toIssue));
+  return list.sort((a, b) => a.reportDate.localeCompare(b.reportDate));
+}
+
 /** その日報の件（対応中・完了とも）。登録順。 */
 export async function listIssuesForReport(reportId: string): Promise<Issue[]> {
   const supabase = await createServerSupabase();

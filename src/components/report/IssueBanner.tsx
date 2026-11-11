@@ -7,6 +7,7 @@ import { sortIssuesByStatus } from '@/lib/report/issue-status';
 import { issueConfirmationLabel } from '@/lib/report/client-confirm';
 import type { IssueConfirmation } from '@/lib/report/issue-confirmations';
 import Link from 'next/link';
+import type { ComponentProps } from 'react';
 import { IssueAttachmentBadges, IssueAttachments } from '@/components/attachments/IssueAttachments';
 import type { AttachmentView, AttachmentViewer } from '@/components/attachments/types';
 import { EstimatePendingBadge } from './EstimatePendingBadge';
@@ -73,6 +74,7 @@ export function IssueBanner({
   viewer,
   confirmations,
   confirmHref,
+  signFor,
   today,
   estimateReady = false,
   pendingDoneIssues = [],
@@ -88,6 +90,8 @@ export function IssueBanner({
   confirmations?: Record<string, IssueConfirmation>;
   /** 「この件の確認をもらう」の行き先（null・未指定なら出さない）。 */
   confirmHref?: ((issueId: string) => string) | null;
+  /** 後出しの件の完了でサインを勧めるときの行き先・理由（IssueStatusChip の sign。省略は勧めない）。 */
+  signFor?: (i: Issue) => ComponentProps<typeof IssueStatusChip>['sign'];
   /** 今日（日本時間。赤い印の「依頼から N 日」）。 */
   today: string;
   /** DB に件の見積書の列があるか（無ければ見積書の欄を出さない）。 */
@@ -136,6 +140,7 @@ export function IssueBanner({
                   status={i.status}
                   readOnly={readOnly}
                   estimate={{ requirement: i.estimateRequirement, pending: i.estimatePending, isStaff }}
+                  sign={signFor?.(i)}
                 />
                 {viewer && !readOnly && <IssueEstimateSubmitted issue={i} viewer={viewer} />}
                 {viewer && (

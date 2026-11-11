@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useCallback, useMemo, useState, useTransition, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, useTransition, type ComponentProps, type ReactNode } from 'react';
 import { storedLaborAffiliations } from '@/lib/calc/affiliation';
 import type { LaborCostContext } from '@/lib/calc/labor-cost';
 import { formLaborSplit } from '@/lib/report/labor-form';
@@ -49,7 +49,7 @@ import { ImportDaySheet } from './ImportDaySheet';
 import { fieldClass, NumInput, Select, TextInput, TimeInput } from './inputs';
 import { FixRequestPanel } from './FixRequestPanel';
 import { IssueBanner, IssueClientConfirmBadge, IssueKindTag } from './IssueBanner';
-import { clientConfirmHref } from '@/lib/report/client-confirm';
+import { clientConfirmHref, signTargetFor } from '@/lib/report/client-confirm';
 import type { IssueConfirmation } from '@/lib/report/issue-confirmations';
 import { IssueEditControls } from './IssueEditControls';
 import { EstimatePendingBadge } from './EstimatePendingBadge';
@@ -197,6 +197,8 @@ function Band({ id, tone, title, items, action }: { id?: string; tone: 'warn' | 
 }
 
 
+type IssueSign = NonNullable<ComponentProps<typeof IssueStatusChip>['sign']>;
+
 const ISSUE_FAILED = '処理に失敗しました。通信状況を確認してもう一度お試しください。';
 
 /** その日報の重要事項の件。状態の切替と追加は日報の保存とは別に即時反映する。 */
@@ -209,6 +211,7 @@ function IssueList({
   viewer,
   confirmations,
   confirmHref,
+  signFor,
   editable = false,
   today,
   estimateReady,
@@ -231,6 +234,8 @@ function IssueList({
   viewer: AttachmentViewer;
   confirmations: Record<string, IssueConfirmation>;
   confirmHref: ((issueId: string) => string) | null;
+  /** 後出しの件の完了でサインを勧めるときの行き先・理由（IssueStatusChip の sign）。 */
+  signFor?: (i: Issue) => IssueSign;
 }) {
   const [body, setBody] = useState('');
   const [kind, setKind] = useState<IssueKind>('other');
@@ -319,6 +324,7 @@ function IssueList({
                 readOnly={locked}
                 onChanged={onChanged}
                 estimate={{ requirement: i.estimateRequirement, pending: i.estimatePending, isStaff: viewer.isStaff }}
+                sign={signFor?.(i)}
               />
               {!locked && <IssueEstimateSubmitted issue={i} viewer={viewer} onChanged={onChanged} />}
               <IssueAttachments
@@ -787,6 +793,19 @@ function ReportFormBody({
   };
   // 件の「この件の確認をもらう」：保存済みの日報で、承認画面でないときだけ（この日報の日付のお客様用の確認画面を、その件に印を付けて開く）
   const confirmHref = reportId !== null && !p.review ? (issueId: string) => clientConfirmHref(p.siteId, p.date, issueId) : null;
+  // 後出しの件を完了にするときの「お客様の確認（サイン）をもらう」の行き先か、行けない理由（2026-11-20）。
+  // ほかの日の件（上の枠）は、今日の日報のときだけ（完了の日が今日になり、今日の確認画面の候補に入る）。
+  const signFor = (onThisReport: boolean) => (i: Issue): IssueSign => ({
+    kind: i.kind,
+    ...signTargetFor({
+      href: p.review ? null : clientConfirmHref(p.siteId, p.date, i.id),
+      reportSaved: reportId !== null,
+      reportSigned: p.clientSignature.current !== null,
+      issueConfirmed: Boolean(p.issueConfirmations[i.id]),
+      onThisReport,
+      reportIsToday: p.date === p.today,
+    }),
+  });
   // 日報の添付は下書き・差戻しのあいだだけ足す・消すができる（提出後はお客様用のチェックだけ）
   const reportAttachmentsLocked = !!p.siteClosed || !(p.status === 'draft' || p.status === 'rejected');
   const statusNote = pending
@@ -812,6 +831,7 @@ function ReportFormBody({
           viewer={attachmentViewer}
           confirmations={p.issueConfirmations}
           confirmHref={confirmHref}
+          signFor={signFor(false)}
           today={p.today}
           estimateReady={p.estimateReady}
           pendingDoneIssues={p.estimatePendingDoneIssues}
@@ -1111,6 +1131,7 @@ function ReportFormBody({
         viewer={attachmentViewer}
         confirmations={p.issueConfirmations}
         confirmHref={confirmHref}
+        signFor={signFor(true)}
         today={p.today}
         estimateReady={p.estimateReady}
         siteEstimateRequired={p.siteEstimateRequired}

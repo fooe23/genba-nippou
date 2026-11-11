@@ -6,6 +6,8 @@ import {
   issueConfirmationLabel,
   LONG_PRESS_MS,
   longPressProgress,
+  signTargetFor,
+  SIGN_LATER_REASONS,
   type ConfirmCandidateIssue,
 } from '@/lib/report/client-confirm';
 import {
@@ -44,6 +46,52 @@ describe('clientConfirmCandidates（確認していただく件の候補）', ()
 
   it('件が無ければ空', () => {
     expect(clientConfirmCandidates([], [])).toEqual([]);
+  });
+});
+
+describe('clientConfirmCandidates：その日に完了にした件（2026-11-20）', () => {
+  it('前の日の件をその日に完了にしたら候補に入る。並びは日付 → 番号、重複しない、やり直しは入らない', () => {
+    const today1 = issue('t1', '2026-11-12', 1);
+    const doneOld = issue('d', '2026-11-04', 1, { status: 'done' });
+    const doneRework = issue('dr', '2026-11-05', 1, { status: 'done', kind: 'rework' });
+    const open = issue('o', '2026-11-08', 1);
+    const got = clientConfirmCandidates([today1], [open], [doneOld, today1, doneRework, doneOld]);
+    expect(got.map((i) => i.id)).toEqual(['d', 'o', 't1']);
+  });
+  it('「サインをもらう」で開いたとき、その件だけに印が付く', () => {
+    const doneOld = issue('d', '2026-11-04', 1, { status: 'done' });
+    const cands = clientConfirmCandidates([issue('t1', '2026-11-12', 1)], [], [doneOld]);
+    expect([...initialSelection(cands, 'd')]).toEqual(['d']);
+  });
+  it('3 つ目を省略すると今までどおり', () => {
+    expect(clientConfirmCandidates([], [issue('d', '2026-11-04', 1, { status: 'done' })])).toEqual([]);
+  });
+});
+
+describe('signTargetFor（後出しの件の完了で、サインをもらいに行けるか）', () => {
+  const base = { href: '/sites/s1/reports/2026-11-12/client?issue=i1', reportSaved: true, reportSigned: false, issueConfirmed: false, onThisReport: true, reportIsToday: true };
+  it('保存済み・サインなし・確認なし → 行き先', () => {
+    expect(signTargetFor(base)).toEqual({ href: base.href, reason: null });
+  });
+  it('サインをもらえないときは理由（あとでだけ）', () => {
+    expect(signTargetFor({ ...base, href: null })).toEqual({ href: null, reason: SIGN_LATER_REASONS.noReport });
+    expect(signTargetFor({ ...base, reportSaved: false })).toEqual({ href: null, reason: SIGN_LATER_REASONS.unsaved });
+    expect(signTargetFor({ ...base, reportSigned: true })).toEqual({ href: null, reason: SIGN_LATER_REASONS.signed });
+    expect(signTargetFor({ ...base, issueConfirmed: true })).toEqual({ href: null, reason: SIGN_LATER_REASONS.confirmed });
+  });
+  it('ほかの日の件は、今日の日報の画面からだけ（その日の確認画面の候補に入らないため）', () => {
+    expect(signTargetFor({ ...base, onThisReport: false, reportIsToday: false })).toEqual({ href: null, reason: SIGN_LATER_REASONS.otherDay });
+    expect(signTargetFor({ ...base, onThisReport: false, reportIsToday: true }).href).toBe(base.href);
+    expect(signTargetFor({ ...base, onThisReport: true, reportIsToday: false }).href).toBe(base.href);
+  });
+  it('文言', () => {
+    expect(SIGN_LATER_REASONS).toEqual({
+      noReport: 'その日の日報の画面からサインをもらえます',
+      unsaved: '日報を保存するとサインをもらえます',
+      signed: 'この日報にはもうサインがあります',
+      confirmed: 'この件はもうお客様の確認（サイン）をもらっています',
+      otherDay: '今日の日報の画面からサインをもらえます',
+    });
   });
 });
 

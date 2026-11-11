@@ -89,13 +89,22 @@ export interface ClientIssueRow {
    * 記録が空になるので常に false（どのみち showEstimate=false で出さない）。見積書あり（hasEstimate）が優先。
    */
   estimateSubmitted: boolean;
+  /**
+   * 見積書が後出し（要［お客様の指示で先に対応・後出し］）で、見積提出の記録がまだ無い（2026-11-20・決めたこと 4）。
+   * お客様用の確認画面と PDF に「お見積りは後日お出しします」を出す（協力会社のアカウントでも。印の判定は提出の日を消す前に決まる）。
+   * サインした時点の PDF にはその時点の状態が残る。後で見積提出を記録すると、新しく作る PDF・画面からは消える。
+   */
+  estimateLater: boolean;
   /** 件に付けた「お客様用 PDF に載せる」写真の数（チェックなしの写真は数えない）。 */
   photoCount: number;
 }
 
 /** 件番号付けのための件（件番号はその件を書いた日報の中での登録順。issueNumbers と同じ数え方）。 */
 export type ClientListIssue = Pick<Issue, 'id' | 'reportDate' | 'kind' | 'body' | 'status'> &
-  Partial<Pick<Issue, 'estimateSubmittedOn'>> & { number: number };
+  Partial<Pick<Issue, 'estimateSubmittedOn' | 'estimateRequirement' | 'estimatePending'>> & { number: number };
+
+/** 後出しの件の、お客様向けの一言（2026-11-20・決めたこと 4）。 */
+export const CLIENT_ESTIMATE_LATER_NOTE = 'お見積りは後日お出しします';
 
 /**
  * 確認していただく件の一覧。issues のうち selectedIds に入っていて、やり直しでない件だけ（同じ件は 1 行）。
@@ -124,6 +133,7 @@ export function clientDailyIssueList(
         statusLabel: CLIENT_ISSUE_STATUS_LABELS[i.status],
         hasEstimate: atts.some((a) => a.kind === 'file'),
         estimateSubmitted: Boolean(i.estimateSubmittedOn),
+        estimateLater: i.estimateRequirement === 'after' && i.estimatePending === true,
         photoCount: atts.filter((a) => a.kind === 'photo' && a.clientVisible).length,
       };
     });
@@ -153,7 +163,7 @@ export function clientIssueTable(rows: readonly ClientIssueRow[], opts: { showEs
     rows: rows.map((r): Cell[] => [
       r.number,
       r.kindLabel,
-      r.body,
+      r.estimateLater ? `${r.body}\n※${CLIENT_ESTIMATE_LATER_NOTE}` : r.body,
       r.statusLabel,
       ...(showEstimate ? [clientEstimateCell(r)] : []),
       r.photoCount > 0 ? `${r.photoCount} 枚` : 'なし',

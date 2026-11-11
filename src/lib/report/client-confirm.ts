@@ -13,10 +13,15 @@ export interface ConfirmCandidateIssue {
 }
 
 /**
- * 確認していただく件の候補：その日報の件（状態は問わない）＋その現場の見積中・対応中の件。やり直しの件は除き、同じ件は 1 つ。
- * 並びは件を書いた日報の日付 → 件番号。
+ * 確認していただく件の候補：その日報の件（状態は問わない）＋その現場の見積中・対応中の件＋その日に完了にした件
+ * （doneOnDate。前の日に書いた後出しの件を今日完了にして、そのままサインをもらうため。2026-11-20）。
+ * やり直しの件は除き、同じ件は 1 つ。並びは件を書いた日報の日付 → 件番号。
  */
-export function clientConfirmCandidates<T extends ConfirmCandidateIssue>(reportIssues: readonly T[], openIssues: readonly T[]): T[] {
+export function clientConfirmCandidates<T extends ConfirmCandidateIssue>(
+  reportIssues: readonly T[],
+  openIssues: readonly T[],
+  doneOnDate: readonly T[] = [],
+): T[] {
   const seen = new Set<string>();
   const out: T[] = [];
   const add = (i: T) => {
@@ -26,6 +31,7 @@ export function clientConfirmCandidates<T extends ConfirmCandidateIssue>(reportI
   };
   reportIssues.forEach(add);
   openIssues.filter((i) => i.status === 'estimating' || i.status === 'open').forEach(add);
+  doneOnDate.forEach(add);
   return out.sort((a, b) => a.reportDate.localeCompare(b.reportDate) || a.number - b.number);
 }
 
@@ -42,6 +48,38 @@ export function initialSelection(candidates: readonly { id: string }[], focusIss
 export function clientConfirmHref(siteId: string, date: string, issueId?: string): string {
   const base = `/sites/${encodeURIComponent(siteId)}/reports/${encodeURIComponent(date)}/client`;
   return issueId ? `${base}?issue=${encodeURIComponent(issueId)}` : base;
+}
+
+/** 後出しの件を完了にするとき、サインをもらいに行けない理由（「あとで」だけを出す。2026-11-20）。 */
+export const SIGN_LATER_REASONS = {
+  /** 現場の画面など、日報が決まらない画面。 */
+  noReport: 'その日の日報の画面からサインをもらえます',
+  unsaved: '日報を保存するとサインをもらえます',
+  signed: 'この日報にはもうサインがあります',
+  confirmed: 'この件はもうお客様の確認（サイン）をもらっています',
+  /** ほかの日の件を、今日でない日報の画面で完了にしたとき（完了の日が今日になり、その日の確認画面の候補に入らない）。 */
+  otherDay: '今日の日報の画面からサインをもらえます',
+} as const;
+
+/**
+ * 後出しの件を完了にするとき、サインをもらいに行く先（href）か、行けない理由（reason）。
+ * href：その日報の確認画面（null は日報が決まらない画面・承認画面）。onThisReport：その日報の件か。
+ * ほかの日の件は、確認画面の候補（その日に完了にした件）に入る今日の日報のときだけ行ける。
+ */
+export function signTargetFor(p: {
+  href: string | null;
+  reportSaved: boolean;
+  reportSigned: boolean;
+  issueConfirmed: boolean;
+  onThisReport: boolean;
+  reportIsToday: boolean;
+}): { href: string; reason: null } | { href: null; reason: string } {
+  if (p.href === null) return { href: null, reason: SIGN_LATER_REASONS.noReport };
+  if (!p.reportSaved) return { href: null, reason: SIGN_LATER_REASONS.unsaved };
+  if (p.reportSigned) return { href: null, reason: SIGN_LATER_REASONS.signed };
+  if (p.issueConfirmed) return { href: null, reason: SIGN_LATER_REASONS.confirmed };
+  if (!p.onThisReport && !p.reportIsToday) return { href: null, reason: SIGN_LATER_REASONS.otherDay };
+  return { href: p.href, reason: null };
 }
 
 /** 件の印の文言：「お客様の確認：未」か「お客様の確認：確認済み MM/DD」（取り消されていない確認のうち最新の日付）。 */

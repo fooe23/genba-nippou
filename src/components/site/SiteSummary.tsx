@@ -8,6 +8,7 @@ import { sortIssuesByStatus } from '@/lib/report/issue-status';
 import { EstimatePendingBadge } from '@/components/report/EstimatePendingBadge';
 import { IssueEstimateSubmitted } from '@/components/report/IssueEstimateSubmitted';
 import { IssueStatusChip } from '@/components/report/IssueStatusChip';
+import { SIGN_LATER_REASONS } from '@/lib/report/client-confirm';
 
 function Item({ label, children }: { label: string; children: React.ReactNode }) {
   return (
@@ -128,6 +129,8 @@ export function SiteSummary({
                   status={i.status}
                   readOnly={site.status === 'done'}
                   estimate={{ requirement: i.estimateRequirement, pending: i.estimatePending, isStaff }}
+                  // 現場の画面は日報が決まらないので、後出しの件の完了では「あとで」だけ（その日の日報の画面からサインをもらう）
+                  sign={{ kind: i.kind, href: null, reason: SIGN_LATER_REASONS.noReport }}
                 />
               </li>
             ))}

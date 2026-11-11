@@ -12,6 +12,7 @@ import {
   clientEstimateCell,
   clientDailyTables,
   clientIssueTable,
+  CLIENT_ESTIMATE_LATER_NOTE,
   clientPhotosNote,
   CLIENT_DAILY_ISSUES_TITLE,
   NO_ISSUES_TODAY,
@@ -252,9 +253,9 @@ describe('確認していただく件', () => {
   it('選んだ件だけ、件の日付 → 番号の順。種別・状態はお客様向けの表示名、見積書あり・写真はチェックした写真の数', () => {
     const rows = clientDailyIssueList(list, byIssue, ['c', 'a', 'b', 'r', 'a']);
     expect(rows).toEqual<ClientIssueRow[]>([
-      { number: '10/30-3', kindLabel: '追加指示', body: '棚を 2 台追加', statusLabel: 'お見積り中', hasEstimate: true, estimateSubmitted: false, photoCount: 2 },
-      { number: '11/02-1', kindLabel: '現場の状況による追加（ご相談）', body: '下地の補修', statusLabel: '対応中', hasEstimate: false, estimateSubmitted: false, photoCount: 0 },
-      { number: '11/02-2', kindLabel: '減', body: '照明を 3 台減', statusLabel: '完了', hasEstimate: false, estimateSubmitted: false, photoCount: 1 },
+      { number: '10/30-3', kindLabel: '追加指示', body: '棚を 2 台追加', statusLabel: 'お見積り中', hasEstimate: true, estimateSubmitted: false, estimateLater: false, photoCount: 2 },
+      { number: '11/02-1', kindLabel: '現場の状況による追加（ご相談）', body: '下地の補修', statusLabel: '対応中', hasEstimate: false, estimateSubmitted: false, estimateLater: false, photoCount: 0 },
+      { number: '11/02-2', kindLabel: '減', body: '照明を 3 台減', statusLabel: '完了', hasEstimate: false, estimateSubmitted: false, estimateLater: false, photoCount: 1 },
     ]);
   });
 
@@ -293,6 +294,24 @@ describe('確認していただく件', () => {
     expect(rows.map(clientEstimateCell)).toEqual(['あり', '提出済み', 'なし']);
     expect(text(clientIssueTable(rows, { showEstimate: true })).map((r) => r[4])).toEqual(['あり', '提出済み', 'なし']);
     expect(text(clientIssueTable(rows, { showEstimate: false })).flat().join('\n')).not.toMatch(/提出|見積/);
+  });
+
+  it('後出しの件（2026-11-20・決めたこと 4）：見積書が後出しで見積提出の記録が無い件だけ「お見積りは後日お出しします」。協力会社が作っても出す', () => {
+    const later: ClientListIssue[] = [
+      listIssue({ id: 'a', number: 1, estimateRequirement: 'after', estimatePending: true }),
+      listIssue({ id: 'b', number: 2, estimateRequirement: 'after', estimatePending: false, estimateSubmittedOn: '2026-11-15' }),
+      listIssue({ id: 'c', number: 3, estimateRequirement: 'before', estimatePending: true, status: 'estimating' }),
+      listIssue({ id: 'd', number: 4, estimateRequirement: 'none', estimatePending: false }),
+      listIssue({ id: 'e', number: 5 }),
+    ];
+    const rows = clientDailyIssueList(later, new Map(), ['a', 'b', 'c', 'd', 'e']);
+    expect(rows.map((r) => r.estimateLater)).toEqual([true, false, false, false, false]);
+    expect(CLIENT_ESTIMATE_LATER_NOTE).toBe('お見積りは後日お出しします');
+    for (const showEstimate of [true, false]) {
+      const bodies = text(clientIssueTable(rows, { showEstimate })).map((r) => r[2]);
+      expect(bodies[0]).toBe(`件の本文\n※${CLIENT_ESTIMATE_LATER_NOTE}`);
+      expect(bodies.slice(1)).toEqual(['件の本文', '件の本文', '件の本文', '件の本文']);
+    }
   });
 
   it('件が無ければ行が無い（PDF は「ありません」の 1 行）', () => {

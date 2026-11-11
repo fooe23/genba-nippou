@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { jpDateTime } from '@/lib/calc/format';
 import { MAX_CONFIRM_ISSUES, signatureFormSchema } from '@/lib/report/client-signature';
-import { CLIENT_DAILY_ISSUES_TITLE, NO_ISSUES_TODAY, type ClientIssueRow } from '@/lib/reports/client-daily-sections';
+import { CLIENT_DAILY_ISSUES_TITLE, CLIENT_ESTIMATE_LATER_NOTE, NO_ISSUES_TODAY, type ClientIssueRow } from '@/lib/reports/client-daily-sections';
 import { fieldClass, TextInput } from './inputs';
 import { LongPressButton } from './LongPressButton';
 import { SignaturePad, type SignaturePadHandle } from './SignaturePad';
@@ -57,6 +57,8 @@ function IssueMeta({ issue, showEstimate }: { issue: ClientIssueRow; showEstimat
       {showEstimate && issue.hasEstimate && <span>見積書あり</span>}
       {showEstimate && !issue.hasEstimate && issue.estimateSubmitted && <span>見積書：提出済み</span>}
       <span>写真 {issue.photoCount > 0 ? `${issue.photoCount} 枚` : 'なし'}</span>
+      {/* 後出しの件（見積提出の記録がまだ無い）。お客様向けの一言なので、どのアカウントでも出す（2026-11-20） */}
+      {issue.estimateLater && <span className="basis-full font-bold">※{CLIENT_ESTIMATE_LATER_NOTE}</span>}
     </span>
   );
 }
