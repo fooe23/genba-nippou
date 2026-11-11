@@ -10,6 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-12-issue-estimate-required-design.md`（計画と食い違えば設計書が正）。見本：`.superpowers/brainstorm/24602-1794232833/content/issue-estimate-1.html`。
 
+## 決めたこと（利用者 2026-11-12・問いへの答え。設計書の 7〜12）
+
+1. 見積書の欄を変えられるのは社員・管理者だけ（協力会社は件を作れ、赤い印・止まる理由は見えるが、金額・日付・ファイルは見えない）。
+2. 必須の現場の新しい件は、種別が「やり直し」（`rework`）なら「不要」、ほかは「要（先に出す）」。→ `defaultEstimateRequirement(siteRequired, kind)`（Task 1）、SQL の協力会社の insert も種別を見る（Task 2）、追加の欄・行の件の既定（Task 5）。
+3. 社員が件に見積書のファイルを付けたら「見積提出も記録しますか？」（記録する／今はしない）。記録するは今日の日で `setEstimateSubmitted`。→ 第 1 段階の Task 5（`IssueAttachments`）。列の有無に関係なく出せる（見積提出の列は 11-14 から有る）。
+4. 後出しの件のお客様用の確認画面とその PDF に「お見積りは後日お出しします」。→ 第 2 段階の Task 6。
+5. 完了でサインを勧めるのは後出しの件だけ（今の計画のとおり）。
+6. ホームの現場の一覧と管理者の現場の一覧に赤い字で「見積が未提出の件 N 件」（社員・管理者だけ。0 件は出さない）。→ Task 3（`countEstimatePendingBySite(siteIds)`。列が無ければ空）・Task 5（画面）。
+
+ほかは計画のとおり：オフの現場は「不要」・既存の件は記録があるものだけ「要（先に出す）」・PDF を付けただけでは提出とみなさない・N 日は日報の日付から今日（日本時間）まで。
+
 ## Global Constraints
 
 - 見積書の値：`'before'`＝要（先に出す）・`'after'`＝要（お客様の指示で先に対応・後出し）・`'none'`＝不要。型 `EstimateRequirement`（`src/lib/types.ts`）。表示名は `ESTIMATE_REQUIREMENT_LABELS`。
@@ -41,7 +52,7 @@
 
 **Interfaces（Produces）:**
 - `ESTIMATE_REQUIREMENTS = ['before','after','none'] as const`、`ESTIMATE_REQUIREMENT_LABELS`（`before`：要（先に出す）／`after`：要（お客様の指示で先に対応・後出し）／`none`：不要）、`isEstimateRequirement(v): v is EstimateRequirement`、`estimateRequirementSchema`（zod）。
-- `defaultEstimateRequirement(siteRequired: boolean): EstimateRequirement` → オン `before`、オフ `none`。
+- `defaultEstimateRequirement(siteRequired: boolean, kind?: IssueKind | null): EstimateRequirement` → オンで種別が `rework` 以外は `before`、オンの `rework`・オフは `none`（決めたこと 2）。
 - `isEstimatePending(i: { estimateRequirement; estimateSubmittedOn }): boolean`。
 - `blockedStatusChange(i: { estimateRequirement; estimateSubmittedOn; status }, next: IssueStatus): 'estimate_required_first' | null` → `before`・未提出・next が `open`/`done` で理由、それ以外 null。
 - `blockedRequirementChange(i: { status; estimateSubmittedOn }, next: EstimateRequirement): 'estimate_required_first' | null` → next が `before`・未提出・status が `open`/`done` で理由。
@@ -54,7 +65,7 @@
 - `estimateRequirementErrorMessage(dbMessage: string, op: 'status' | 'requirement' | 'clear', isStaff: boolean): string | null`（`estimate_required_first` を op ごとの文言に）。
 
 - [ ] **Step 1: テスト**：
-  - 既定：オン → before、オフ → none。
+  - 既定：オン → before（種別なし・追加など）、オンのやり直し → none、オフ → none。
   - 止め：before・未提出で 見積中→対応中／見積中→完了／対応中→完了 が止まる、見積中→見積中は止めない。before・提出済み・after・none は止めない。
   - 見積書の変更：対応中・未提出で before に変える → 止める、見積中なら止めない、提出済みなら止めない。
   - 取り消し：before の対応中・完了は止める、before の見積中・after の完了は止めない。
@@ -94,8 +105,8 @@
 --      件のガードと updated_at のトリガーを外して埋める（recalc_2026-11-03_labor.sql と同じやり方）。
 --   3. gn_report_issues_guard の差し替え（update_2026-11-14_estimate_submitted.sql の定義をそのまま写し、次を足す）：
 --      * 見積書の欄（estimate_requirement）を変える（update）のは社員か管理者だけ（not_employee）。
---        insert で協力会社（と profiles の行が無いユーザー）が作るときは、値を見ずに現場の設定から決める
---        （必須の現場＝'before'、それ以外＝'none'）。社員・管理者が作るときは渡した値のまま。
+--        insert で協力会社（と profiles の行が無いユーザー）が作るときは、値を見ずに現場の設定と種別から決める
+--        （必須の現場で種別がやり直し［rework］以外＝'before'、それ以外＝'none'）。社員・管理者が作るときは渡した値のまま。
 --        状態・精算・見積提出と同じく、件の日報の状態（提出済み・承認済み）に関係なくいつでも変えられる（件の中身の鍵の対象外）。
 --      * 要（先に出す）で見積提出の記録が無い件は、対応中・完了にできない（estimate_required_first）。
 --        insert で対応中を渡されたときは見積中にする（古い版のアプリ・行から作る件のため）。完了を渡されたときは断る。
@@ -195,7 +206,7 @@ begin
     new.estimate_submitted_by := auth.uid();
   end if;
   -- 件の見積書（要［先に出す］・要［後出し］・不要）。2026-11-20（update_2026-11-20_issue_estimate.sql）。
-  -- 協力会社（と profiles の行が無いユーザー）が件を作るときは、渡した値を見ずに現場の設定から決める。変える（update）のは
+  -- 協力会社（と profiles の行が無いユーザー）が件を作るときは、渡した値を見ずに現場の設定と種別（やり直しは不要）から決める。変える（update）のは
   -- 社員か管理者だけ（not_employee）。件の日報の状態に関係なくいつでも変えられる。auth.uid() が無い呼び出しは対象外。
   if auth.uid() is not null then
     v_staff := exists (
@@ -204,7 +215,7 @@ begin
     );
     if tg_op = 'INSERT' and not v_staff then
       select s.estimate_required into v_required from public.gn_sites s where s.id = v_site;
-      new.estimate_requirement := case when coalesce(v_required, false) then 'before' else 'none' end;
+      new.estimate_requirement := case when coalesce(v_required, false) and new.kind is distinct from 'rework' then 'before' else 'none' end;
     elsif tg_op = 'UPDATE' and not v_staff and new.estimate_requirement is distinct from old.estimate_requirement then
       raise exception using message = 'not_employee';
     end if;
@@ -257,7 +268,7 @@ commit;
 - 24-5 before の対応中の件の記録を取り消す → `estimate_required_first`。after に変えてから取り消せる。
 - 24-6 承認済みの日報の after・none の件の状態は社員も協力会社も変えられる（今までどおり）。before・記録ありの件も変えられる。
 - 24-7 対応中・未提出の件を before に変える → `estimate_required_first`。見積中なら変えられる。
-- 24-8 必須オフの現場で協力会社が作る件は 'none'。社員が作るとき渡した 'after' はそのまま。
+- 24-8 必須オフの現場で協力会社が作る件は 'none'。必須の現場で協力会社が作るやり直しの件も 'none'。社員が作るとき渡した 'after' はそのまま。
 - 24-9 制約：'later' を入れると check 違反（`gn_report_issues_estimate_requirement_ck`）。
 - 24-10 協力会社は `gn_sites.estimate_required` を読める（列の SELECT）。`contract_amount` は今までどおり読めない。
 
@@ -269,7 +280,7 @@ commit;
 ### Task 3: 型・読み書き（件・現場）と SQL の前の読み直し
 
 **Files:**
-- Modify: `src/lib/db/reports.ts`（`Issue` に `estimateRequirement: EstimateRequirement` と `estimatePending: boolean`。`ISSUE_COLUMNS` に `estimate_requirement`。`toIssue` で `estimatePending` を決める［提出の日を消す前］。`hideEstimateFromPartner` は提出の日だけ消し、`estimatePending` は残す。`issueEstimateColumnsReady()` を足す［`subcontractColumnsReady` と同じ形、React の `cache` で 1 リクエスト 1 回］。列が無いときは `estimate_requirement` 抜きの列で読み、`estimateRequirement: 'none'`・`estimatePending: false`。完了した要の未提出の件を読む `listEstimatePendingDoneIssues(siteId)`［status 'done'・`estimate_requirement` が before/after・提出の日 null。列が無ければ空］）、`src/lib/db/sites.ts`（`Site.estimateRequired: boolean | null`［null＝SQL の前］。`SITE_COLUMNS` に `estimate_required` を足して読み、`42703` なら抜いて読み直して null）、`src/lib/db/sites-schemas.ts`・`sites-actions.ts`（`estimateRequired` は省略可。省略なら変えない。列が無い［`PGRST204`/`42703`］ときは外して保存し直す。`settings-actions.ts` の率と同じやり方）、`src/lib/report/form-props.ts`（日報の画面に `estimateReady: boolean`・`siteEstimateRequired: boolean`・`today`）
+- Modify: `src/lib/db/reports.ts`（`Issue` に `estimateRequirement: EstimateRequirement` と `estimatePending: boolean`。`ISSUE_COLUMNS` に `estimate_requirement`。`toIssue` で `estimatePending` を決める［提出の日を消す前］。`hideEstimateFromPartner` は提出の日だけ消し、`estimatePending` は残す。`issueEstimateColumnsReady()` を足す［`subcontractColumnsReady` と同じ形、React の `cache` で 1 リクエスト 1 回］。列が無いときは `estimate_requirement` 抜きの列で読み、`estimateRequirement: 'none'`・`estimatePending: false`。完了した要の未提出の件を読む `listEstimatePendingDoneIssues(siteId)`［status 'done'・`estimate_requirement` が before/after・提出の日 null。列が無ければ空］、現場ごとの未提出の件の数 `countEstimatePendingBySite(siteIds)`［決めたこと 6。列が無ければ空］）、`src/lib/db/sites.ts`（`Site.estimateRequired: boolean | null`［null＝SQL の前］。`SITE_COLUMNS` に `estimate_required` を足して読み、`42703` なら抜いて読み直して null）、`src/lib/db/sites-schemas.ts`・`sites-actions.ts`（`estimateRequired` は省略可。省略なら変えない。列が無い［`PGRST204`/`42703`］ときは外して保存し直す。`settings-actions.ts` の率と同じやり方）、`src/lib/report/form-props.ts`（日報の画面に `estimateReady: boolean`・`siteEstimateRequired: boolean`・`today`）
 - Test: `tests/report/issue-row.test.ts`（`toIssue` を純関数として export するか、`issueFromRow` に切り出して：列あり／列なしの行、協力会社の隠しで提出の日が null・`estimatePending` は残る）、`tests/sites/site-row.test.ts`（`estimate_required` の有無）
 
 - [ ] **Step 1: テスト** → **Step 2: 失敗を確認** → **Step 3: 実装** → **Step 4:** test・tsc・lint
@@ -302,7 +313,8 @@ commit;
   - `src/components/report/tables/LineIssueCreator.tsx`（社員・管理者に見積書の選択。既定は現場の設定。行の件は工事が済んでいることが多いので、before のとき「先に工事をした件なら『後出し』にしてください」と 1 行）
   - `src/components/report/IssueBanner.tsx`（赤い印・見積書の欄。見積中・対応中の件に加えて、`listEstimatePendingDoneIssues` の完了した後出しの件も「見積書が未提出の完了した件」として出す。そこには「見積提出を記録」を出す）
   - `src/components/report/IssueEstimateSubmitted.tsx`（取り消しを `blockedEstimateClear` で押せなくし、理由を出す。完了した要の件でも「見積提出を記録」）
-  - `src/components/attachments/IssueAttachments.tsx`（`estimateBadges` に `pendingBadge` を渡す）
+  - `src/components/attachments/IssueAttachments.tsx`（`estimateBadges` に `pendingBadge` を渡す。社員が見積書のファイルを付けて、まだ見積提出の記録が無ければ「見積提出も記録しますか？」［記録する／今はしない。44px］。記録するは今日の日で `setEstimateSubmitted`［決めたこと 3］）
+  - `src/app/(app)/page.tsx`（ホーム）・`src/app/(app)/admin/sites/page.tsx`（管理者の現場の一覧）：社員・管理者に赤い字「見積が未提出の件 N 件」（`countEstimatePendingBySite`。0 件・協力会社は出さない［決めたこと 6］）
   - `src/components/site/SiteSummary.tsx`・`src/app/(app)/sites/[siteId]/page.tsx`（件ごとに赤い印。見出しの下に「見積書が未提出の完了した件（N 件）」の小さな一覧）
   - `src/components/changes/ChangesTable.tsx`（件の行に赤い印。完了した件にも）
   - `src/components/report/ClientConfirmView.tsx` は変えない（お客様に赤い印は出さない）。
@@ -326,6 +338,7 @@ commit;
   - `src/components/report/IssueStatusChip.tsx`（props に `signHref: string | null`・`kind`。`shouldOfferSignature` が `offer`／`later_only` のとき、完了を押すと小さな確認（`EditDialog` の流儀）：「この件を完了にします」「見積書：要（お客様の指示で先に対応・後出し）」「お客様に、完了の確認（サイン）をもらいますか？」［サインをもらう］［あとで］。どちらも先に `setIssueStatus(id,'done')`、サインをもらうは成功したら `router.push(signHref)`。`later_only` は［あとで］だけと理由（「日報を保存するとサインをもらえます」／「この日報にはもうサインがあります」）。確認を閉じたら完了にしない）
   - `src/components/report/ReportForm.tsx`（`IssueList`・`IssueBanner` に `signHref = canSign({reportId, signed}) && !p.review ? clientConfirmHref(siteId, date, issueId) : null` を渡す）
   - `src/components/site/SiteSummary.tsx`（現場の画面は日報が決まらないので `signHref` null → `later_only`。理由は「その日の日報の画面からサインをもらえます」）
+  - お客様用の確認画面（`ClientConfirmView.tsx`）とその PDF：見積書が後出しで見積提出の記録が無い件に「お見積りは後日お出しします」（決めたこと 4。お客様には赤い印は出さない）
   - `src/lib/report/client-confirm.ts`（`clientConfirmCandidates(reportIssues, openIssues, doneOnDate: readonly T[] = [])`：その日に完了にした件も候補に。やり直しは今までどおり除く）
   - `src/lib/db/reports.ts`（`listIssuesDoneOn(siteId, date)`：status 'done'・`done_at = date`）、`src/app/(client)/sites/[siteId]/reports/[date]/client/page.tsx`（候補に渡す）
 - Test: `tests/report/client-confirm.test.ts`（その日に完了にした前の日の件が候補に入る・印が付く［`initialSelection` の focus］・重複しない・やり直しは入らない）、Task 1 の `shouldOfferSignature`
