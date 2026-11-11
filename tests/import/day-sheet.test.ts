@@ -25,46 +25,6 @@ function gridWith(cells: Record<string, unknown>): unknown[][] {
   return grid;
 }
 
-const camel = (s: string) => s.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase());
-
-describe('DAY_LAYOUT は Python の layout.py と同じ位置', () => {
-  const py = readFileSync(path.join(ROOT, 'python', 'genba_export', 'layout.py'), 'utf8');
-
-  it('単独セル（DAY_CELLS）', () => {
-    const block = /DAY_CELLS = \{([\s\S]*?)\n\}/.exec(py)?.[1] ?? '';
-    const pyCells = Object.fromEntries([...block.matchAll(/"(\w+)":\s*"([A-Z]+\d+)"/g)].map((m) => [camel(m[1]), m[2]]));
-    expect(Object.keys(pyCells).length).toBeGreaterThan(10);
-    for (const [key, cell] of Object.entries(DAY_LAYOUT.cells)) {
-      expect(cell, key).toBe(pyCells[key]);
-    }
-  });
-
-  it('明細表（DAY_TABLES）の行範囲と列', () => {
-    const block = /DAY_TABLES = \{([\s\S]*?)\n\}/.exec(py)?.[1] ?? '';
-    const re =
-      /"(\w+)": \{\s*"label": "[^"]*", "first_row": (\d+), "last_row": (\d+)[^\n]*\n\s*"columns": \{([^}]*)\},[\s\S]*?"formula_columns": ([^\n]*)\n/g;
-    const pyTables = [...block.matchAll(re)].map((m) => ({
-      key: m[1],
-      firstRow: Number(m[2]),
-      lastRow: Number(m[3]),
-      columns: Object.fromEntries([
-        ...[...m[4].matchAll(/"(\w+)": "([A-Z]+)"/g)].map((c) => [camel(c[1]), c[2]]),
-        ...[...m[5].matchAll(/"(\w+)": \{"column": "([A-Z]+)"/g)].map((c) => [camel(c[1]), c[2]]),
-      ]),
-    }));
-    expect(pyTables.map((t) => t.key)).toEqual(['labor', 'fuel', 'lease', 'cash', 'credit', 'work']);
-    expect(Object.keys(DAY_LAYOUT.tables)).toEqual(pyTables.map((t) => t.key));
-    for (const t of pyTables) {
-      const ts = DAY_LAYOUT.tables[t.key as keyof typeof DAY_LAYOUT.tables];
-      expect({ firstRow: ts.firstRow, lastRow: ts.lastRow, columns: ts.columns }, t.key).toEqual({
-        firstRow: t.firstRow,
-        lastRow: t.lastRow,
-        columns: t.columns,
-      });
-    }
-  });
-});
-
 describe('1 日分の雛形（実ファイル）', () => {
   const wb = XLSX.read(readFileSync(TEMPLATE), { type: 'buffer', sheets: DAY_LAYOUT.sheet });
   const ws = wb.Sheets[DAY_LAYOUT.sheet];

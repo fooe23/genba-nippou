@@ -2,7 +2,7 @@ import { cellNumber } from '@/lib/import/parse-sheet';
 import type { TimeSpec } from '@/lib/types';
 
 // 1 日分の雛形（templates/現場管理日報_1日追加用_雛形.xlsm）の「1回目」シートを読む（純関数）。
-// 位置は Python の python/genba_export/layout.py（DAY_CELLS・DAY_TABLES）と同じ値。テストで突き合わせる。
+// 位置は DAY_LAYOUT が唯一の正（雛形の実ファイルで確かめる。tests/import/day-sheet.test.ts）。
 // 読むのは入力セルだけ（J 列の日当・F 列のリース単価は VLOOKUP の計算済みの値を参考に読む）。署名欄は読まない。
 
 export const DAY_LAYOUT = {

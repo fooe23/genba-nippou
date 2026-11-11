@@ -1,30 +1,19 @@
 import { describe, it, expect } from 'vitest';
-import { contentDisposition, overflowNotice, parseExportQuery } from '@/lib/export/query';
-import type { ExportWarning } from '@/lib/export/types';
+import { fileNameStem } from '@/lib/export/file-name';
+import { contentDisposition, MONTH_RE } from '@/lib/export/query';
 
-const SITE = '0b6c2f9e-1a2b-4c3d-8e9f-0123456789ab';
-
-describe('parseExportQuery', () => {
-  it('現場（uuid）と年月（YYYY-MM）を返す', () => {
-    expect(parseExportQuery(`http://localhost/api/export?site=${SITE}&month=2026-11`)).toEqual({ siteId: SITE, month: '2026-11' });
-    expect(parseExportQuery(new URL(`http://localhost/api/export?month=2026-01&site=${SITE.toUpperCase()}`))).toEqual({
-      siteId: SITE.toUpperCase(),
-      month: '2026-01',
-    });
+describe('MONTH_RE', () => {
+  it('YYYY-MM だけ', () => {
+    expect(MONTH_RE.test('2026-11')).toBe(true);
+    for (const m of ['', '2026-13', '2026-00', '2026-1', '202611', '2026-11-01', '2026/11']) expect(MONTH_RE.test(m)).toBe(false);
   });
+});
 
-  it('現場が無い・uuid でなければエラー', () => {
-    expect(parseExportQuery('http://localhost/api/export?month=2026-11')).toEqual({ error: '現場の指定が正しくありません' });
-    expect(parseExportQuery('http://localhost/api/export?site=abc&month=2026-11')).toEqual({ error: '現場の指定が正しくありません' });
-  });
-
-  it('年月が無い・形式が違えばエラー', () => {
-    for (const month of ['', '2026-13', '2026-00', '2026-1', '202611', '2026-11-01', '2026/11']) {
-      expect(parseExportQuery(`http://localhost/api/export?site=${SITE}&month=${encodeURIComponent(month)}`)).toEqual({
-        error: '年月の指定が正しくありません',
-      });
-    }
-    expect(parseExportQuery(`http://localhost/api/export?site=${SITE}`)).toEqual({ error: '年月の指定が正しくありません' });
+describe('fileNameStem', () => {
+  it('禁止文字と制御文字は _、前後の空白は除き、空なら「現場」', () => {
+    expect(fileNameStem(' A/B:C*D?"E<F>G|H\\I ')).toBe('A_B_C_D__E_F_G_H_I');
+    expect(fileNameStem('   ')).toBe('現場');
+    expect(fileNameStem('〇〇様邸')).toBe('〇〇様邸');
   });
 });
 
@@ -49,32 +38,5 @@ describe('contentDisposition', () => {
     );
     expect(contentDisposition('現場.pdf', { inline: false })).toBe(`attachment; filename="export.pdf"; filename*=UTF-8''%E7%8F%BE%E5%A0%B4.pdf`);
     expect(contentDisposition('現場.pdf', {})).toMatch(/^attachment; /);
-  });
-});
-
-describe('overflowNotice', () => {
-  it('超過が無ければ null（名前の警告は止めない）', () => {
-    const warnings: ExportWarning[] = [
-      { code: 'name_not_in_master', message: '作業員『山田』がマスターにありません', date: '2026-11-03' },
-      { code: 'duplicate_name', message: '作業員名『山田』が 2 件あります' },
-    ];
-    expect(overflowNotice([])).toBeNull();
-    expect(overflowNotice(warnings)).toBeNull();
-  });
-
-  it('行の超過は「{日付} の {表} が {n} 行」で知らせる', () => {
-    const warnings: ExportWarning[] = [
-      { code: 'duplicate_name', message: '作業員名『山田』が 2 件あります' },
-      { code: 'rows_overflow', message: '2026年11月3日 の作業員が12行で、雛形の10行を超えています', date: '2026-11-03' },
-      { code: 'rows_overflow', message: '2026年11月4日 のリースが7行で、雛形の6行を超えています', date: '2026-11-04' },
-    ];
-    expect(overflowNotice(warnings)).toBe('この月は原本 Excel では出せません（2026年11月3日 の 作業員 が 12 行）。PDF／CSV をご利用ください');
-  });
-
-  it('件数の超過（too_many_*）はその文をそのまま入れる', () => {
-    const warnings: ExportWarning[] = [{ code: 'too_many_workers', message: '作業員が 31 人います。雛形に書けるのは 30 人までです' }];
-    expect(overflowNotice(warnings)).toBe(
-      'この月は原本 Excel では出せません（作業員が 31 人います。雛形に書けるのは 30 人までです）。PDF／CSV をご利用ください',
-    );
   });
 });

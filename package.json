@@ -12,8 +12,7 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "check:sql": "node scripts/check-sql.mjs",
-    "test:py": "python3 -m unittest discover -s python/tests -t ."
+    "check:sql": "node scripts/check-sql.mjs"
   },
   "dependencies": {
     "@react-pdf/renderer": "^4.9.0",

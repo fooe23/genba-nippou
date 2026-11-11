@@ -18,7 +18,7 @@ export const UNFINISHED_ISSUE_STATUSES = ['estimating', 'open'] as const satisfi
 export const CHANGE_KIND_LABELS: Record<ChangeKind, string> = { contract: '契約内', extra: '追加', increase: '増', change: '変更', minus: '減' };
 /**
  * 作業内容の施工内容に区分を付ける：追加・増・変更・減は頭に【追加】【増】【変更】【減】、契約内はそのまま。
- * 日報の帳票（PDF・CSV）と原本 Excel の payload で共通に使う。
+ * 日報の帳票（PDF・CSV）で使う。
  */
 export function withChangeKindPrefix(changeKind: ChangeKind, description: string): string {
   return changeKind === 'contract' ? description : `【${CHANGE_KIND_LABELS[changeKind]}】${description}`;

@@ -481,3 +481,25 @@
   - 現場全体の実績の「買掛（仕入）」に外注が入っていない。
   - 集計 Excel ② と予算と実績の PDF に請負の行。実行予算・受注の内訳の Excel を書き出すとシート「受注の内訳」、前に書き出した「元請けの内訳」のファイルも取り込める。
   - 日報（社員）：外注の行でタイル・東北建興を選ぶと請負の進みの文、「今回の出来高」に % を入れると支払金額が入る。協力会社のアカウントでは外注の行も文も出ない。
+
+## 現場管理台帳の書き出しの作り直し 実装記録 2026-11-12
+
+計画：`docs/superpowers/plans/2026-11-11-ledger-export.md`（設計 `docs/superpowers/specs/2026-11-11-ledger-export-design.md`）。SQL なし。利用者は既定をすべて採用（① は PDF と同じ［買掛費 1 行・④-2 に外注支払い］、期間は工期全体か月、Storage への控えの保存はやめる［過去の控えは残る］、マスターの取り込みは以前の台帳ファイルから）。
+
+- 168b273 feat(reports): 工事原価集計表の表に合計が足し算の列の印を付ける（`sumColumns`）
+- 1dd950d feat(reports): 現場管理台帳の出面一覧（`buildLedgerAttendance`）
+- 16b8ffd feat(reports): 現場管理台帳の Excel（`buildLedgerXlsx`。「現場原価集計」「出面一覧」）
+- acc71e7 feat(export): `/api/export?site=&period=` を新しい台帳に置き換え、出力画面を「現場管理台帳（Excel）」の欄に
+- refactor(export): Python の書き出し（`api/`・`vercel.json`・`requirements.txt`・`python/`・`fill-client`・`payload`・`types`）を消す、ガイドと README
+
+### 実装の判断
+- 「現場原価集計」の合計の行は、`sumColumns` の列だけ `{ formula: 'SUM(..)', result }`（結果はアプリの合計）。構成比・進捗率・累計原価・歩掛・平均は値のまま。データの行が 0 の表は値だけ。
+- 出面一覧の日のセルの書式は `0.0#`（0.25 人工も見える）、名前なしは `0.0#"（3名）"`。人工は足すたびに小数 2 桁に丸める（`attendance()` と同じ）。並びは 自社 → 協力会社（会社名順）→ 所属なし、その中は名前順 → 区分（常用 → 請負）。
+- 見出しの並べ方は縦（① と ② を横に並べない）。表の題の帯は結合せず、表の幅のセルを水色に塗り、補足は B 列に小さく。署名欄は工事原価集計表の Excel と同じ。
+- exceljs は読み直すと result が 0 の式の値を落とす（書いたファイルには `<v>0</v>` が入っている）。テストは 0 として扱う。
+- A3 は exceljs の `PaperSize` に名前が無いので `8 as ExcelJS.PaperSize`。
+- `src/proxy.ts` の matcher から `api/export/fill` の除外を外した（関数が無くなったため）。`.env.example` から `GN_EXPORT_*` を消した。
+
+### 利用者の操作待ち
+- 本番で 1 現場を書き出し、「現場原価集計」の数字を同じ期間の工事原価集計表（PDF）と見比べる。出面一覧の名前なし・請負の行、土日の色、A4 横／A3 横の印刷。
+- デプロイ後、Vercel の環境変数 `GN_EXPORT_SECRET`・`GN_EXPORT_FILL_URL` は消してよい。

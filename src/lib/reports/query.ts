@@ -1,5 +1,5 @@
 import { dateSchema } from '@/lib/db/masters-schemas';
-import { fileNameStem } from '@/lib/export/payload';
+import { fileNameStem } from '@/lib/export/file-name';
 import { MONTH_RE } from '@/lib/export/query';
 import type { CostReportPeriod } from '@/lib/reports/types';
 import { isUuid } from '@/lib/uuid';
@@ -38,7 +38,7 @@ export function parseCostQuery(
 
 /**
  * `現場名_工事原価集計表_YYYYMMDD.拡張子`（工期全体。日付は出力日）、月は `現場名_工事原価集計表_YYYY年MM月.拡張子`。
- * 現場名の禁止文字は原本 Excel と同じ規則（fileNameStem）。
+ * 現場名の禁止文字は fileNameStem の規則。
  */
 export function costReportFileName(siteName: string, period: CostReportPeriod, outputDate: string, ext: CostFormat): string {
   return periodFileName(siteName, '工事原価集計表', period, outputDate, ext);

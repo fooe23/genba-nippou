@@ -64,7 +64,7 @@ describe('costReportFileName', () => {
     expect(costReportFileName('〇〇邸', { kind: 'month', month: '2026-01' }, '2026-11-03', 'xlsx')).toBe('〇〇邸_工事原価集計表_2026年01月.xlsx');
   });
 
-  it('禁止文字は _、空なら「現場」（原本 Excel と同じ規則）', () => {
+  it('禁止文字は _、空なら「現場」（fileNameStem の規則）', () => {
     expect(costReportFileName(' A/B:C*? ', { kind: 'all' }, '2026-11-03', 'csv')).toBe('A_B_C___工事原価集計表_20261103.csv');
     expect(costReportFileName('  ', { kind: 'all' }, '2026-11-03', 'csv')).toBe('現場_工事原価集計表_20261103.csv');
   });
@@ -157,7 +157,7 @@ describe('dailyReportFileName', () => {
     expect(dailyReportFileName('〇〇邸', { kind: 'month', month: '2026-01' }, 'csv')).toBe('〇〇邸_日報_2026年01月.csv');
   });
 
-  it('禁止文字は _、空なら「現場」（原本 Excel と同じ規則）', () => {
+  it('禁止文字は _、空なら「現場」（fileNameStem の規則）', () => {
     expect(dailyReportFileName(' A/B:C*? ', { kind: 'date', date: '2026-11-02' }, 'pdf')).toBe('A_B_C___日報_2026-11-02.pdf');
     expect(dailyReportFileName('  ', { kind: 'month', month: '2026-11' }, 'csv')).toBe('現場_日報_2026年11月.csv');
   });

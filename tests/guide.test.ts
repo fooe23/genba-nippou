@@ -125,7 +125,17 @@ describe('ガイド', () => {
     expect(html).toContain('品目名の欄が出て、単価の欄');
     expect(html).toContain('燃費（km/L）の欄');
     expect(html).toContain('（手入力）');
-    expect(html).toContain('J 列');
+    expect(html).toContain('現場管理台帳（Excel）');
+  });
+
+  it('Excel 出力の章が、新しい現場管理台帳（2 シート・式の合計・例）に触れ、原本の xlsm の書き出しは書かない', async () => {
+    const html = await loadChapter('excel');
+    expect(html).toContain('現場原価集計');
+    expect(html).toContain('出面一覧');
+    expect(html).toContain('SUM');
+    expect(html).toContain('¥215,000');
+    expect(html).toContain('現場名_現場管理台帳_2026年11月.xlsx');
+    expect(html).not.toContain('原本 Excel（.xlsm）をダウンロード');
   });
 
   it('入力の章が区分の「増」と「追加」の違いに触れている', async () => {

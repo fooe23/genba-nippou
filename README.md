@@ -17,7 +17,7 @@
 
 **第2計画（改）で追加**
 
-- 出力画面（現場 → 出力）と原本 Excel（V34 雛形の .xlsm）のダウンロード
+- 出力画面（現場 → 出力）と現場管理台帳（Excel。2026-11-11 からアプリの計算で作る .xlsx）のダウンロード
 - 工事原価集計表（PDF・Excel・CSV）と日報（PDF・CSV）の出力
 - 作業員・買掛の仕入先の「（手入力）」、1 日分の雛形（Excel）からの日報の取り込み
 - 追加・増・変更・減の記録（作業内容の区分・指示者・根拠の件、件の種別、現場の契約状態［確定・未確定］と概算金額、経費率・利益率）、変更増減 精算資料（客先用「精算のご提案（案）」と社内確認用。PDF・Excel）、お客様用の日報 PDF（金額なし）、日報の客先確認の記録と日報 PDF の客先確認欄
@@ -47,7 +47,7 @@
 | スタイル | Tailwind CSS 4（スマホ優先） |
 | 認証・DB・ファイル | Supabase（Auth、PostgreSQL＋RLS、Storage） |
 | 公開 | Vercel（GitHub への push で自動デプロイ） |
-| Excel出力 | Vercel の Python 関数 `api/export/fill.py`（openpyxl。`python/genba_export` を使う）。ローカルは `python3 python/run_fill.py` |
+| Excel出力 | exceljs（Node の Route Handler。現場管理台帳・工事原価集計表など） |
 | 積算PDF読み取り | 第3計画で追加。現時点では存在しない |
 
 ## ディレクトリ構成
@@ -57,13 +57,11 @@ src/app/            画面（(auth)=ログイン、(app)=ホーム・sites・app
 src/components/     画面部品（report, site, sites, approval, summary, masters）
 src/lib/            calc=計算, db=Supabase 読み書き, report=日報フォーム, supabase=クライアント
 src/content/        アプリ内ガイドの本文
-src/proxy.ts        ログイン状態の確認（未ログインは /login へ。api/export/fill は対象外）
-api/export/fill.py  Vercel の Python 関数（原本 Excel を作る。vercel.json で雛形と python/ を同梱）
-python/             Excel 出力の本体（genba_export）、ローカル用の run_fill.py、unittest
+src/proxy.ts        ログイン状態の確認（未ログインは /login へ）
 supabase/           schema_genba.sql（スキーマ）、add_profile_account_type.sql（profiles の区分列）、fix_profiles_guard.sql（既存 profiles の保護）、update_2026-10-31_employee_access.sql（社員は全現場に入力可の権限関数）、update_2026-11-02_site_archive.sql（現場の削除・削除ログ・完了現場の書き込み禁止）、update_2026-11-02b_lines_guard_fix.sql（その修正）、update_2026-11-03_labor_rule.sql（人工・残業ルール［V34］・労務の設定・作業員の残業単価・現場の共通時間の既定）、update_2026-11-03c_master_import.sql（マスターの更新者の記録・Excel／CSV 取り込みの RPC・取り込み履歴）、update_2026-11-03d_profile_names.sql（帳票・Excel の作成者・確認者・承認者の氏名を返す関数 gn_profile_names）、update_2026-11-04_change_tracking.sql（追加・変更・減の記録・契約状態・経費率・客先確認の列）、update_2026-11-04b_minus_amount.sql（減の行の金額を負で保存・保存済みの減の再計算）、update_2026-11-04c_client_confirmation.sql（承認済み・完了現場でも客先確認だけは記録できるガードの例外）、update_2026-11-04d_increase_kind.sql（作業内容の区分と件の種別に「増」を足す check 制約の付け直し）、update_2026-11-05_issue_settlement.sql（件ごとの精算の方法・確定額・常用単価・確定日と、現場の常用単価の既定の列）、update_2026-11-05b_issue_settlement_guard.sql（件の精算の項目を協力会社が直接入れたり変えたりできないようにする件のガードの差し替え）、update_2026-11-06_estimate_method.sql（件の精算の方法に「見積」を足す）、update_2026-11-07_worker_affiliation.sql（作業員の所属・常用と請負・現場の協力会社・会社の印［取引先／協力会社］）、update_2026-11-07b_site_partner_worker.sql（現場から協力会社の作業員を新しく登録する関数）、update_2026-11-08_issue_estimating_fix_request.sql（件の状態「見積中」・確認者と承認者の承認解除・修正申請）、update_2026-11-09_attachments.sql（日報・件の添付の台帳 gn_attachments・ガード・RLS、gn-estimates を社員・管理者だけに）、update_2026-11-10_client_signature.sql（お客様のサインの列・保存と取り消しの関数・ガード、サインの画像とサインした時点の PDF を消させない Storage のポリシー）、update_2026-11-11_site_judgment.sql（件の種別に「現場判断（要協議）」、指示方法に「指示なし（現場判断）」を足す check 制約の付け直し・件を提出前と差戻し後に直せる・消せるようにする件のガードの差し替えと削除のガード・削除のポリシー）、update_2026-11-12_issue_report_fixed.sql（件の日報［report_id］を利用者が付け替えられないようにする件のガードの差し替え）、update_2026-11-13_issue_client_confirmations.sql（件ごとのお客様確認の表 gn_issue_client_confirmations・サインの保存に確認していただく件を足す・取り消しで件の確認も取り消し・お客様の確認を受けた件とその件のある日報の削除の禁止・サインの件の一覧の表 gn_report_signature_issue_sets）、update_2026-11-14_estimate_submitted.sql（件の見積提出の記録の列［提出日・記録した人］と、社員・管理者だけが記録できる件のガードの差し替え）、update_2026-11-17_subcontract.sql（外注の買掛の区分と工種・行の根拠の件・うち常用の時間・外注の行を協力会社から隠す RLS・請負の会社の一覧）、update_2026-11-15_budget.sql（積算連携の第 1 段階：現場の工種・受注の内訳・実行予算・読み替え表・進み具合の上書きの表と RLS、日報の作業内容の行の工種の列、まとめて書く関数、全社の設定の「予算の標準日当」）、recalc_2026-11-07_line_affiliation.sql（過去の作業員の行の所属をいまのマスターで写し直す。任意・1 回）、verify_rls.md（権限の確認手順）、verify_rls_auto.sql（手順をまとめた自動検証。実行後は全件取り消される）
 tests/              Vitest
 scripts/            check-sql.mjs（SQL の構文検査）
-templates/          Excel 雛形（第2計画で使用）
+templates/          Excel 雛形（1 日分の日報の取り込み・マスターの取り込みのテストで読む）
 docs/superpowers/   設計書・実装計画
 ```
 
@@ -84,15 +82,12 @@ NEXT_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 ```
 
-原本 Excel の出力（現場 → 「出力」）は、ローカルでは `python3 python/run_fill.py` を起動して作る。Python 3.9 以上と openpyxl が要る（`python3 -m pip install -r requirements.txt`）。`GN_EXPORT_SECRET` はローカルでは空でよい。
-
 `SUPABASE_SERVICE_ROLE_KEY` は第1計画では使わない。`.env*` は git に入らない（`.env.example` のみ追跡）。
 
 | コマンド | 内容 |
 |---|---|
 | `npm test` | Vitest（単体テスト） |
 | `npm run lint` | ESLint |
-| `npm run test:py` | Python の unittest（Excel 出力と `api/export/fill.py`。python3 と openpyxl が要る） |
 | `npm run build` | 本番ビルド（型検査を含む） |
 | `npm run check:sql` | `supabase/*.sql`（`schema_genba.sql`・`add_profile_account_type.sql`・`fix_profiles_guard.sql`・`update_2026-10-31_employee_access.sql`・`update_2026-11-02_site_archive.sql`・`update_2026-11-03_labor_rule.sql` など `supabase/` の全 SQL）の構文検査（DB には接続しない） |
 
@@ -155,37 +150,25 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`（`sb_publishable_…`）
    - Settings → Git の Production Branch は `main`（既定のまま）。以後は `main` への push で自動デプロイされる。
    - 本番URL：`https://genba-nippou-ten.vercel.app`（2026-11-01 公開）。
-   - 原本 Excel の出力を使うなら、次章「Excel 出力（Vercel の Python 関数）」の環境変数も設定する。
+   - 以前の原本 Excel（Python 関数）の環境変数 `GN_EXPORT_SECRET`・`GN_EXPORT_FILL_URL` は 2026-11-11 から使わない。設定してあれば消してよい。
 4. Supabase の Authentication → URL Configuration で、Site URL に本番URL（`https://genba-nippou-ten.vercel.app`）を設定し、Redirect URLs に `https://genba-nippou-ten.vercel.app/**` を追加する。プレビュー環境も使うなら `https://*-<team>.vercel.app/**` も追加する。
-
-## Excel 出力（Vercel の Python 関数）
-
-現場 → 「出力」で月を選ぶと、`/api/export?site=<現場ID>&month=YYYY-MM`（Next の Route Handler）が日報を読み、V34 雛形（`templates/現場管理台帳_V34_原本.xlsm`）に書いた xlsm を返す。雛形への書き込みは Python（openpyxl）で行う。
-
-- **Python 関数**：`api/export/fill.py`（POST のみ）。`vercel.json` で最大 60 秒、雛形と `python/**` を同梱する。openpyxl はリポジトリ直下の `requirements.txt` から入る。Next の Route Handler は Vercel 上では `https://$VERCEL_PROJECT_PRODUCTION_URL/api/export/fill` に `X-Export-Secret` を付けて POST する（プレビュー環境からも本番の関数を呼ぶ）。
-- **Vercel の環境変数**（Settings → Environment Variables）：
-  - `GN_EXPORT_SECRET`（必須）：長いランダムな文字列（例：`openssl rand -hex 32`）。Route Handler と Python 関数の両方が読む。未設定だと出力は「設定がありません」で失敗し、Python 関数は 403 を返す。プレビュー環境（Preview デプロイ）で原本 Excel を出すなら、Preview の環境にも同じ値を設定する（プレビューからも本番の関数を呼ぶため）。
-  - `GN_EXPORT_FILL_URL`（任意）：Python 関数の送り先を変えるとき（別のデプロイの関数を使うなど）。通常は設定しない。
-  - `.env.example` にも同じ名前がある。ローカルでは両方とも空でよい。
-- **Storage**：作った xlsm は `gn-exports/<site_id>/<YYYY-MM>/daicho_v34_<YYYY-MM>.xlsm` にも上書き保存する（Storage のキーは ASCII だけなので、ダウンロード時の日本語のファイル名とは別）。バケット `gn-exports`（非公開）とポリシーは `schema_genba.sql` で作られる。バケットが無い・保存に失敗したときはサーバーのログに残してダウンロードは続ける（ほかの人が先に保存した同じ月は、管理者以外は上書きできず保存だけ失敗する）。
-- **出せないとき**：日報の明細が雛形の行数を超える日がある月、マスターが雛形の件数を超える月は、ボタンを押せず「この月は原本 Excel では出せません（…）。PDF／CSV をご利用ください」と出る（`/api/export` も 400）。協力会社のアカウントは出力できない（画面に出さず、`/api/export` は 403）。
-- **ローカル**：`VERCEL` も `GN_EXPORT_FILL_URL` も無いときは `python3 python/run_fill.py` を起動する（stdin に `{"template", "payload"}` の JSON、stdout に xlsm）。単体で試すなら `python3 python/run_fill.py < 入力.json > 出力.xlsm`。
 
 ## 帳票（PDF・CSV）
 
-現場 → 「出力」の「工事原価集計表」「変更増減 精算資料（案）」「日報」が使う。どれも Next の Route Handler（`runtime = 'nodejs'`）で、ログイン中の社員・管理者だけが使える（未ログインはログイン画面へ（307）、協力会社は 403、削除済みの現場は 404。完了現場は出せる）。
+現場 → 「出力」の「現場管理台帳」「工事原価集計表」「変更増減 精算資料（案）」「日報」が使う。どれも Next の Route Handler（`runtime = 'nodejs'`）で、ログイン中の社員・管理者だけが使える（未ログインはログイン画面へ（307）、協力会社は 403、削除済みの現場は 404。完了現場は出せる）。
 
 | 帳票 | ルート | クエリ |
 | --- | --- | --- |
+| 現場管理台帳（.xlsx） | `/api/export` | `site=<現場ID>&period=all\|YYYY-MM`（シートは「現場原価集計」［工事原価集計表と同じ数字。合計は SUM の式］と「出面一覧」［作業員 × 日付］。`src/lib/reports/ledger-xlsx.ts`） |
 | 工事原価集計表 | `/api/reports/cost` | `site=<現場ID>&period=all\|YYYY-MM&format=pdf\|xlsx\|csv` |
 | 変更増減 精算資料 | `/api/reports/changes` | `site=<現場ID>&period=all\|YYYY-MM&format=pdf\|xlsx`（`&audience=client` で客先用「精算のご提案」、省略時は社内確認用） |
 | 日報 | `/api/reports/daily` | `site=<現場ID>&date=YYYY-MM-DD`（1 日）または `month=YYYY-MM`（月まとめ）`&format=pdf\|csv`（`&audience=client` でお客様用の日報。`date` と `format=pdf` のみ） |
 
 - **PDF**：`@react-pdf/renderer`（`src/lib/pdf/`）。A4 縦。日報が無いときは「日報がありません」だけの帳票を返す。
-- **Excel**：`exceljs`（`src/lib/reports/cost-xlsx.ts`、`change-xlsx.ts`）。**CSV**：BOM 付き UTF-8・CRLF（`src/lib/reports/csv.ts`）。文字列が `= + - @` タブ CR で始まるセルには `'` を付けて、Excel の数式として実行されないようにしている。
+- **Excel**：`exceljs`（`src/lib/reports/cost-xlsx.ts`、`change-xlsx.ts`、`ledger-xlsx.ts`）。**CSV**：BOM 付き UTF-8・CRLF（`src/lib/reports/csv.ts`）。文字列が `= + - @` タブ CR で始まるセルには `'` を付けて、Excel の数式として実行されないようにしている。
 - **フォント**：Noto Sans JP（Regular／Bold）を `public/fonts/` に同梱し、実行時にサーバーが読む（CDN は使わない）。**ライセンスは SIL Open Font License 1.1**（`public/fonts/OFL.txt`）。入手元・サイズ・ハッシュは `public/fonts/README.md`。フォントを差し替えるときは同じ名前の 2 ファイルを置き換える。
 - **`next.config.ts` の `outputFileTracingIncludes`**：`"/api/reports/*": ["./public/fonts/**", "./public/logo.png"]`。Vercel の関数にフォントと会社ロゴ（変更増減 精算資料の見出し）のファイルを含めるための設定で、これが無いと本番でフォントやロゴが見つからず PDF が作れない。ビルド後は `.next/server/app/api/reports/*/route.js.nft.json` にフォント（`changes` はロゴも）が入っていることを確認できる。
-- 環境変数は要らない（原本 Excel の `GN_EXPORT_SECRET` とは無関係）。氏名の表示には `supabase/update_2026-11-03d_profile_names.sql` を使う。変更増減 精算資料と客先確認は `update_2026-11-04*.sql`（上記の順）が前提。
+- 環境変数は要らない。氏名の表示には `supabase/update_2026-11-03d_profile_names.sql` を使う。変更増減 精算資料と客先確認は `update_2026-11-04*.sql`（上記の順）が前提。
 
 ## 本番確認チェックリスト
 
@@ -201,7 +184,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 - [ ] 集計（月次・原価・出面）に反映されている
 - [ ] 協力会社のアカウントでは、担当外の現場が見えない
 - [ ] 社員のアカウントでは、ホームの「その他の現場」から担当外の現場にも入力できる（承認はできない）
-- [ ] 現場 → 「出力」から、工事原価集計表（PDF・Excel・CSV）、日報（PDF・CSV。1 日・月）、原本 Excel がダウンロードできる
+- [ ] 現場 → 「出力」から、工事原価集計表（PDF・Excel・CSV）、日報（PDF・CSV。1 日・月）、現場管理台帳（Excel。工期全体・月）がダウンロードできる
 - [ ] 日報画面で、1 日分の雛形（Excel）の取り込みと、作業員・仕入先の「（手入力）」が使える
 - [ ] 作業内容に「追加」「変更」「減」の行を入れて保存でき、「減」は本日出来高から差し引かれる（集計・帳票でも負の金額）
 - [ ] 現場 → 「出力」から、変更増減 精算資料（案）の PDF・Excel（工期全体・月）がダウンロードでき、精算提案額が出る（未確定の現場は概算金額が当初）
@@ -214,7 +197,6 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
 ## 既知の制約
 
 - 未実装：写真の添付（第3〜4計画）。積算連携（受注の内訳・実行予算・予算と実績）は入っており、第 3 段階で PDF・集計 Excel を足す。
-- 原本 Excel は、行数・件数が雛形の上限を超える月は出せない（PDF／CSV を使う）。
 - 帳票の PDF の ③ 月別推移（11 列）は 7.5pt、日報 PDF の作業員表は 8pt と小さい。印刷での読みやすさは実機で確認する。
 - 1現場につき1日1枚の日報。
 - Storage のオブジェクトパスは先頭を `<site_id>/…` にする。RLS が先頭要素の現場IDで権限を判定するため、この規約を外れるとアクセスできない。

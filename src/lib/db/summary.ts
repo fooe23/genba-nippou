@@ -104,17 +104,10 @@ function countedLaborCost(l: LineRow, ctx: LaborCostContext): number {
 
 /**
  * 現場の全期間について、日ごとの区分別合計と作業員別の出面明細を 1 回の取得で作る。
- * labor：'counted'（既定）は労務費の決まりの原価に数える分、'stored' は行の金額（出面の金額）のまま
- * （台帳 Excel の出力。雛形の式で労務費を出すので、請負の人工も入ったままにそろえる）。
+ * 労務費は労務費の決まりの原価に数える分（src/lib/calc/labor-cost.ts）。
  */
-export async function loadSummaryData(
-  siteId: string,
-  opts: { labor?: 'counted' | 'stored' } = {},
-): Promise<{ days: DayTotals[]; entries: LaborEntry[] }> {
-  const [heads, ctx] = await Promise.all([
-    listReportHeads(siteId),
-    opts.labor === 'stored' ? Promise.resolve(null) : loadLaborCostContext(siteId),
-  ]);
+export async function loadSummaryData(siteId: string): Promise<{ days: DayTotals[]; entries: LaborEntry[] }> {
+  const [heads, ctx] = await Promise.all([listReportHeads(siteId), loadLaborCostContext(siteId)]);
   const [lines, sub] = await Promise.all([fetchLines(heads.map((h) => h.id)), loadSubcontractOutputs(heads.map((h) => h.id))]);
 
   const dateById = new Map(heads.map((h) => [h.id, h.reportDate]));
@@ -129,7 +122,7 @@ export async function loadSummaryData(
     const amount = Number(l.amount ?? 0);
     switch (l.kind) {
       case 'labor': {
-        const cost = ctx ? countedLaborCost(l, ctx) : amount;
+        const cost = countedLaborCost(l, ctx);
         t.labor += cost;
         // 名前なし（会社と人数）の行は人数分を人数に数える。
         const headcount = laborHeadcount({ headcount: numOrNull(l.headcount) });

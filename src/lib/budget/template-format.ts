@@ -1,4 +1,4 @@
-import { fileNameStem } from '@/lib/export/payload';
+import { fileNameStem } from '@/lib/export/file-name';
 import { BUDGET_ITEMS, BUDGET_ITEM_LABEL, CONTRACT_SECTIONS, CONTRACT_SECTION_LABEL } from '@/lib/budget/types';
 
 // 実行予算・受注の内訳の Excel 雛形の形（書き出し template-xlsx.ts と取り込み parse-template.ts で共有。純粋）。

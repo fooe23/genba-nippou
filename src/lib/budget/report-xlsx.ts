@@ -15,7 +15,7 @@ import { affiliationLabel } from '@/lib/calc/affiliation';
 import { CHANGE_KIND_LABELS } from '@/lib/report/change-labels';
 import { cell, cellNumber, col, slashDate, type Cell, type NumFmt, type SectionTable } from '@/lib/reports/cost-sections';
 import { neutralizeFormula } from '@/lib/reports/csv';
-import { fileNameStem } from '@/lib/export/payload';
+import { fileNameStem } from '@/lib/export/file-name';
 
 // 予算と実績の集計 Excel（社内用・画面より細かい）。シートの順：
 // ① 予算と実績 ② 工種×施工者 ③ 日々の実績 ④ 月別の推移 ⑤ 出面 ⑥ 受注の内訳と数量 ⑦ 実行予算。

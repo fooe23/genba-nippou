@@ -56,10 +56,8 @@ function redirectWithCookies(request: NextRequest, from: NextResponse, path: str
   return redirect;
 }
 
-// api/export/fill は Vercel の Python 関数（Route Handler から X-Export-Secret 付きで呼ぶ）。
-// ログインの Cookie を持たないので、ここで /login へ送らない。
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|api/export/fill|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)',
   ],
 };
