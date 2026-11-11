@@ -69,13 +69,15 @@ export const SIGN_LATER_REASONS = {
 export function signTargetFor(p: {
   href: string | null;
   reportSaved: boolean;
+  /** 日報の入力に保存していない変更がある（確認画面へ行くと消えるので、保存を先に）。省略は false。 */
+  unsavedChanges?: boolean;
   reportSigned: boolean;
   issueConfirmed: boolean;
   onThisReport: boolean;
   reportIsToday: boolean;
 }): { href: string; reason: null } | { href: null; reason: string } {
   if (p.href === null) return { href: null, reason: SIGN_LATER_REASONS.noReport };
-  if (!p.reportSaved) return { href: null, reason: SIGN_LATER_REASONS.unsaved };
+  if (!p.reportSaved || p.unsavedChanges) return { href: null, reason: SIGN_LATER_REASONS.unsaved };
   if (p.reportSigned) return { href: null, reason: SIGN_LATER_REASONS.signed };
   if (p.issueConfirmed) return { href: null, reason: SIGN_LATER_REASONS.confirmed };
   if (!p.onThisReport && !p.reportIsToday) return { href: null, reason: SIGN_LATER_REASONS.otherDay };

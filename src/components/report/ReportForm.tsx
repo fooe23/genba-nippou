@@ -800,6 +800,8 @@ function ReportFormBody({
     ...signTargetFor({
       href: p.review ? null : clientConfirmHref(p.siteId, p.date, i.id),
       reportSaved: reportId !== null,
+      // 保存していない変更があるまま確認画面へ行くと、その変更が消える
+      unsavedChanges: dirty,
       reportSigned: p.clientSignature.current !== null,
       issueConfirmed: Boolean(p.issueConfirmations[i.id]),
       onThisReport,

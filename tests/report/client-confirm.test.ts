@@ -76,6 +76,8 @@ describe('signTargetFor（後出しの件の完了で、サインをもらいに
   it('サインをもらえないときは理由（あとでだけ）', () => {
     expect(signTargetFor({ ...base, href: null })).toEqual({ href: null, reason: SIGN_LATER_REASONS.noReport });
     expect(signTargetFor({ ...base, reportSaved: false })).toEqual({ href: null, reason: SIGN_LATER_REASONS.unsaved });
+    // 保存していない変更がある（確認画面へ行くと消える）
+    expect(signTargetFor({ ...base, unsavedChanges: true })).toEqual({ href: null, reason: SIGN_LATER_REASONS.unsaved });
     expect(signTargetFor({ ...base, reportSigned: true })).toEqual({ href: null, reason: SIGN_LATER_REASONS.signed });
     expect(signTargetFor({ ...base, issueConfirmed: true })).toEqual({ href: null, reason: SIGN_LATER_REASONS.confirmed });
   });
